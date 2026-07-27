@@ -68,6 +68,16 @@ export default function Login() {
                         {loading ? 'Please wait...' : 'Sign In'}
                     </button>
                 </form>
+
+                {/* AGPL-3.0 §13: users interacting over a network must be offered the source. */}
+                <a
+                    href="https://github.com/saidtunc/bars"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="block mt-6 text-center text-xs text-dark-500 hover:text-dark-300"
+                >
+                    Bars — AGPL-3.0 · Source
+                </a>
             </div>
         </div>
     )

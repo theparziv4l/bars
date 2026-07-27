@@ -73,6 +73,16 @@ export default function Layout() {
                         })}
                 </nav>
 
+                {/* AGPL-3.0 §13: users interacting over a network must be offered the source. */}
+                <a
+                    href="https://github.com/saidtunc/bars"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="block px-4 py-3 text-xs text-dark-500 hover:text-dark-300"
+                >
+                    Bars — AGPL-3.0 · Source
+                </a>
+
                 {/* Connection Status */}
                 <div className="absolute bottom-4 left-4 right-4">
                     <div className={`
