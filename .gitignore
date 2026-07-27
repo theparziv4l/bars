@@ -1,0 +1,57 @@
+# bars runtime state
+.bars/
+.ptfcli/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+
+# Virtual environments
+venv/
+.venv/
+host_agent/venv/
+
+# Node
+node_modules/
+
+# Database (engagement data)
+*.db
+*.db-shm
+*.db-wal
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+.cursor/
+
+# Generated reports & runtime storage (may contain engagement data)
+reports/
+backend/reports/
+storage/
+backend/storage/
+
+# Library transform backups / ad-hoc exports (library_seed.json is the shipped copy)
+*.pre-findings.bak
+full_library_export_*.json
+
+# Scanner state & local dev scratch (may contain engagement data)
+paused.conf
+debug_db.py
+replay_parsing.py
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db

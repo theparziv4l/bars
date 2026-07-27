@@ -1,0 +1,12 @@
+*.db
+*.db-shm
+*.db-wal
+__pycache__/
+*.pyc
+.pytest_cache/
+venv/
+.venv/
+storage/
+reports/
+*.bak
+full_library_export_*.json

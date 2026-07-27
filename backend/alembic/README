@@ -1,0 +1,14 @@
+This directory contains Alembic configuration for managing database schema
+migrations for the Bars backend.
+
+To create a new revision after installing Alembic in your environment:
+
+    alembic -c backend/alembic.ini revision -m "description"
+
+To upgrade the database to the latest revision:
+
+    alembic -c backend/alembic.ini upgrade head
+
+The env.py file is wired to use the application's async SQLAlchemy models via
+the shared engine and Base metadata in app.database.
+
