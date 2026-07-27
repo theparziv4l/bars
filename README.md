@@ -374,7 +374,14 @@ Read this before running Bars anywhere but your own workstation.
 
 ## License
 
-Not yet licensed. Ask before redistributing.
+Copyright (C) 2026 saidtunc.
+
+Bars is free software under the **GNU Affero General Public License v3.0** — see [LICENSE](LICENSE).
+You may use, modify and redistribute it, but if you distribute a modified version, *or run one as a
+network service that others interact with*, you must make your source available to those users
+under the same license.
+
+Commercial licensing without the AGPL obligations is available — open an issue to ask.
 
 ---
 
