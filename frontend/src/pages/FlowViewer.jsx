@@ -251,6 +251,19 @@ export default function FlowViewer() {
 
     useEffect(() => { loadFlow(); loadStatus(); loadHistory(); }, [loadFlow, loadStatus, loadHistory]);
 
+    // The modal can be opened before `flow` has loaded, in which case loadHosts() bailed
+    // out with no retry and the host list stayed empty.
+    useEffect(() => {
+        if (showExecuteModal && flow?.project_id && hosts.length === 0) loadHosts();
+    }, [showExecuteModal, flow?.project_id, hosts.length, loadHosts]);
+
+    // A flow that finishes must leave "running" without a reload.
+    useEffect(() => {
+        const onFlowFinished = () => { loadStatus(selectedExecId); loadHistory(); };
+        window.addEventListener('flow_finished', onFlowFinished);
+        return () => window.removeEventListener('flow_finished', onFlowFinished);
+    }, [loadStatus, loadHistory, selectedExecId]);
+
     useEffect(() => {
         if (!isExecuting) return;
         const interval = setInterval(() => loadStatus(selectedExecId), 2000);
@@ -259,6 +272,9 @@ export default function FlowViewer() {
 
     // ---- Actions ----
     const openExecuteModal = () => {
+        // Clear first: keeping the previous fetch on screen while the new one is in flight
+        // shows a host list that predates whatever discovery has run since.
+        setHosts([]);
         loadHosts();
         setSelectedHostIds([]);
         setManualTargets('');
@@ -505,7 +521,7 @@ export default function FlowViewer() {
                     </div>
 
                     <button
-                        onClick={() => loadStatus(selectedExecId)}
+                        onClick={() => { loadFlow(); loadStatus(selectedExecId); loadHistory(); }}
                         className="p-2 hover:bg-dark-700 rounded-lg text-dark-400 hover:text-dark-200"
                         title="Refresh"
                     >

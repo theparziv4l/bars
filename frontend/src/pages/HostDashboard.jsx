@@ -11,7 +11,6 @@ import {
 import { hostsApi, filesApi, executionsApi, projectsApi } from '../services/api'
 import toast from 'react-hot-toast'
 import OutputViewer from '../components/OutputViewer'
-import { useWebSocket } from '../hooks/useWebSocket'
 import { useExecutionsStore } from '../stores'
 
 export default function HostDashboard() {
@@ -37,8 +36,7 @@ export default function HostDashboard() {
     const [viewerFile, setViewerFile] = useState(null)
     const [viewerLoading, setViewerLoading] = useState(false)
 
-    // Subscribe to WebSocket events for real-time execution updates
-    useWebSocket()
+    // Socket is mounted once by Layout; mounting it again here duplicated every event.
     const executions = useExecutionsStore((s) => s.executions)
     const prevExecutionsRef = useRef(executions)
 
@@ -91,6 +89,22 @@ export default function HostDashboard() {
             }
         }
         loadHost()
+    }, [hostId])
+
+    // Auto-refresh the host record when discovery enriches it (services, tags, os_info,
+    // smb_signing). Without this the Services card and the Script Scan button — which is
+    // disabled while host.services is empty — stay stale until a page reload.
+    useEffect(() => {
+        const onHostChanged = async (e) => {
+            const changed = e.detail
+            if (changed?.id != null && String(changed.id) !== String(hostId)) return
+            try {
+                const { data } = await hostsApi.get(hostId)
+                setHost(data)
+            } catch (_) { /* ignore */ }
+        }
+        window.addEventListener('host_changed', onHostChanged)
+        return () => window.removeEventListener('host_changed', onHostChanged)
     }, [hostId])
 
     // Auto-refresh shares/tree when share discovery completes for this host

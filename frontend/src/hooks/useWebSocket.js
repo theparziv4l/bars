@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback } from 'react'
-import { useAppStore, useExecutionsStore, useChecklistsStore, useProjectsStore, useHostsStore, useAuthStore } from '../stores'
+import { useAppStore, useExecutionsStore, useChecklistsStore, useProjectsStore, useHostsStore, useAuthStore, useFindingsStore } from '../stores'
 
 export function useWebSocket(channel = 'default') {
     const wsRef = useRef(null)
@@ -44,17 +44,44 @@ export function useWebSocket(channel = 'default') {
 
                 if (['completed', 'failed', 'cancelled', 'timeout'].includes(message.data.status)) {
                     removeFromRunning(message.data.execution_id)
+                    // Server-computed summaries (project progress, host tags/filters) move
+                    // when an execution finishes; pages holding them locally listen here.
+                    window.dispatchEvent(new CustomEvent('execution_finished', { detail: message.data }))
                 }
                 break
             }
 
-            case 'host_created': {
+            case 'host_created':
+            case 'host_updated': {
                 // Only refresh if the event is for the project currently on screen —
                 // events broadcast to all clients, and blindly refetching another
                 // project's hosts would swap the visible asset list to the wrong scope.
+                // host_updated matters as much as host_created: it carries the tags and
+                // domain that {targets} resolution and the tag filters are built from.
                 const hostsPid = useHostsStore.getState().currentProjectId
                 if (hostsPid != null && String(message.data.project_id) === String(hostsPid)) {
-                    useHostsStore.getState().fetchHosts(hostsPid, { per_page: 100, page: 1 })
+                    useHostsStore.getState().refetchHosts()
+                }
+                // Pages holding a single host in local state (HostDashboard) listen for this.
+                window.dispatchEvent(new CustomEvent('host_changed', {
+                    detail: { ...(message.data?.data || {}), project_id: message.data.project_id },
+                }))
+                break
+            }
+
+            case 'item_updated': {
+                // An execution was synced into this project's checklist item.
+                const itemsPid = useChecklistsStore.getState().currentProjectId
+                if (itemsPid != null && String(message.data.project_id) === String(itemsPid)) {
+                    useChecklistsStore.getState().fetchGroups(itemsPid).catch(() => {})
+                }
+                break
+            }
+
+            case 'finding_created': {
+                const findingsPid = useFindingsStore.getState().findingsProjectId
+                if (findingsPid != null && String(message.data.project_id) === String(findingsPid)) {
+                    useFindingsStore.getState().refetchFindings().catch(() => {})
                 }
                 break
             }
@@ -74,10 +101,6 @@ export function useWebSocket(channel = 'default') {
                     message: message.data.matched_text,
                     executionId: message.data.execution_id,
                 })
-                break
-
-            case 'progress':
-                // Update progress bar
                 break
 
             case 'item_claimed':
@@ -107,13 +130,15 @@ export function useWebSocket(channel = 'default') {
                 window.dispatchEvent(new CustomEvent('shares_discovered', { detail: message.data?.data || message.data }))
                 break
 
-            case 'flow_started':
             case 'flow_completed':
+            case 'flow_failed':
                 addNotification({
-                    type: message.type === 'flow_completed' ? 'success' : 'info',
-                    title: message.type === 'flow_completed' ? 'Flow Completed' : 'Flow Started',
-                    message: `Flow execution ${message.data.flow_execution_id}`,
+                    type: message.type === 'flow_completed' ? 'success' : 'error',
+                    title: message.type === 'flow_completed' ? 'Flow Completed' : 'Flow Failed',
+                    message: message.data.error || `Flow execution ${message.data.flow_execution_id}`,
                 })
+                // FlowViewer keeps flow status in local state; let it refresh itself.
+                window.dispatchEvent(new CustomEvent('flow_finished', { detail: message.data }))
                 break
 
             case 'heartbeat':

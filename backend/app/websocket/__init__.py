@@ -80,11 +80,11 @@ async def notification_listener(event_type: str, data: dict):
 
     if event_type == "output" and "execution_id" in data:
         await _broadcast_dedup(f"execution:{data['execution_id']}")
-    elif event_type in ("alert", "execution_status", "progress"):
+    elif event_type in ("alert", "execution_status"):
         await _broadcast_dedup("default")
         if "execution_id" in data:
             await _broadcast_dedup(f"execution:{data['execution_id']}")
-    elif event_type in ("flow_started", "flow_completed"):
+    elif event_type in ("flow_completed", "flow_failed"):
         await _broadcast_dedup("default")
     elif event_type in ("item_claimed", "item_released", "item_taken_over"):
         await _broadcast_dedup("default")

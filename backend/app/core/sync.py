@@ -55,6 +55,28 @@ def _event_key(logical_ts: int, source_node_id: str) -> tuple[int, str]:
     return logical_ts, source_node_id
 
 
+def _apply_present(obj, payload: Dict[str, Any], fields: tuple[str, ...]) -> None:
+    """Copy *fields* from *payload* onto *obj*, skipping keys the peer did not send.
+
+    ``payload.get(x) or {}`` cannot tell "peer cleared it" from "peer never sent it"
+    (older schema, partial event), and the second case silently destroys local data —
+    e.g. host tags, which target resolution depends on. Presence is the signal.
+    An explicit null is normalised to the empty container the column already holds,
+    since these JSON columns are ``nullable=False``.
+    """
+    for name in fields:
+        if name not in payload:
+            continue
+        value = payload[name]
+        if value is None:
+            current = getattr(obj, name, None)
+            if isinstance(current, dict):
+                value = {}
+            elif isinstance(current, list):
+                value = []
+        setattr(obj, name, value)
+
+
 class _FKNotReady(Exception):
     """Raised by an applier when a referenced parent row isn't present yet (cross-node
     clock skew). The ingest loop defers such events for retry instead of dropping them."""
@@ -706,9 +728,7 @@ class SyncService:
             project.status = ProjectStatus.PLANNING
 
         project.name = payload.get("name", project.name)
-        project.description = payload.get("description")
-        project.scope = payload.get("scope") or {}
-        project.extra_data = payload.get("extra_data") or {}
+        _apply_present(project, payload, ("description", "scope", "extra_data"))
         if payload.get("created_by_user_public_id"):
             user_result = await db.execute(
                 select(User).where(User.public_id == payload["created_by_user_public_id"])
@@ -846,18 +866,18 @@ class SyncService:
 
         item.group_id = group_id
         item.name = payload.get("name", item.name)
-        item.description = payload.get("description")
-        item.command_template = payload.get("command_template", item.command_template)
-        item.output_regex = payload.get("output_regex") or {}
-        item.variables = payload.get("variables") or {}
-        item.input_definitions = payload.get("input_definitions") or {}
-        item.storage_policy = payload.get("storage_policy") or {}
-        item.parameter_schema = payload.get("parameter_schema") or {}
-        item.target_filter = payload.get("target_filter") or {}
+        # Only assign what the peer actually sent: an absent key (older node, partial
+        # event) must not wipe a good local value. An explicitly-sent empty value still
+        # clears, which is the peer's intent.
+        _apply_present(
+            item, payload,
+            ("description", "output_regex", "variables", "input_definitions",
+             "storage_policy", "parameter_schema", "target_filter", "alert_patterns",
+             "finding_template", "tags"),
+        )
+        if payload.get("command_template"):
+            item.command_template = payload["command_template"]
         item.timeout = int(payload.get("timeout", item.timeout))
-        item.alert_patterns = payload.get("alert_patterns") or {}
-        item.finding_template = payload.get("finding_template") or {}
-        item.tags = payload.get("tags") or []
         item.enabled = bool(payload.get("enabled", item.enabled))
         item.order_index = int(payload.get("order_index", item.order_index))
         item.is_trashed = bool(payload.get("is_trashed", item.is_trashed))
@@ -910,14 +930,13 @@ class SyncService:
             db.add(host)
 
         host.project_id = project_id
-        host.ip_address = payload.get("ip_address")
-        host.hostname = payload.get("hostname")
-        host.fqdn = payload.get("fqdn")
-        host.os_info = payload.get("os_info")
         host.status = payload.get("status", host.status)
-        host.notes = payload.get("notes")
-        host.extra_data = payload.get("extra_data") or {}
-        host.tags = payload.get("tags") or []
+        # extra_data["domain"] and tags drive domain-scoped variables and tag-based target
+        # resolution — losing them to an absent payload key breaks executions on this node.
+        _apply_present(
+            host, payload,
+            ("ip_address", "hostname", "fqdn", "os_info", "notes", "extra_data", "tags"),
+        )
         host.deleted_at = _parse_dt(payload.get("deleted_at"))
         host.updated_at = _parse_dt(payload.get("updated_at")) or datetime.utcnow()
 
@@ -1099,8 +1118,9 @@ class SyncService:
             if payload.get("product"):
                 service.product = payload.get("product")
             service.state = payload.get("state", service.state)
-            service.banner = payload.get("banner")
-            service.ssl = bool(payload.get("ssl", False))
+            if "banner" in payload:
+                service.banner = payload["banner"]
+            service.ssl = bool(payload.get("ssl", service.ssl))
             if payload.get("extra_data") is not None:
                 service.extra_data = payload.get("extra_data") or {}
 
@@ -1204,10 +1224,8 @@ class SyncService:
         else:
             flow.project_id = project_id
             flow.name = payload.get("name", flow.name)
-            flow.description = payload.get("description")
             flow.is_template = bool(payload.get("is_template", flow.is_template))
-            flow.flow_definition = payload.get("flow_definition") or {}
-            flow.tags = payload.get("tags") or []
+            _apply_present(flow, payload, ("description", "flow_definition", "tags"))
         flow.updated_at = _parse_dt(payload.get("updated_at")) or datetime.utcnow()
 
     async def _apply_flow_delete(self, db: AsyncSession, *, payload: Dict[str, Any]) -> None:
@@ -1258,11 +1276,13 @@ class SyncService:
             step.flow_id = flow_id
             step.checklist_item_id = checklist_item_id
             step.order_index = int(payload.get("order_index", step.order_index))
-            step.input_mapping = payload.get("input_mapping") or {}
-            step.condition = payload.get("condition")
-            step.on_failure = payload.get("on_failure", "stop")
-            step.timeout_override = payload.get("timeout_override")
-            step.ui_position = payload.get("ui_position") or {}
+            step.on_failure = payload.get("on_failure", step.on_failure)
+            # An absent "condition" must not clear the step's gate (that would make a
+            # conditional step run unconditionally on this node).
+            _apply_present(
+                step, payload,
+                ("input_mapping", "condition", "timeout_override", "ui_position"),
+            )
 
     async def _apply_flow_step_delete(self, db: AsyncSession, *, payload: Dict[str, Any]) -> None:
         public_id = payload.get("public_id")
@@ -1398,7 +1418,8 @@ class SyncService:
         finding.project_id = project_id
         finding.host_id = host_id or finding.host_id
         finding.title = payload.get("title") or finding.title
-        finding.description = payload.get("description")
+        if "description" in payload:
+            finding.description = payload["description"]
         try:
             finding.severity = FindingSeverity(payload.get("severity", "info"))
         except Exception:
@@ -1407,15 +1428,12 @@ class SyncService:
             finding.status = FindingStatus(payload.get("status", "open"))
         except Exception:
             pass
-        finding.cvss_vector = payload.get("cvss_vector")
-        finding.cvss_score = payload.get("cvss_score")
-        finding.cwe = payload.get("cwe")
-        finding.cve = payload.get("cve")
-        finding.remediation = payload.get("remediation")
-        finding.notes = payload.get("notes")
-        finding.references = payload.get("references") or []
+        _apply_present(
+            finding, payload,
+            ("cvss_vector", "cvss_score", "cwe", "cve", "remediation", "notes",
+             "references", "evidence_text"),
+        )
         finding.source = payload.get("source") or finding.source or "alert"
-        finding.evidence_text = payload.get("evidence_text")
         if payload.get("occurrences"):
             finding.occurrences = payload.get("occurrences")
         finding.deleted_at = _parse_dt(payload.get("deleted_at"))

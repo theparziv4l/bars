@@ -7,6 +7,30 @@ if TYPE_CHECKING:
     from app.models.project import Project
 
 
+def is_unset(value) -> bool:
+    """True when *value* carries no usable content.
+
+    Callers (UI, flow steps, library seeds) routinely send a variable KEY with an
+    empty value — the checklist item declares ``{"targets": ""}`` and the seeded
+    library ships project variables like ``targets = ""``. Presence checks
+    (``"targets" in variables``) therefore see a value that isn't one, and skip
+    resolution. Use this instead of ``in`` whenever a key gates resolution.
+
+    ``0``/``False`` are real values and are NOT unset.
+    """
+    return value is None or value == "" or value == [] or value == {}
+
+
+def merge_set_values(base: dict, incoming: dict | None) -> dict:
+    """Update *base* with the entries of *incoming* that actually carry a value.
+
+    Prevents a caller-supplied ``{"target": ""}`` from blanking a resolved project
+    variable of the same name.
+    """
+    base.update({k: v for k, v in (incoming or {}).items() if not is_unset(v)})
+    return base
+
+
 def get_project_path(project_name: str, base_path: str | None = None) -> str:
     """
     Generate a safe project directory path from the project name.

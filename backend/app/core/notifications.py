@@ -199,19 +199,6 @@ class NotificationManager:
         
         return count
     
-    async def send_progress(
-        self,
-        execution_id: int,
-        progress: float,
-        message: Optional[str] = None
-    ) -> None:
-        """Send progress update notification."""
-        await self.notify("progress", {
-            "execution_id": execution_id,
-            "progress": min(max(progress, 0), 100),
-            "message": message
-        })
-    
     async def send_execution_status(
         self,
         execution_id: int,

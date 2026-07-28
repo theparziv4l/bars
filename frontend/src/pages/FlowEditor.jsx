@@ -48,11 +48,23 @@ export default function FlowEditor() {
         loadChecklistTemplates();
     }, [flowId]);
 
+    // The template sidebar is mount-only, so items added in another tab/page never show
+    // up. Refresh when the window regains focus — cheap, and covers the common workflow.
+    useEffect(() => {
+        const onFocus = () => loadChecklistTemplates();
+        window.addEventListener('focus', onFocus);
+        return () => window.removeEventListener('focus', onFocus);
+    }, []);
+
     const loadFlow = async () => {
         try {
             const response = await flowsApi.get(flowId);
             const flowData = response.data;
             setFlow(flowData);
+            // Node ids are the step array indices, which are re-assigned on every save.
+            // A held-over selectedEdge would resolve its source/target against the NEW
+            // indices and attach mappings to the wrong pair of steps.
+            setSelectedEdge(null);
 
             // Convert steps to nodes/edges
             const newNodes = [];
@@ -226,24 +238,32 @@ export default function FlowEditor() {
     };
 
     const handleAddStep = async (item) => {
-        if (!flow) return;
-
-        const currentMaxOrder = flow.steps.length > 0
-            ? Math.max(...flow.steps.map(s => s.order_index))
-            : -1;
-        const newOrderIndex = currentMaxOrder + 1;
-
-        const newStep = {
-            checklist_item_id: item.id,
-            order_index: newOrderIndex,
-            input_mapping: {},
-            condition: null,
-            on_failure: 'stop'
-        };
+        if (!flowRef.current) return;
 
         try {
-            const updatedSteps = [...flow.steps, newStep];
-            await flowsApi.update(flow.id, { steps: updatedSteps });
+            // Flush canvas edits first. This PUT sends whatever `flow.steps` holds, and
+            // in-canvas changes (target_mode, target_filter, condition, on_failure,
+            // timeout, edge mappings, node positions) live in the nodes/edges state — not
+            // in `flow` — so adding a step used to overwrite them on the server.
+            if (hasUnsavedChanges) {
+                await handleSaveFlow();
+            }
+
+            // Re-read from the server instead of trusting local state after that save.
+            const { data: currentFlow } = await flowsApi.get(flowId);
+            const currentMaxOrder = currentFlow.steps.length > 0
+                ? Math.max(...currentFlow.steps.map(s => s.order_index))
+                : -1;
+
+            const newStep = {
+                checklist_item_id: item.id,
+                order_index: currentMaxOrder + 1,
+                input_mapping: {},
+                condition: null,
+                on_failure: 'stop'
+            };
+
+            await flowsApi.update(currentFlow.id, { steps: [...currentFlow.steps, newStep] });
             toast.success('Step added');
             loadFlow();
         } catch (error) {

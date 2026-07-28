@@ -10,7 +10,6 @@ import { projectsApi, checklistsApi, hostsApi, executionsApi, flowsApi, syncPeer
 import { useAuthStore, useChecklistsStore, useHostsStore, useAppStore, useExecutionsStore } from '../stores'
 import ProjectVariables from '../components/ProjectVariables'
 import toast from 'react-hot-toast'
-import { useWebSocket } from '../hooks/useWebSocket'
 import OutputViewer from '../components/OutputViewer'
 
 export default function ProjectDetail() {
@@ -83,7 +82,8 @@ export default function ProjectDetail() {
     }, [user])
 
     // Connect to WebSocket for real-time execution updates (including flow executions)
-    useWebSocket()
+    // Socket is mounted once by Layout — a second mount here opened a second connection
+    // and ran every store reducer twice (duplicate toasts, doubled store churn).
 
     // Sync WebSocket execution updates with modal state
     useEffect(() => {
@@ -114,24 +114,33 @@ export default function ProjectDetail() {
         }
     }, [])
 
+    // Server-computed project data: overall progress, host tag list, filter option sets.
+    // Discovery and executions change all three, so this is re-run on the same websocket
+    // events instead of only at mount (it used to move only after a page reload).
+    const refreshProjectSummary = useCallback(async () => {
+        if (!projectId) return
+        await Promise.all([
+            projectsApi.get(projectId).then(({ data }) => {
+                setProject(data)
+                setCurrentProject(data)
+            }).catch(() => { }),
+            projectsApi.getHostTags(projectId).then(({ data }) => {
+                setProjectHostTags(data.tags || [])
+            }).catch(() => setProjectHostTags([])),
+            projectsApi.getHostFilterOptions(projectId).then(({ data }) => {
+                setHostFilterOptions(data || { os_values: [], smb_signing_values: [], domain_values: [] })
+            }).catch(() => setHostFilterOptions({ os_values: [], smb_signing_values: [], domain_values: [] })),
+        ])
+    }, [projectId, setCurrentProject])
+
     useEffect(() => {
         const loadProject = async () => {
             try {
-                const { data } = await projectsApi.get(projectId)
-                setProject(data)
-                setCurrentProject(data)
-
-                // Parallel fetch
                 await Promise.all([
+                    refreshProjectSummary(),
                     fetchGroups(projectId),
                     fetchHosts(projectId, { per_page: 100, page: 1 }),
                     fetchFlows(projectId),
-                    projectsApi.getHostTags(projectId).then(({ data }) => {
-                        setProjectHostTags(data.tags || [])
-                    }).catch(() => setProjectHostTags([])),
-                    projectsApi.getHostFilterOptions(projectId).then(({ data }) => {
-                        setHostFilterOptions(data || { os_values: [], smb_signing_values: [], domain_values: [] })
-                    }).catch(() => setHostFilterOptions({ os_values: [], smb_signing_values: [], domain_values: [] })),
                 ])
                 await fetchMembers(projectId)
             } catch (error) {
@@ -141,7 +150,21 @@ export default function ProjectDetail() {
             }
         }
         loadProject()
-    }, [projectId, fetchGroups, fetchHosts, setCurrentProject, fetchFlows, fetchMembers])
+    }, [projectId, fetchGroups, fetchHosts, fetchFlows, fetchMembers, refreshProjectSummary])
+
+    useEffect(() => {
+        const onProjectDataChanged = (e) => {
+            const pid = e.detail?.project_id
+            if (pid != null && String(pid) !== String(projectId)) return
+            refreshProjectSummary()
+        }
+        window.addEventListener('host_changed', onProjectDataChanged)
+        window.addEventListener('execution_finished', onProjectDataChanged)
+        return () => {
+            window.removeEventListener('host_changed', onProjectDataChanged)
+            window.removeEventListener('execution_finished', onProjectDataChanged)
+        }
+    }, [refreshProjectSummary, projectId])
 
     // Scroll to Nmap Script Scan group after generating script scans
     useEffect(() => {
@@ -241,13 +264,10 @@ export default function ProjectDetail() {
             })
 
             updateItemStatus(item.id, 'running', execution.id)
-            setExecutionState(prev => ({ ...prev, executionId: execution.id, status: 'running' }))
 
             toast.success(`Started: ${item.name}`)
-            setShowExecutionPanel(false)
-            setSelectedItem(null)
-            setIsEditingCommand(false)
-            setTempCommand('')
+            handleCloseExecutionPanel()
+            setExecutionState({ executionId: execution.id, status: 'running', output: '' })
 
             // Clear selection if executed from bulk or single
             if (selectedItems.includes(item.id)) {
@@ -281,24 +301,17 @@ export default function ProjectDetail() {
         }
     }
 
-    // Handle WebSocket execution status updates
-    const handleExecutionStatus = useCallback((data) => {
-        // Update modal state if this is the current execution
-        if (data.execution_id === executionState.executionId) {
-            setExecutionState(prev => ({
-                ...prev,
-                status: data.status,
-                output: data.details?.output || prev.output
-            }))
-        }
-    }, [executionState.executionId])
-
+    // Single reset path for the Execute panel. Every close (Cancel, Escape, successful
+    // start) must run this: leftover executionPanelHosts made the modal show the previous
+    // host list — hiding hosts discovered since — and a leftover targetSearch /
+    // executeDomainFilter silently shrinks what "Select All" picks.
     const handleCloseExecutionPanel = useCallback(() => {
         setShowExecutionPanel(false)
         setSelectedItem(null)
         setExecutionPanelHosts(null)
         setExecutionPanelHostsLoading(false)
         setExecuteDomainFilter('')
+        setTargetSearch('')
         setExecutionState({ status: 'idle', executionId: null, output: '' })
         setIsEditingCommand(false)
         setTempCommand('')
@@ -2004,35 +2017,45 @@ function OutputModal({ executionId, itemId, title, onClose }) {
     const [executionHistory, setExecutionHistory] = useState([])
     const [isFullscreen, setIsFullscreen] = useState(false)
 
-    useEffect(() => {
+    const fetchHistory = useCallback(async () => {
         if (!itemId) return
-        const fetchHistory = async () => {
-            try {
-                const { data } = await executionsApi.list({ item_id: itemId, per_page: 200 })
-                setExecutionHistory(data.items || [])
-            } catch {
-                setExecutionHistory([])
-            }
+        try {
+            const { data } = await executionsApi.list({ item_id: itemId, per_page: 200 })
+            setExecutionHistory(data.items || [])
+        } catch {
+            setExecutionHistory([])
         }
-        fetchHistory()
     }, [itemId])
 
-    useEffect(() => {
+    useEffect(() => { fetchHistory() }, [fetchHistory])
+
+    const fetchOutput = useCallback(async (showSpinner = true) => {
         if (!selectedExecId) return
-        setLoading(true)
-        const fetchOutput = async () => {
-            try {
-                const { data } = await executionsApi.getOutput(selectedExecId)
-                setOutput(data.output || 'No output')
-            } catch {
+        if (showSpinner) setLoading(true)
+        try {
+            const { data } = await executionsApi.getOutput(selectedExecId)
+            setOutput(data.output || 'No output')
+        } catch {
+            if (showSpinner) {
                 toast.error("Failed to load output")
                 setOutput("Error loading output")
-            } finally {
-                setLoading(false)
             }
+        } finally {
+            if (showSpinner) setLoading(false)
         }
-        fetchOutput()
     }, [selectedExecId])
+
+    useEffect(() => { fetchOutput() }, [fetchOutput])
+
+    // While the selected execution is still running, keep pulling its output — the modal
+    // used to freeze at whatever existed when it was opened.
+    const selectedStatus = executionHistory.find(e => e.id === selectedExecId)?.status
+    useEffect(() => {
+        if (!selectedExecId) return
+        if (selectedStatus && !['pending', 'running'].includes(selectedStatus)) return
+        const interval = setInterval(() => { fetchOutput(false); fetchHistory() }, 2000)
+        return () => clearInterval(interval)
+    }, [selectedExecId, selectedStatus, fetchOutput, fetchHistory])
 
     const handleDeleteExecution = async (execId) => {
         try {

@@ -13,6 +13,7 @@ export default function ProjectVariables({ projectId }) {
     const [editingId, setEditingId] = useState(null)
     const [editValue, setEditValue] = useState('')
     const [editType, setEditType] = useState('string')
+    const [editBaseline, setEditBaseline] = useState('')  // value as it was when editing started
     const [showImportModal, setShowImportModal] = useState(false)
     const [adDomains, setAdDomains] = useState([])
     const [domainFilter, setDomainFilter] = useState('all') // 'all' | 'global' | domain_id
@@ -59,6 +60,7 @@ export default function ProjectVariables({ projectId }) {
         setEditingId(v.id)
         setEditValue(typeof v.value === 'object' ? JSON.stringify(v.value, null, 2) : v.value)
         setEditType(v.var_type || 'string')
+        setEditBaseline(typeof v.value === 'object' ? JSON.stringify(v.value, null, 2) : v.value)
     }
 
     const cancelEdit = () => {
@@ -68,6 +70,24 @@ export default function ProjectVariables({ projectId }) {
 
     const saveEdit = async (v) => {
         try {
+            // Another operator (or an execution's variable injection) may have changed this
+            // value while the textarea was open; overwriting blind would silently revert it.
+            const { data: fresh } = await projectsApi.getVariables(projectId)
+            const server = (fresh || []).find(x => x.id === v.id)
+            const serverValue = server && typeof server.value === 'object'
+                ? JSON.stringify(server.value, null, 2)
+                : server?.value
+            if (server && serverValue !== editBaseline) {
+                const proceed = confirm(
+                    `This variable changed since you opened it.\n\nCurrent value:\n${serverValue}\n\nOverwrite with yours?`
+                )
+                if (!proceed) {
+                    setEditingId(null)
+                    fetchProjectVariables(projectId)
+                    return
+                }
+            }
+
             const payload = { key: v.key, value: editValue, var_type: editType }
             if (v.ad_domain_id) payload.ad_domain_id = v.ad_domain_id
             await projectsApi.createVariable(projectId, payload)

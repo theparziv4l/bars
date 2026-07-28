@@ -153,6 +153,7 @@ class TemplateEngine:
         execution_outputs: Optional[Dict[int, Dict[str, Any]]] = None,
         item_name_to_execution: Optional[Dict[str, int]] = None,
         latest_item_name_to_execution: Optional[Dict[str, int]] = None,
+        unresolved: Optional[List[str]] = None,
     ) -> str:
         """
         Render a template with variable substitution.
@@ -163,6 +164,8 @@ class TemplateEngine:
             execution_outputs: Mapping of execution_id -> parsed_output
             item_name_to_execution: Mapping of item_name -> execution_id (first/any)
             latest_item_name_to_execution: Mapping of item_name -> execution_id (most recent by completed_at)
+            unresolved: Optional list; every placeholder left unsubstituted is appended to it,
+                so callers can surface a half-rendered command instead of shipping it silently.
 
         Returns:
             Rendered command string
@@ -171,6 +174,11 @@ class TemplateEngine:
         item_name_to_execution = item_name_to_execution or {}
         latest_item_name_to_execution = latest_item_name_to_execution or item_name_to_execution
 
+        def unresolved_placeholder(raw: str) -> str:
+            if unresolved is not None and raw not in unresolved:
+                unresolved.append(raw)
+            return raw  # Keep original so the operator can see what was not bound
+
         def replace_variable(match: re.Match) -> str:
             var = self.parse_variable(match)
 
@@ -178,7 +186,7 @@ class TemplateEngine:
             if var.execution_id is None and var.item_name is None:
                 value = variables.get(var.key)
                 if value is None:
-                    return match.group(0)  # Keep original if not found
+                    return unresolved_placeholder(match.group(0))
                 return self._format_value(value)
 
             # Execution reference
@@ -192,14 +200,14 @@ class TemplateEngine:
                     exec_id = item_name_to_execution.get(var.item_name)
             
             if exec_id is None:
-                return match.group(0)  # Keep original if not resolved
-            
+                return unresolved_placeholder(match.group(0))
+
             # Get output data
             output_data = execution_outputs.get(exec_id, {})
             value = self.get_nested_value(output_data, var.key)
-            
+
             if value is None:
-                return match.group(0)  # Keep original if not found
+                return unresolved_placeholder(match.group(0))
             
             # Auto-unwrap ParsedResult structure
             if isinstance(value, dict) and "value" in value and "data_type" in value:

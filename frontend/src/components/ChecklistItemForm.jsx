@@ -163,6 +163,19 @@ export default function ChecklistItemForm({ group_id, item = null, onSuccess, on
         e.preventDefault()
         try {
             if (item) {
+                // The form was seeded from a copy of the item that may be minutes old and
+                // is PUT back whole. Check the server's current version first so another
+                // operator's edit (or a synced peer change) isn't silently reverted.
+                try {
+                    const { data: fresh } = await checklistsApi.getItem(item.id)
+                    if (fresh?.updated_at && item.updated_at && fresh.updated_at !== item.updated_at) {
+                        const proceed = confirm(
+                            'This item was changed by someone else while you were editing.\n\nOverwrite their version with yours?'
+                        )
+                        if (!proceed) return
+                    }
+                } catch { /* if the check fails, fall through to the normal save */ }
+
                 await checklistsApi.updateItem(item.id, formData)
                 toast.success('Item updated')
             } else {

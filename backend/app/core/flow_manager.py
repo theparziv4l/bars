@@ -71,6 +71,7 @@ from app.models.execution import Execution, ExecutionStatus
 from app.models.checklist import ChecklistItem
 from app.core.orchestrator import task_orchestrator
 from app.core.templating import template_engine
+from app.core.utils import is_unset, merge_set_values
 
 
 class FlowManager:
@@ -184,8 +185,7 @@ class FlowManager:
             host_id=host_id,
         )
 
-        base_vars = dict(project_vars)
-        base_vars.update(variables)
+        base_vars = merge_set_values(dict(project_vars), variables)
 
         # Inject target variables
         self._inject_targets(base_vars, target, merged_targets)
@@ -436,7 +436,7 @@ class FlowManager:
             min_idx = min(valid_indices)
             # C6: merge ALL initial-stage siblings' variables, not just the first one.
             for e in (ex for ex in executions if ex.flow_step_index == min_idx):
-                base_vars.update(e.variables_used or {})
+                merge_set_values(base_vars, e.variables_used)
         base_vars["flow_id"] = flow_id
 
         # Re-inject flow-level targets from FlowExecution
@@ -600,13 +600,12 @@ class FlowManager:
             host_vars = (await db.execute(host_stmt)).scalars().all()
 
         # 4. Merge: Global → Domain → Host
+        # Empty values are skipped: the seeded library ships `targets = ""` etc., and
+        # carrying those forward would suppress per-step target resolution downstream.
         merged: Dict[str, Any] = {}
-        for var in global_vars:
-            merged[var.key] = var.value
-        for var in domain_vars:
-            merged[var.key] = var.value
-        for var in host_vars:
-            merged[var.key] = var.value
+        for var in (*global_vars, *domain_vars, *host_vars):
+            if not is_unset(var.value):
+                merged[var.key] = var.value
 
         return merged
 
@@ -687,9 +686,14 @@ class FlowManager:
         mode = step.target_mode or "inherit"
         extra: Dict[str, Any] = {}
 
-        # If input_mapping already provided targets, don't overwrite
-        has_mapped_targets = "targets" in step_vars and step_vars["targets"]
-        has_mapped_target = "target" in step_vars and step_vars["target"]
+        # If input_mapping already provided targets, don't overwrite.
+        # Check the step's own input_mapping, NOT merely the presence of the key in
+        # step_vars: step_vars is derived from base_vars, which already carries the
+        # flow-level targets (and any project variable literally named "targets"), so a
+        # presence test here would make target_mode "all"/"filtered" unreachable.
+        mapped_names = set(step.input_mapping or {})
+        has_mapped_targets = "targets" in mapped_names and not is_unset(step_vars.get("targets"))
+        has_mapped_target = "target" in mapped_names and not is_unset(step_vars.get("target"))
         if has_mapped_targets or has_mapped_target:
             return flow_host_id if mode == "single" else None, extra
 
@@ -777,13 +781,25 @@ class FlowManager:
             else:
                 continue
 
+            unresolved: List[str] = []
             rendered_value = template_engine.render(
                 source_expr,
                 variables=base_vars,
                 execution_outputs=execution_outputs,
                 item_name_to_execution=item_name_to_exe,
                 latest_item_name_to_execution=latest_item_name_to_exe or item_name_to_exe,
+                unresolved=unresolved,
             )
+
+            if unresolved:
+                # render() returns the literal "{step_0.hosts}" when it cannot resolve.
+                # Storing that would hand a non-empty junk string to the command AND make
+                # _resolve_step_targets believe the step has mapped targets.
+                print(
+                    f"[FlowManager] Step {step.order_index} input '{input_name}' unresolved: "
+                    f"{', '.join(unresolved)}"
+                )
+                continue
 
             if parser_pattern and rendered_value:
                 from app.core.parser import output_parser
@@ -843,7 +859,9 @@ class FlowManager:
         await db.commit()
 
         from app.core.notifications import notification_manager
-        await notification_manager.broadcast(
+        # notify() — NOT broadcast(): NotificationManager has no broadcast method, so this
+        # raised AttributeError on every finalize and no client ever saw a flow finish.
+        await notification_manager.notify(
             "flow_completed" if status == "completed" else "flow_failed",
             {
                 "flow_execution_id": flow_exec.id,

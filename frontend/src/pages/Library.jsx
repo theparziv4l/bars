@@ -39,6 +39,14 @@ export default function Library() {
         fetchTemplates()
     }, [])
 
+    // Templates change from other pages (and from peers via sync); refresh on focus so
+    // the library isn't frozen at whatever existed when the page first mounted.
+    useEffect(() => {
+        const onFocus = () => fetchTemplates()
+        window.addEventListener('focus', onFocus)
+        return () => window.removeEventListener('focus', onFocus)
+    }, [])
+
     const fetchTemplates = async () => {
         try {
             setLoading(true)

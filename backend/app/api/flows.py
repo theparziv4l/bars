@@ -13,6 +13,7 @@ from app.models.flow import Flow, FlowStep
 from app.models.flow_execution import FlowExecution
 from app.models.checklist import ChecklistItem, ChecklistGroup
 from app.core.sync import sync_service, flow_sync_payload, flow_step_sync_payload
+from app.core.utils import merge_set_values
 from app.schemas.flow import (
     FlowCreate, FlowUpdate, FlowResponse,
     FlowExecutionCreate, FlowExecutionResponse, FlowExecutionStatus,
@@ -514,8 +515,7 @@ async def resume_flow_execution(
         host_id=flow_exec.host_id,
     )
 
-    base_vars = dict(project_vars)
-    base_vars.update(flow_exec.variables or {})
+    base_vars = merge_set_values(dict(project_vars), flow_exec.variables)
     flow_manager._inject_targets(base_vars, flow_exec.target, flow_exec.targets or [])
     base_vars["flow_id"] = flow_id
 

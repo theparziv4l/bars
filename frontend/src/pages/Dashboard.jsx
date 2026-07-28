@@ -37,13 +37,25 @@ export default function Dashboard() {
         fetchProjects()
     }, [fetchProjects])
 
+    // One reset path, used by create/cancel/open alike — otherwise cancelling leaves the
+    // previously typed name, description and domain chips in the reopened form.
+    const closeCreateModal = () => {
+        setShowCreateModal(false)
+        setNewProject({ name: '', description: '', scope: { ips: [], cidrs: [], fqdns: [] }, domains: [] })
+        setDomainInput('')
+    }
+
+    const openCreateModal = () => {
+        setNewProject({ name: '', description: '', scope: { ips: [], cidrs: [], fqdns: [] }, domains: [] })
+        setDomainInput('')
+        setShowCreateModal(true)
+    }
+
     const handleCreateProject = async (e) => {
         e.preventDefault()
         try {
             await createProject(newProject)
-            setShowCreateModal(false)
-            setNewProject({ name: '', description: '', scope: { ips: [], cidrs: [], fqdns: [] }, domains: [] })
-            setDomainInput('')
+            closeCreateModal()
             toast.success('Project created successfully')
         } catch (error) {
             toast.error('Failed to create project')
@@ -112,7 +124,7 @@ export default function Dashboard() {
                         {migrating ? 'Migrating...' : 'Migrate Old Projects'}
                     </button>
                     <button
-                        onClick={() => setShowCreateModal(true)}
+                        onClick={openCreateModal}
                         className="btn-primary"
                     >
                         <Plus size={18} />
@@ -156,7 +168,7 @@ export default function Dashboard() {
                     <FolderOpen size={48} className="mx-auto text-dark-600 mb-4" />
                     <h3 className="text-lg font-medium text-dark-300 mb-2">No projects yet</h3>
                     <p className="text-dark-500 mb-4">Create your first penetration testing project</p>
-                    <button onClick={() => setShowCreateModal(true)} className="btn-primary">
+                    <button onClick={openCreateModal} className="btn-primary">
                         <Plus size={18} />
                         Create Project
                     </button>
@@ -282,7 +294,7 @@ export default function Dashboard() {
                                 <p className="text-xs text-dark-500 mt-1">Default library templates will be auto-imported for each domain</p>
                             </div>
                             <div className="flex gap-3 pt-4">
-                                <button type="button" onClick={() => setShowCreateModal(false)} className="btn-secondary flex-1">
+                                <button type="button" onClick={closeCreateModal} className="btn-secondary flex-1">
                                     Cancel
                                 </button>
                                 <button type="submit" className="btn-primary flex-1">

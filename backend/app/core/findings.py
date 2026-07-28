@@ -114,4 +114,13 @@ async def ingest_execution_findings(db: AsyncSession, execution: Execution, item
         except Exception as e:
             print(f"[Findings] sync record failed: {e}")
 
+        # Tell connected clients, or the Findings page only shows these after a reload.
+        try:
+            from app.core.notifications import notification_manager
+            await notification_manager.send_project_update(
+                "finding_created", project_id, {"count": len(touched), "created": created}
+            )
+        except Exception as e:
+            print(f"[Findings] notify failed: {e}")
+
     return created

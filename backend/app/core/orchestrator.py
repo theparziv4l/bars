@@ -21,6 +21,7 @@ from app.core.parser import output_parser
 from app.core.templating import template_engine
 from app.core.notifications import notification_manager
 from app.core.host_runner import host_runner
+from app.core.utils import is_unset
 from app.core.sync import (
     sync_service,
     execution_sync_payload,
@@ -236,8 +237,12 @@ class TaskOrchestrator:
         """Run execution in background with its own database session."""
         from app.database import async_session_maker
         
-        variables = variables or {}
-        
+        # Drop keys whose value carries nothing ("" / [] / {} / None). The UI submits the
+        # item's declared variable defaults verbatim, so a declared-but-empty key would
+        # otherwise satisfy every ``"x" in variables`` guard below and suppress target
+        # resolution, batching and output injection.
+        variables = {k: v for k, v in (variables or {}).items() if not is_unset(v)}
+
         # Check for multiple targets in "target" variable
         raw_target = variables.get("target")
         targets_list = []
@@ -702,8 +707,10 @@ class TaskOrchestrator:
         # Defensive copy: callers (esp. execute_bulk) may pass the SAME dict to
         # multiple concurrent execute_item calls; without this, in-place variable
         # injection below bleeds across parallel executions and corrupts variables_used.
-        variables = dict(variables or {})
+        # Empty values are dropped, not copied — see the comment in run_execution_background.
+        variables = {k: v for k, v in (variables or {}).items() if not is_unset(v)}
         execution_outputs = execution_outputs or {}
+        item_name_to_execution: Dict[str, int] = {}
         
         result = await db.execute(
             select(ChecklistItem)
@@ -782,8 +789,11 @@ class TaskOrchestrator:
             for var in host_vars:
                 merged_project_vars[var.key] = var.value
 
+            # Only fill in values that carry content: the seeded library ships project
+            # variables like ``targets = ""``, and writing those back would re-create the
+            # empty key this method just dropped (killing tag resolution below).
             for key, val in merged_project_vars.items():
-                if key not in variables or variables.get(key) in (None, "", []):
+                if is_unset(variables.get(key)) and not is_unset(val):
                     variables[key] = val
                 
             # Fetch execution outputs from this project
@@ -801,30 +811,37 @@ class TaskOrchestrator:
             from sqlalchemy import or_
             
             out_stmt = (
-                select(ExecutionOutput)
+                select(ExecutionOutput, Execution.id, Execution.item_id, ChecklistItem.name)
+                .select_from(ExecutionOutput)
                 .join(Execution)
                 .join(ChecklistItem)
                 .join(ChecklistGroup)
                 .where(ChecklistGroup.project_id == project_id)
-                .options(selectinload(ExecutionOutput.execution))
             )
-            
+
             if host_id:
                 out_stmt = out_stmt.where(or_(Execution.host_id == host_id, Execution.host_id.is_(None)))
             else:
                 out_stmt = out_stmt.where(Execution.host_id.is_(None))
-                
+
             ex_outputs = await db.execute(out_stmt)
-            for output in ex_outputs.scalars().all():
+            for output, exec_id, exec_item_id, exec_item_name in ex_outputs.all():
                 typed = output.get_typed_value()
                 # Global namespace: only fill keys the caller did NOT already provide, so
                 # a stale stored output can't silently override an operator-supplied
                 # {target}/{port} for this run. Namespaced {item_id.key} stays authoritative.
                 variables.setdefault(output.key, typed)
-                execution_outputs.setdefault(output.execution.item_id, {})[output.key] = typed
+                # Key by execution id — that is what templating.py resolves {12.key} against
+                # (and what flow_manager passes). The item-id alias is kept so templates
+                # written against the older numbering keep working.
+                execution_outputs.setdefault(exec_id, {})[output.key] = typed
+                execution_outputs.setdefault(exec_item_id, {}).setdefault(output.key, typed)
+                # {Item Name.key} / {latest:Item Name.key}: newest execution per item name wins.
+                if exec_item_name and exec_id >= item_name_to_execution.get(exec_item_name, 0):
+                    item_name_to_execution[exec_item_name] = exec_id
 
         # Resolve {targets} from host tags if item has target_filter (and user did not supply targets)
-        if project_id and "targets" not in variables:
+        if project_id and is_unset(variables.get("targets")):
             target_filter = getattr(item, "target_filter", None) or {}
             filter_tags = (target_filter.get("tags") or []) if isinstance(target_filter, dict) else []
             if variables.get("target_filter_tags"):
@@ -915,15 +932,31 @@ class TaskOrchestrator:
              # Fallback or error?
              template_str = ""
              
-        command = template_engine.render(template_str, variables=prepared_vars, execution_outputs=execution_outputs)
-        
+        unresolved: List[str] = []
+        command = template_engine.render(
+            template_str,
+            variables=prepared_vars,
+            execution_outputs=execution_outputs,
+            item_name_to_execution=item_name_to_execution,
+            latest_item_name_to_execution=item_name_to_execution,
+            unresolved=unresolved,
+        )
+
         execution.command = command
         # Update variables_used to show resolved values? Or keep original?
         # Keeping original in variables_used is better for audit, but maybe store effective in logs.
-        
+
         # execution already added
-        
+
         context = TaskContext(execution_id=execution.id)
+        if unresolved:
+            # A visible warning beats a command that quietly runs with a dangling flag.
+            # Primed on the buffer (not execution.stderr) because _run_subprocess assigns
+            # execution.stderr = context.stderr_buffer when the run finishes.
+            note = f"Unresolved variables: {', '.join(unresolved)}"
+            print(f"[Orchestrator] {note} (execution {execution.id})")
+            context.stderr_buffer = f"[Warning] {note}\n"
+            execution.stderr = context.stderr_buffer
         async with self._lock:
             self._running_tasks[execution.id] = context
 
@@ -1631,7 +1664,7 @@ class TaskOrchestrator:
         
         # 1. SPECIAL CASE: "targets" (plural) variable
         # If present and list/string, ALWAYS treat as file-based batch target list
-        if "targets" in variables:
+        if not is_unset(variables.get("targets")):
             raw_targets = variables["targets"]
             targets_list: List[Any] = []
             if isinstance(raw_targets, list):
@@ -1997,12 +2030,11 @@ class TaskOrchestrator:
                     )
                 except Exception as e:
                     print(f"[Orchestrator] Sync record (IPv4 discovery host) failed: {e}")
-            # Notify frontend
-            for ip in new_ips:
+                # Notify frontend (same payload shape as the other host_created emitters)
                 await notification_manager.send_project_update(
-                    "host_created", 
-                    project_id, 
-                    {"ip_address": ip} 
+                    "host_created",
+                    project_id,
+                    {"ip_address": new_host.ip_address, "id": new_host.id},
                 )
 
     async def _run_subprocess(

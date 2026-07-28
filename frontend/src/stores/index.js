@@ -131,7 +131,8 @@ export const useProjectsStore = create((set, get) => ({
 
     createProject: async (projectData) => {
         const { data } = await projectsApi.create(projectData)
-        set((state) => ({ projects: [data, ...state.projects] }))
+        // Refetch rather than prepend: the list is server-sorted and paginated.
+        await get().fetchProjects()
         return data
     },
 
@@ -187,6 +188,7 @@ export const useHostsStore = create((set, get) => ({
     hostsDomainFilter: null,
     currentHost: null,
     currentProjectId: null,
+    hostsParams: { per_page: 100, page: 1 },
     loading: false,
 
     setHostsSort: (sortBy, sortOrder) => set({ hostsSortBy: sortBy, hostsSortOrder: sortOrder }),
@@ -197,7 +199,7 @@ export const useHostsStore = create((set, get) => ({
     setHostsDomainFilter: (val) => set({ hostsDomainFilter: val || null }),
 
     fetchHosts: async (projectId, params = {}) => {
-        set({ loading: true, currentProjectId: projectId })
+        set({ loading: true, currentProjectId: projectId, hostsParams: params })
         const { hostsSortBy, hostsSortOrder, hostsTagsFilter, hostsSmbSigningFilter, hostsOsFilter, hostsPortSearch, hostsDomainFilter } = get()
         const mergedParams = {
             ...params,
@@ -224,6 +226,14 @@ export const useHostsStore = create((set, get) => ({
         }
     },
 
+    // Re-run the last fetch with the operator's page/search/filters intact. A background
+    // discovery event must not silently reset the Assets view to page 1, unfiltered.
+    refetchHosts: async () => {
+        const { currentProjectId, hostsParams, fetchHosts } = get()
+        if (currentProjectId == null) return
+        return fetchHosts(currentProjectId, hostsParams)
+    },
+
     fetchHost: async (id) => {
         const { data } = await hostsApi.get(id)
         set({ currentHost: data })
@@ -232,10 +242,33 @@ export const useHostsStore = create((set, get) => ({
 
     createHost: async (hostData) => {
         const { data } = await hostsApi.create(hostData)
-        set((state) => ({ hosts: [data, ...state.hosts] }))
+        // Refetch instead of prepending: `hosts` is a server-sorted, server-filtered,
+        // paginated slice and `hostsTotal` would go stale.
+        await get().refetchHosts()
         return data
     },
 }))
+
+// Keep a group's "X/Y" badge and progress bar consistent with its own item list.
+// Any local mutation of group.items must go through this, or the denominator drifts
+// until the page is reloaded.
+function withCompletionStats(group) {
+    const items = group.items || []
+    const total = items.length
+    const completed = items.filter(i =>
+        i.latest_execution_status === 'completed' ||
+        (i.latest_execution_status === undefined && i.has_successful_execution)
+    ).length
+    return {
+        ...group,
+        completion_stats: {
+            ...group.completion_stats,
+            completed,
+            total,
+            percentage: total > 0 ? Math.round((completed / total) * 100) : 0,
+        },
+    }
+}
 
 // Checklists store
 export const useChecklistsStore = create((set, get) => ({
@@ -284,7 +317,7 @@ export const useChecklistsStore = create((set, get) => ({
         set((state) => ({
             groups: state.groups.map(g =>
                 g.id === itemData.group_id
-                    ? { ...g, items: [...(g.items || []), data] }
+                    ? withCompletionStats({ ...g, items: [...(g.items || []), data] })
                     : g
             )
         }))
@@ -307,24 +340,7 @@ export const useChecklistsStore = create((set, get) => ({
                     } : i
                 )
 
-                // Recalculate progress. Update completed/total too (not just the
-                // percentage) so the "X/Y" badge stays consistent with its own bar.
-                const total = updatedItems.length
-                const completed = updatedItems.filter(i =>
-                    i.latest_execution_status === 'completed' ||
-                    (i.latest_execution_status === undefined && i.has_successful_execution) // Fallback to initial state
-                ).length
-
-                return {
-                    ...g,
-                    items: updatedItems,
-                    completion_stats: {
-                        ...g.completion_stats,
-                        completed,
-                        total,
-                        percentage: total > 0 ? Math.round((completed / total) * 100) : 0
-                    }
-                }
+                return withCompletionStats({ ...g, items: updatedItems })
             })
         }))
     },
@@ -359,7 +375,7 @@ export const useChecklistsStore = create((set, get) => ({
     deleteItem: async (itemId, softDelete = false) => {
         await checklistsApi.deleteItem(itemId, softDelete)
         set((state) => ({
-            groups: state.groups.map(g => ({
+            groups: state.groups.map(g => withCompletionStats({
                 ...g,
                 items: (g.items || []).filter(i => i.id !== itemId)
             }))
@@ -409,8 +425,10 @@ export const useFindingsStore = create((set, get) => ({
     loading: false,
     findingsProjectId: null,
 
+    findingsParams: {},
+
     fetchFindings: async (projectId, params = {}) => {
-        set({ loading: true, findingsProjectId: projectId })
+        set({ loading: true, findingsProjectId: projectId, findingsParams: params })
         try {
             const [{ data: findings }, { data: summary }] = await Promise.all([
                 findingsApi.list(projectId, params),
@@ -424,20 +442,28 @@ export const useFindingsStore = create((set, get) => ({
         }
     },
 
+    // Re-run the last fetch with its filters intact — used after a mutation and on the
+    // finding_created websocket event, so the list AND the severity summary stay in sync.
+    refetchFindings: async () => {
+        const { findingsProjectId, findingsParams, fetchFindings } = get()
+        if (findingsProjectId == null) return
+        return fetchFindings(findingsProjectId, findingsParams)
+    },
+
     createFinding: async (data) => {
         const { data: created } = await findingsApi.create(data)
-        set((state) => ({ findings: [created, ...state.findings] }))
+        await get().refetchFindings()
         return created
     },
 
     updateFinding: async (id, patch) => {
         const { data } = await findingsApi.update(id, patch)
-        set((state) => ({ findings: state.findings.map((f) => (f.id === id ? data : f)) }))
+        await get().refetchFindings()
         return data
     },
 
     deleteFinding: async (id) => {
         await findingsApi.delete(id)
-        set((state) => ({ findings: state.findings.filter((f) => f.id !== id) }))
+        await get().refetchFindings()
     },
 }))
