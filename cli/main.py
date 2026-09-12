@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import getpass
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -16,13 +17,27 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from cli.agent import ensure_agent_venv, start_agent_background, stop_agent, agent_status
-from cli.checks import check_docker_daemon, check_docker_group, run_all_checks
+from cli.agent import (
+    agent_status,
+    ensure_agent_token,
+    ensure_agent_venv,
+    ensure_env_secret,
+    start_agent_background,
+    stop_agent,
+)
+from cli.checks import (
+    check_compose_v2,
+    check_docker_binary,
+    check_docker_daemon,
+    check_docker_group,
+    run_all_checks,
+)
 from cli.config import (
     AGENT_PORT,
     BACKEND_PORT,
     FRONTEND_PORT,
     HOST_AGENT_LOG,
+    PROJECT_ROOT,
     SERVICES,
 )
 from cli.docker import (
@@ -308,48 +323,192 @@ def update(
             restart(dev=dev)
 
 
+RELOGIN_HINT = (
+    "[yellow]Group membership only applies to new logins.[/yellow] Log out and back in "
+    "(or run [bold]newgrp docker[/bold] in this shell), then verify with [bold]docker info[/bold]."
+)
+
+
+def _ensure_docker_group(assume_yes: bool, indent: str = "") -> str:
+    """Give this user Docker daemon access via the 'docker' group.
+
+    Returns one of: ``ok`` (already working), ``added`` (needs a re-login),
+    ``relogin`` (in the group, daemon still unreachable), ``skipped``.
+    """
+    user = os.environ.get("USER") or getpass.getuser()
+
+    if check_docker_group().passed:
+        if check_docker_daemon().passed:
+            console.print(f"{indent}[green]User '{user}' already has Docker access.[/green]")
+            return "ok"
+        console.print(
+            f"{indent}[yellow]User '{user}' is in the 'docker' group, but the daemon is "
+            f"unreachable from this session.[/yellow]\n"
+            f"{indent}Log out and back in (or run [bold]newgrp docker[/bold]) to pick up the group.\n"
+            f"{indent}If it still fails, the daemon may be down: "
+            "[bold]sudo systemctl start docker[/bold]."
+        )
+        return "relogin"
+
+    if not assume_yes:
+        console.print(
+            f"{indent}[bold red]Security warning:[/bold red] members of the 'docker' group can "
+            "start privileged containers and mount the host filesystem. This is equivalent to "
+            f"giving '{user}' passwordless root on this machine. Only do this on a machine you "
+            "control.\n"
+        )
+        if not typer.confirm(f"{indent}Add user '{user}' to the 'docker' group?", default=False):
+            console.print(f"{indent}[dim]Skipped.[/dim]")
+            return "skipped"
+
+    console.print(f"{indent}Adding '{user}' to the 'docker' group (sudo required)...")
+    rc = subprocess.run(["sudo", "groupadd", "-f", "docker"]).returncode
+    if rc == 0:
+        rc = subprocess.run(["sudo", "usermod", "-aG", "docker", user]).returncode
+    if rc != 0:
+        console.print(f"{indent}[red]Failed. Run manually: sudo usermod -aG docker {user}[/red]")
+        return "skipped"
+
+    console.print(f"{indent}[green]User '{user}' added to the 'docker' group.[/green]")
+    return "added"
+
+
+def _install_system_packages(assume_yes: bool) -> None:
+    """apt-install whatever Docker pieces are missing. Everything else is already vendored."""
+    missing = []
+    if not check_docker_binary().passed:
+        missing.append("docker.io")
+    if not check_compose_v2().passed:
+        missing.append("docker-compose-plugin")
+
+    if not missing:
+        console.print("  [dim]Docker and Compose v2 already present[/dim]")
+        return
+
+    console.print(f"  Missing: [yellow]{', '.join(missing)}[/yellow]")
+
+    if shutil.which("apt-get") is None:
+        console.print("  [yellow]No apt-get on this system — install those with your package "
+                      "manager, then re-run.[/yellow]")
+        return
+
+    if not assume_yes and not typer.confirm(
+        f"  Install {', '.join(missing)} with apt (sudo required)?", default=True
+    ):
+        console.print("  [dim]Skipped.[/dim]")
+        return
+
+    subprocess.run(["sudo", "apt-get", "update"])
+    failed = []
+    for package in missing:
+        # One at a time: docker-compose-plugin is absent from some distro repos, and a
+        # single apt-get call would abandon docker.io along with it.
+        if subprocess.run(["sudo", "apt-get", "install", "-y", package]).returncode != 0:
+            failed.append(package)
+
+    if failed:
+        console.print(f"  [red]Could not install: {', '.join(failed)}[/red]")
+        console.print("  [dim]Docker's own repo carries these: "
+                      "https://docs.docker.com/engine/install/[/dim]")
+    else:
+        console.print("  [green]System packages installed[/green]")
+
+
+def _ensure_env_file() -> None:
+    env_path = PROJECT_ROOT / ".env"
+    example = PROJECT_ROOT / ".env.example"
+
+    if env_path.exists():
+        console.print("  [dim].env already exists — leaving your settings alone[/dim]")
+    elif example.exists():
+        shutil.copy(example, env_path)
+        console.print("  [green]Created .env from .env.example[/green]")
+    else:
+        env_path.touch()
+        console.print("  [yellow]No .env.example found — created an empty .env[/yellow]")
+
+    # .env.example ships an empty token and a shared "change-me" signing key. Left as-is,
+    # every Bars install would sign its JWTs with the same published secret.
+    ensure_agent_token()
+    ensure_env_secret("AUTH_SECRET_KEY", "JWT signing key (auto-generated).")
+
+
+@app.command()
+def install(
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip all confirmation prompts"),
+    skip_system: bool = typer.Option(False, "--skip-system", help="Don't apt-install missing system packages"),
+    skip_build: bool = typer.Option(False, "--skip-build", help="Don't build Docker images (the slow step)"),
+):
+    """One-shot setup: system packages, Docker group access, .env secrets, agent venv, images.
+
+    Safe to re-run — every step is a no-op once it is done.
+    """
+    console.print(Panel("[bold]Bars[/bold]", subtitle="installing..."))
+
+    console.print("\n[bold][1/5] System packages[/bold]")
+    if skip_system:
+        console.print("  [dim]Skipped (--skip-system)[/dim]")
+    else:
+        _install_system_packages(yes)
+
+    console.print("\n[bold][2/5] Docker access for this user[/bold]")
+    docker_group = _ensure_docker_group(yes, indent="  ")
+
+    console.print("\n[bold][3/5] Environment file[/bold]")
+    _ensure_env_file()
+
+    console.print("\n[bold][4/5] Host Agent dependencies[/bold]")
+    try:
+        ensure_agent_venv()
+    except subprocess.CalledProcessError:
+        console.print("  [red]Failed to build the agent venv. Is python3-venv installed?[/red]")
+        raise typer.Exit(1)
+
+    console.print("\n[bold][5/5] Docker images (backend + frontend dependencies)[/bold]")
+    if skip_build:
+        console.print("  [dim]Skipped (--skip-build)[/dim]")
+    elif not check_docker_daemon().passed:
+        # Expected right after the group was added — the new group needs a fresh login.
+        console.print("  [yellow]Docker daemon not reachable from this session — skipping "
+                      "the image build.[/yellow]")
+        console.print("  [dim]Re-run './bars install' after logging back in, or './bars update'.[/dim]")
+    else:
+        rc = compose_build(dev=False, no_cache=False)
+        if rc != 0:
+            console.print("  [red]Image build failed.[/red]")
+            raise typer.Exit(1)
+        console.print("  [green]Images built[/green]")
+
+    console.print("\n[bold]Final check[/bold]")
+    passed, _ = run_all_checks(check_ports=False)
+
+    if docker_group in ("added", "relogin"):
+        console.print(Panel(
+            f"{RELOGIN_HINT}\n\nThen finish with:\n"
+            "  [bold]./bars install[/bold]   (builds the images this run had to skip)\n"
+            "  [bold]./bars start[/bold]",
+            title="[bold yellow]One more step[/bold yellow]",
+        ))
+    elif passed:
+        console.print(Panel(
+            "[green]Install complete.[/green]\n\n"
+            "  [bold]./bars start[/bold]\n"
+            "  [dim]then seed the library:[/dim]\n"
+            "  [bold]docker compose exec backend python load_library_seed.py[/bold]",
+            title="[bold green]Bars[/bold green]",
+        ))
+    else:
+        console.print("\n[yellow]Install finished with failing checks above. "
+                      "Fix them, then re-run './bars install'.[/yellow]")
+
+
 @app.command(name="fix-docker")
 def fix_docker(
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt"),
 ):
     """Let this (non-root) user talk to the Docker daemon by adding them to the 'docker' group."""
-    user = os.environ.get("USER") or getpass.getuser()
-
-    if check_docker_group().passed:
-        if check_docker_daemon().passed:
-            console.print(f"[green]User '{user}' already has Docker access. Nothing to do.[/green]")
-        else:
-            console.print(
-                f"[yellow]User '{user}' is in the 'docker' group, but the daemon is unreachable "
-                f"from this session.[/yellow]\n"
-                "Log out and back in (or run [bold]newgrp docker[/bold]) to pick up the group.\n"
-                "If it still fails, the daemon may be down: [bold]sudo systemctl start docker[/bold]."
-            )
-        raise typer.Exit(0)
-
-    if not yes:
-        console.print(
-            "[bold red]Security warning:[/bold red] members of the 'docker' group can start "
-            "privileged containers and mount the host filesystem. This is equivalent to giving "
-            f"'{user}' passwordless root on this machine. Only do this on a machine you control.\n"
-        )
-        if not typer.confirm(f"Add user '{user}' to the 'docker' group?", default=False):
-            console.print("[dim]Aborted.[/dim]")
-            raise typer.Exit(0)
-
-    console.print(f"[bold]Adding '{user}' to the 'docker' group (sudo required)...[/bold]")
-    rc = subprocess.run(["sudo", "groupadd", "-f", "docker"]).returncode
-    if rc == 0:
-        rc = subprocess.run(["sudo", "usermod", "-aG", "docker", user]).returncode
-    if rc != 0:
-        console.print(f"[red]Failed. Run manually: sudo usermod -aG docker {user}[/red]")
-        raise typer.Exit(1)
-
-    console.print(
-        f"\n[green]User '{user}' added to the 'docker' group.[/green]\n"
-        "[yellow]Group membership only applies to new logins.[/yellow] Log out and back in "
-        "(or run [bold]newgrp docker[/bold] in this shell), then verify with [bold]docker info[/bold]."
-    )
+    if _ensure_docker_group(yes) == "added":
+        console.print(f"\n{RELOGIN_HINT}")
 
 
 @app.command()

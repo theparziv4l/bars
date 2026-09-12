@@ -44,25 +44,49 @@ def ensure_agent_venv() -> None:
     console.print("  [green]Agent venv ready[/green]")
 
 
+def ensure_env_secret(key: str, comment: str) -> str:
+    """Return .env's value for *key*, generating one when it is missing or a placeholder.
+
+    An existing assignment is rewritten in place rather than appended to: ``.env.example``
+    ships ``HOST_AGENT_TOKEN=`` and a shared ``AUTH_SECRET_KEY=change-me-…``, so appending
+    would leave two lines for one key and which one wins is up to the reader.
+    """
+    env_path = PROJECT_ROOT / ".env"
+    text = env_path.read_text() if env_path.exists() else ""
+    lines = text.splitlines()
+
+    for line in lines:
+        name, sep, value = line.partition("=")
+        if sep and name.strip() == key:
+            value = value.strip()
+            if value and not value.startswith("change-me"):
+                return value
+
+    secret = secrets.token_urlsafe(32)
+    for i, line in enumerate(lines):
+        name, sep, _ = line.partition("=")
+        if sep and name.strip() == key:
+            lines[i] = f"{key}={secret}"
+            env_path.write_text("\n".join(lines) + "\n")
+            break
+    else:
+        with env_path.open("a") as fh:
+            prefix = "" if not text or text.endswith("\n") else "\n"
+            fh.write(f"{prefix}\n# {comment}\n{key}={secret}\n")
+
+    console.print(f"  [green]Generated {key} in .env[/green]")
+    return secret
+
+
 def ensure_agent_token() -> str:
     """Return the backend/agent shared secret from .env, generating it on first run.
 
     Called before ``docker compose up`` so the backend reads the same value via env_file.
     """
-    env_path = PROJECT_ROOT / ".env"
-    text = env_path.read_text() if env_path.exists() else ""
-    for line in text.splitlines():
-        key, _, value = line.partition("=")
-        if key.strip() == "HOST_AGENT_TOKEN" and value.strip():
-            return value.strip()
-
-    token = secrets.token_urlsafe(32)
-    with env_path.open("a") as fh:
-        prefix = "" if text.endswith("\n") or not text else "\n"
-        fh.write(f"{prefix}\n# Shared secret between backend and host agent (auto-generated).\n"
-                 f"HOST_AGENT_TOKEN={token}\n")
-    console.print("  [green]Generated HOST_AGENT_TOKEN in .env[/green]")
-    return token
+    return ensure_env_secret(
+        "HOST_AGENT_TOKEN",
+        "Shared secret between backend and host agent (auto-generated).",
+    )
 
 
 def start_agent_background() -> int:
