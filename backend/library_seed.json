@@ -4476,6 +4476,30 @@
             "enabled": true
           }
         ]
+      },
+      {
+        "name": "SMBMAP",
+        "description": "Global template",
+        "is_default_import": false,
+        "requires_auth": false,
+        "speed_profile": "default",
+        "items": [
+          {
+            "name": "Smbmap Recursive",
+            "description": null,
+            "command_template": "smbmap -H {target} -u {username} -p {password} -r --depth 5 --no-banner --no-color --no-update -d {domain}",
+            "output_regex": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {},
+            "target_filter": {},
+            "timeout": 3600,
+            "alert_patterns": {},
+            "tags": [],
+            "enabled": true,
+            "finding_template": {}
+          }
+        ]
       }
     ]
   },

@@ -269,12 +269,13 @@ The library lives in `backend/library_seed.json`. Re-seeding **replaces** all gl
 docker compose exec backend python load_library_seed.py
 ```
 
-A curated export is published at the repo root as [`suggested-library.json`](suggested-library.json)
-— the same format `Library → Export` produces. The loader takes an optional path, so you can
-import it directly or drop in any export of your own:
+The repo root also carries [`suggested-library.json`](suggested-library.json) — a copy of the
+same seed in `Library → Export` format, for browsing the catalogue on GitHub or importing from
+the UI. It is kept identical to `backend/library_seed.json`; that file is the single source of
+truth. The loader takes an optional path, so you can point it at any export of your own:
 
 ```bash
-docker compose exec backend python load_library_seed.py suggested-library.json
+docker compose exec backend python load_library_seed.py /path/to/your-export.json
 ```
 
 ---

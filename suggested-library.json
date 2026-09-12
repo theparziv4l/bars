@@ -2293,7 +2293,7 @@
             ],
             "enabled": true,
             "finding_template": {
-              "title": "MS17-010 (EternalBlue) — Unauthenticated SMB RCE",
+              "title": "MS17-010 (EternalBlue) \u2014 Unauthenticated SMB RCE",
               "severity": "critical",
               "cwe": "CWE-1188",
               "cve": "CVE-2017-0144",
@@ -2360,7 +2360,7 @@
             ],
             "enabled": true,
             "finding_template": {
-              "title": "PrintNightmare — Print Spooler RCE/LPE",
+              "title": "PrintNightmare \u2014 Print Spooler RCE/LPE",
               "severity": "critical",
               "cve": "CVE-2021-34527",
               "remediation": "Patch; disable Print Spooler on servers not printing; restrict Point-and-Print."
@@ -2444,7 +2444,7 @@
             ],
             "enabled": true,
             "finding_template": {
-              "title": "SMBGhost — SMBv3 Compression RCE",
+              "title": "SMBGhost \u2014 SMBv3 Compression RCE",
               "severity": "critical",
               "cve": "CVE-2020-0796",
               "remediation": "Apply KB4551762; disable SMBv3 compression."
@@ -2572,7 +2572,7 @@
             ],
             "enabled": true,
             "finding_template": {
-              "title": "Timeroast — NTP Hash Extraction of Computer Accounts",
+              "title": "Timeroast \u2014 NTP Hash Extraction of Computer Accounts",
               "severity": "medium",
               "remediation": "Restrict unauthenticated NTP MS-SNTP; ensure strong machine passwords."
             }
@@ -2604,7 +2604,7 @@
             ],
             "enabled": true,
             "finding_template": {
-              "title": "PetitPotam — Unauthenticated NTLM Coercion (MS-EFSR)",
+              "title": "PetitPotam \u2014 Unauthenticated NTLM Coercion (MS-EFSR)",
               "severity": "high",
               "cve": "CVE-2021-36942",
               "remediation": "Patch; enable EPA/SMB signing; block coercion + restrict ADCS web enrollment (ESC8)."
@@ -2637,7 +2637,7 @@
             ],
             "enabled": true,
             "finding_template": {
-              "title": "DFSCoerce — NTLM Coercion (MS-DFSNM)",
+              "title": "DFSCoerce \u2014 NTLM Coercion (MS-DFSNM)",
               "severity": "high",
               "remediation": "Enforce SMB/LDAP signing + EPA; restrict ADCS web enrollment."
             }
@@ -2669,7 +2669,7 @@
             ],
             "enabled": true,
             "finding_template": {
-              "title": "ShadowCoerce — NTLM Coercion (MS-FSRVP)",
+              "title": "ShadowCoerce \u2014 NTLM Coercion (MS-FSRVP)",
               "severity": "high",
               "remediation": "Patch; enforce signing + EPA."
             }
@@ -4179,7 +4179,7 @@
               ]
             },
             "finding_template": {
-              "title": "DCSync / NTDS Extraction — Full Domain Compromise",
+              "title": "DCSync / NTDS Extraction \u2014 Full Domain Compromise",
               "severity": "critical",
               "remediation": "Restrict DS-Replication-Get-Changes rights to DCs; investigate the account used.",
               "cwe": "CWE-269"
@@ -4263,7 +4263,7 @@
         "items": [
           {
             "name": "Responder Analyze (passive)",
-            "description": "PASSIVE analyze mode — observe LLMNR/NBT-NS/mDNS without poisoning.",
+            "description": "PASSIVE analyze mode \u2014 observe LLMNR/NBT-NS/mDNS without poisoning.",
             "command_template": "responder -I {interface} -A",
             "output_regex": {},
             "variables": {},
@@ -4322,7 +4322,7 @@
           },
           {
             "name": "mitm6 IPv6 Takeover",
-            "description": "Spoof IPv6 DNS (WPAD) to coerce auth — pair with ntlmrelayx.",
+            "description": "Spoof IPv6 DNS (WPAD) to coerce auth \u2014 pair with ntlmrelayx.",
             "command_template": "mitm6 -d {domain}",
             "output_regex": {},
             "variables": {},
@@ -4492,11 +4492,12 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 3600,
             "alert_patterns": {},
-            "finding_template": {},
             "tags": [],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {}
           }
         ]
       }
