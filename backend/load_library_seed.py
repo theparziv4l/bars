@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Load library_seed.json into the database, replacing all existing library templates."""
+"""Load a library export into the database, replacing all existing library templates.
+
+Usage:
+    python load_library_seed.py                      # backend/library_seed.json
+    python load_library_seed.py /path/to/export.json # any /api/v1/library/export file
+"""
 import asyncio
 import json
 import sys
@@ -16,7 +21,9 @@ from sqlalchemy import select, delete
 from sqlalchemy.orm import selectinload
 
 
-SEED_PATH = os.path.join(os.path.dirname(__file__), "library_seed.json")
+DEFAULT_SEED_PATH = os.path.join(os.path.dirname(__file__), "library_seed.json")
+# Any /api/v1/library/export payload works here, e.g. the repo's suggested-library.json.
+SEED_PATH = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_SEED_PATH
 
 
 async def clear_library(session):
@@ -147,6 +154,10 @@ async def load_seed(session, data):
 async def main():
     await init_db()
 
+    if not os.path.exists(SEED_PATH):
+        sys.exit(f"No such library file: {SEED_PATH}")
+
+    print(f"Reading {SEED_PATH}")
     with open(SEED_PATH, "r") as f:
         data = json.load(f)
 
