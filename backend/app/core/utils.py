@@ -58,6 +58,52 @@ def get_project_path(project_name: str, base_path: str | None = None) -> str:
     return os.path.join(base_path, safe_name)
 
 
+async def excluded_targets(db, project_id: Optional[int]) -> set:
+    """Every identifier the out-of-scope hosts of *project_id* answer to.
+
+    Hosts flagged ``excluded`` are an ROE carve-out: they keep their services,
+    findings and history, but no execution may be aimed at them. Target lists reach
+    the orchestrator as bare strings — the UI injects ``ip_address or display_name``,
+    and display_name falls back to hostname/fqdn — so matching on ip_address alone
+    would let a hostname-shaped target slip past the filter.
+
+    Returns an empty set when *project_id* is unknown, so callers can filter
+    unconditionally.
+    """
+    if not project_id:
+        return set()
+
+    from sqlalchemy import select
+    from app.models.host import Host
+
+    rows = await db.execute(
+        select(Host.ip_address, Host.hostname, Host.fqdn).where(
+            Host.project_id == project_id,
+            Host.excluded.is_(True),
+            Host.deleted_at.is_(None),
+        )
+    )
+    return {value for row in rows.all() for value in row if value}
+
+
+def as_target_list(value) -> list:
+    """Normalise a target value to a list.
+
+    Targets reach the orchestrator as a list (host picker), a whitespace-separated
+    string (manual entry, project variables) or a bare scalar.
+    """
+    if isinstance(value, str):
+        return [v.strip() for v in value.split() if v.strip()]
+    if isinstance(value, (list, tuple)):
+        return list(value)
+    return [value] if value else []
+
+
+def drop_excluded(value, excluded: set) -> list:
+    """Filter a target value by *excluded*, returning a list."""
+    return [v for v in as_target_list(value) if str(v) not in excluded]
+
+
 def resolve_project_path(project: "Project") -> str:
     """Return the host-side project directory for *project*.
 

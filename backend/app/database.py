@@ -106,6 +106,7 @@ def _apply_schema_migrations(connection):
         ("checklist_groups", "ad_domain_id", "INTEGER"),
         ("flow_steps", "target_mode", "TEXT NOT NULL DEFAULT 'inherit'"),
         ("flow_steps", "target_filter", "TEXT NOT NULL DEFAULT '{}'"),
+        ("hosts", "excluded", "BOOLEAN NOT NULL DEFAULT 0"),
     ]
 
     for table, column, col_def in migrations:
@@ -163,6 +164,8 @@ def _apply_schema_migrations(connection):
         "CREATE UNIQUE INDEX IF NOT EXISTS ux_flows_public_id ON flows(public_id)",
         "CREATE UNIQUE INDEX IF NOT EXISTS ux_flow_steps_public_id ON flow_steps(public_id)",
         "CREATE UNIQUE INDEX IF NOT EXISTS ux_ad_domains_public_id ON ad_domains(public_id)",
+        # Matches Host.excluded index=True; create_all only covers freshly made tables.
+        "CREATE INDEX IF NOT EXISTS ix_hosts_excluded ON hosts(excluded)",
     ]
     for stmt in index_statements:
         connection.execute(text(stmt))

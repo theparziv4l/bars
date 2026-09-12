@@ -4,7 +4,7 @@ import {
     ArrowLeft, Plus, Play, ChevronDown, ChevronRight, Server,
     CheckCircle2, XCircle, Clock, Loader2, Terminal, FileText,
     Target, Settings2, Workflow, List, Grid3X3, StopCircle, AlertCircle, Trash2, Search, Download, ChevronLeft,
-    ArrowUpDown, ArrowUp, ArrowDown, RefreshCw, Filter, X
+    ArrowUpDown, ArrowUp, ArrowDown, RefreshCw, Filter, X, Ban, ShieldCheck, FolderDown
 } from 'lucide-react'
 import { projectsApi, checklistsApi, hostsApi, executionsApi, flowsApi, syncPeersApi, adDomainsApi } from '../services/api'
 import { useAuthStore, useChecklistsStore, useHostsStore, useAppStore, useExecutionsStore } from '../stores'
@@ -65,9 +65,12 @@ export default function ProjectDetail() {
     }, [])
 
     const { groups, fetchGroups, createGroup, createItem, updateItemStatus, deleteGroup, deleteItem, batchProgress } = useChecklistsStore()
-    const { hosts, hostsTotal, hostsPage, hostsPerPage, hostsSortBy, hostsSortOrder, hostsTagsFilter, hostsSmbSigningFilter, hostsOsFilter, hostsPortSearch, hostsDomainFilter, setHostsSort, setHostsTagsFilter, setHostsSmbSigningFilter, setHostsOsFilter, setHostsPortSearch, setHostsDomainFilter, fetchHosts, createHost } = useHostsStore()
+    const { hosts, hostsTotal, hostsPage, hostsPerPage, hostsSortBy, hostsSortOrder, hostsTagsFilter, hostsSmbSigningFilter, hostsOsFilter, hostsPortSearch, hostsDomainFilter, hostsScopeFilter, setHostsSort, setHostsTagsFilter, setHostsSmbSigningFilter, setHostsOsFilter, setHostsPortSearch, setHostsDomainFilter, setHostsScopeFilter, fetchHosts, createHost } = useHostsStore()
     const { setCurrentProject } = useAppStore()
-    const listForTarget = executionPanelHosts != null ? executionPanelHosts : hosts
+    // Excluded hosts are out of scope: keep them out of every target picker. The
+    // backend refuses them too — this just stops the operator from picking a host
+    // whose run would only come back failed.
+    const listForTarget = (executionPanelHosts != null ? executionPanelHosts : hosts).filter(h => !h.excluded)
     const { startExecution, executions } = useExecutionsStore()
     const { user } = useAuthStore()
 
@@ -809,6 +812,7 @@ export default function ProjectDetail() {
                             hostsOsFilter={hostsOsFilter}
                             hostsPortSearch={hostsPortSearch}
                             hostsDomainFilter={hostsDomainFilter}
+                            hostsScopeFilter={hostsScopeFilter}
                             onSearchChange={(term) => {
                                 setAssetsSearch(term)
                                 if (assetsSearchDebounceRef.current) clearTimeout(assetsSearchDebounceRef.current)
@@ -844,12 +848,35 @@ export default function ProjectDetail() {
                                 setHostsDomainFilter(val)
                                 fetchHosts(projectId, { per_page: 100, page: 1, ...(assetsSearch.trim() ? { search: assetsSearch.trim() } : {}) })
                             }}
+                            onScopeFilterChange={(val) => {
+                                setHostsScopeFilter(val)
+                                fetchHosts(projectId, { per_page: 100, page: 1, ...(assetsSearch.trim() ? { search: assetsSearch.trim() } : {}) })
+                            }}
                             onClearFilters={() => {
                                 setHostsSmbSigningFilter('')
                                 setHostsOsFilter('')
                                 setHostsPortSearch('')
                                 setHostsDomainFilter('')
+                                setHostsScopeFilter('')
                                 fetchHosts(projectId, { per_page: 100, page: 1, ...(assetsSearch.trim() ? { search: assetsSearch.trim() } : {}) })
+                            }}
+                            onSetScope={async (hostIds, excluded) => {
+                                try {
+                                    const { data } = await hostsApi.bulkScope(hostIds, excluded)
+                                    toast.success(`${data.updated} host${data.updated !== 1 ? 's' : ''} ${excluded ? 'excluded from' : 'returned to'} scope`)
+                                    fetchHosts(projectId, { per_page: 100, page: hostsPage, ...(assetsSearch.trim() ? { search: assetsSearch.trim() } : {}) })
+                                    refreshProjectSummary()
+                                } catch (error) {
+                                    toast.error(error.response?.data?.detail || 'Failed to update scope')
+                                }
+                            }}
+                            onExportIps={async (hostIds) => {
+                                try {
+                                    const { data } = await projectsApi.exportIps(projectId, hostIds)
+                                    toast.success(`Exported ${data.count} IP${data.count !== 1 ? 's' : ''} to ${data.path}`)
+                                } catch (error) {
+                                    toast.error(error.response?.data?.detail || 'Failed to export IPs')
+                                }
                             }}
                             onAddHost={handleCreateHost}
                             onDeleteHost={handleDeleteHost}
@@ -1256,8 +1283,9 @@ function ipToSortKey(ip) {
     return nums[0] * 16777216 + nums[1] * 65536 + nums[2] * 256 + nums[3]
 }
 
-function AssetsView({ hosts, hostsTotal = 0, hostsPage = 1, hostsPerPage = 100, hostsSortBy = null, hostsSortOrder = 'desc', hostsTagsFilter = [], projectHostTags = [], projectId, search: searchProp = '', onSearchChange, onFetchPage, onSortChange, onTagsFilterChange, onAddHost, onDeleteHost, onExportServices, filterOptions = {}, hostsSmbSigningFilter = null, hostsOsFilter = null, hostsPortSearch = null, hostsDomainFilter = null, onSmbSigningFilterChange, onOsFilterChange, onPortSearchChange, onDomainFilterChange, onClearFilters }) {
+function AssetsView({ hosts, hostsTotal = 0, hostsPage = 1, hostsPerPage = 100, hostsSortBy = null, hostsSortOrder = 'desc', hostsTagsFilter = [], projectHostTags = [], projectId, search: searchProp = '', onSearchChange, onFetchPage, onSortChange, onTagsFilterChange, onAddHost, onDeleteHost, onExportServices, filterOptions = {}, hostsSmbSigningFilter = null, hostsOsFilter = null, hostsPortSearch = null, hostsDomainFilter = null, hostsScopeFilter = null, onSmbSigningFilterChange, onOsFilterChange, onPortSearchChange, onDomainFilterChange, onScopeFilterChange, onClearFilters, onSetScope, onExportIps }) {
     const [viewMode, setViewMode] = useState(localStorage.getItem('assetViewMode') || 'grid')
+    const [selectedIds, setSelectedIds] = useState([])
     const [localSearch, setLocalSearch] = useState('')
     const search = onSearchChange != null ? searchProp : localSearch
     const setSearch = onSearchChange != null ? onSearchChange : setLocalSearch
@@ -1346,6 +1374,62 @@ function AssetsView({ hosts, hostsTotal = 0, hostsPage = 1, hostsPerPage = 100, 
 
     const paginatedHosts = sortedHosts
 
+    // Selection is per-page: hosts arrive as a server-paginated, server-filtered slice,
+    // so an id kept across a page change would act on a row nobody can see.
+    useEffect(() => {
+        setSelectedIds(prev => prev.filter(id => paginatedHosts.some(h => h.id === id)))
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [hostsPage, hostsTotal, hosts])
+
+    const selectedHosts = paginatedHosts.filter(h => selectedIds.includes(h.id))
+    const allOnPageSelected = paginatedHosts.length > 0 && selectedIds.length === paginatedHosts.length
+    const toggleOne = (id) => setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
+    const toggleAllOnPage = () => setSelectedIds(allOnPageSelected ? [] : paginatedHosts.map(h => h.id))
+
+    const handleSetScope = async (excluded) => {
+        if (!onSetScope || selectedIds.length === 0) return
+        await onSetScope(selectedIds, excluded)
+        setSelectedIds([])
+    }
+
+    // Excluded hosts stay selectable — that is how Include works — so the export side
+    // is what defends. Both exports carry the same in-scope-only list: a targets file
+    // holding an out-of-scope IP is the same mistake as scanning one.
+    const exportableHosts = selectedHosts.filter(h => !h.excluded)
+    const exportableIps = [...new Set(exportableHosts.map(h => h.ip_address).filter(Boolean))].sort()
+    const excludedInSelection = selectedIds.length - exportableHosts.length
+
+    // Browser download: no round trip, and the analyst gets the list where they are.
+    // The project-folder copy (onExportIps) is the one tools read with -iL.
+    const handleDownloadIps = () => {
+        if (exportableIps.length === 0) return
+        const url = URL.createObjectURL(new Blob([exportableIps.join('\n') + '\n'], { type: 'text/plain' }))
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `targets_project_${projectId}.txt`
+        a.click()
+        URL.revokeObjectURL(url)
+        toast.success(`Downloaded ${exportableIps.length} IP${exportableIps.length !== 1 ? 's' : ''}`)
+    }
+
+    const SelectCheckbox = ({ host }) => (
+        <input
+            type="checkbox"
+            checked={selectedIds.includes(host.id)}
+            onChange={() => toggleOne(host.id)}
+            onClick={(e) => e.stopPropagation()}
+            className="rounded border-dark-600 bg-dark-800 text-accent-primary cursor-pointer"
+            title="Select host"
+        />
+    )
+
+    const ExcludedBadge = () => (
+        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] rounded bg-accent-danger/15 text-accent-danger whitespace-nowrap">
+            <Ban size={10} />
+            Excluded
+        </span>
+    )
+
     const handleSort = (column) => {
         if (hasServerPagination && onSortChange) {
             const newDirection = sortColumn === column && sortDirection === 'asc' ? 'desc' : 'asc'
@@ -1420,9 +1504,20 @@ function AssetsView({ hosts, hostsTotal = 0, hostsPage = 1, hostsPerPage = 100, 
                     </div>
                 )}
 
-                {(filterOptions.smb_signing_values?.length > 0 || filterOptions.os_values?.length > 0 || filterOptions.domain_values?.length > 0 || onPortSearchChange) && (
+                {(filterOptions.smb_signing_values?.length > 0 || filterOptions.os_values?.length > 0 || filterOptions.domain_values?.length > 0 || onPortSearchChange || onScopeFilterChange) && (
                     <div className="flex flex-wrap items-center gap-3 w-full">
                         <Filter size={14} className="text-dark-500" />
+                        {onScopeFilterChange && (
+                            <select
+                                value={hostsScopeFilter || ''}
+                                onChange={(e) => onScopeFilterChange(e.target.value)}
+                                className="input py-1.5 px-3 text-sm bg-dark-800 border-dark-700 rounded-lg min-w-[160px]"
+                            >
+                                <option value="">Scope: All</option>
+                                <option value="false">In scope</option>
+                                <option value="true">Excluded</option>
+                            </select>
+                        )}
                         {filterOptions.domain_values?.length > 0 && (
                             <select
                                 value={hostsDomainFilter || ''}
@@ -1473,7 +1568,7 @@ function AssetsView({ hosts, hostsTotal = 0, hostsPage = 1, hostsPerPage = 100, 
                                 />
                             </div>
                         )}
-                        {(hostsSmbSigningFilter || hostsOsFilter || hostsDomainFilter || hostsPortSearch != null) && (
+                        {(hostsSmbSigningFilter || hostsOsFilter || hostsDomainFilter || hostsPortSearch != null || hostsScopeFilter) && (
                             <button
                                 type="button"
                                 onClick={() => onClearFilters?.()}
@@ -1514,6 +1609,71 @@ function AssetsView({ hosts, hostsTotal = 0, hostsPage = 1, hostsPerPage = 100, 
                 </div>
             </div>
 
+            {selectedIds.length > 0 && (
+                <div className="flex flex-wrap items-center gap-2 px-3 py-2 rounded-lg bg-dark-800/60 border border-dark-700">
+                    <span className="text-sm text-dark-300 font-medium">
+                        {selectedIds.length} selected
+                    </span>
+                    <button
+                        type="button"
+                        onClick={() => setSelectedIds([])}
+                        className="text-xs text-dark-400 hover:text-dark-200 underline mr-2"
+                    >
+                        Clear
+                    </button>
+                    <div className="flex-1" />
+                    {excludedInSelection > 0 && (
+                        <span className="text-xs text-dark-400 mr-1">
+                            {excludedInSelection} excluded host{excludedInSelection !== 1 ? 's' : ''} in selection will not be exported
+                        </span>
+                    )}
+                    <button
+                        type="button"
+                        onClick={handleDownloadIps}
+                        disabled={exportableIps.length === 0}
+                        className="btn-secondary btn-sm whitespace-nowrap disabled:opacity-50"
+                        title="Download the selected in-scope IPs as a .txt file"
+                    >
+                        <Download size={16} />
+                        Download IPs ({exportableIps.length})
+                    </button>
+                    {onExportIps && (
+                        <button
+                            type="button"
+                            onClick={() => onExportIps(exportableHosts.map(h => h.id))}
+                            disabled={exportableIps.length === 0}
+                            className="btn-secondary btn-sm whitespace-nowrap disabled:opacity-50"
+                            title="Write the selected in-scope IPs to <project>/scope/targets.txt on the host"
+                        >
+                            <FolderDown size={16} />
+                            Save IPs to project ({exportableIps.length})
+                        </button>
+                    )}
+                    {onSetScope && selectedHosts.some(h => !h.excluded) && (
+                        <button
+                            type="button"
+                            onClick={() => handleSetScope(true)}
+                            className="btn-secondary btn-sm whitespace-nowrap text-accent-danger"
+                            title="Mark out of scope: no checklist or flow execution may target these hosts"
+                        >
+                            <Ban size={16} />
+                            Exclude
+                        </button>
+                    )}
+                    {onSetScope && selectedHosts.some(h => h.excluded) && (
+                        <button
+                            type="button"
+                            onClick={() => handleSetScope(false)}
+                            className="btn-secondary btn-sm whitespace-nowrap text-accent-success"
+                            title="Return these hosts to scope"
+                        >
+                            <ShieldCheck size={16} />
+                            Include
+                        </button>
+                    )}
+                </div>
+            )}
+
             {filteredHosts.length === 0 ? (
                 <div className="card text-center py-12">
                     <Server size={48} className="mx-auto text-dark-600 mb-4" />
@@ -1549,7 +1709,7 @@ function AssetsView({ hosts, hostsTotal = 0, hostsPage = 1, hostsPerPage = 100, 
                                 <Link
                                     key={host.id}
                                     to={`/host/${host.id}`}
-                                    className="card group hover:border-accent-primary/50 transition-all relative"
+                                    className={`card group hover:border-accent-primary/50 transition-all relative ${host.excluded ? 'opacity-60 border-accent-danger/30' : ''}`}
                                 >
                                     <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity z-10">
                                         <button
@@ -1565,6 +1725,13 @@ function AssetsView({ hosts, hostsTotal = 0, hostsPage = 1, hostsPerPage = 100, 
                                         </button>
                                     </div>
                                     <div className="flex items-start gap-3">
+                                        {/* Card is a <Link>: the checkbox must not navigate. */}
+                                        <div
+                                            className="pt-2.5"
+                                            onClick={(e) => { e.preventDefault(); e.stopPropagation() }}
+                                        >
+                                            <SelectCheckbox host={host} />
+                                        </div>
                                         <div className="p-2 rounded-lg bg-accent-info/10">
                                             <Server size={20} className="text-accent-info" />
                                         </div>
@@ -1572,6 +1739,7 @@ function AssetsView({ hosts, hostsTotal = 0, hostsPage = 1, hostsPerPage = 100, 
                                             <h3 className="font-semibold text-dark-100 truncate group-hover:text-accent-primary">
                                                 {host.display_name}
                                             </h3>
+                                            {host.excluded && <div className="mt-1"><ExcludedBadge /></div>}
                                             {host.ip_address && (
                                                 <p className="text-sm text-dark-400">{host.ip_address}</p>
                                             )}
@@ -1596,6 +1764,15 @@ function AssetsView({ hosts, hostsTotal = 0, hostsPage = 1, hostsPerPage = 100, 
                             <table className="w-full text-left">
                                 <thead className="bg-dark-800/50 text-xs uppercase text-dark-400 font-medium">
                                     <tr>
+                                        <th className="px-4 py-3 w-10">
+                                            <input
+                                                type="checkbox"
+                                                checked={allOnPageSelected}
+                                                onChange={toggleAllOnPage}
+                                                className="rounded border-dark-600 bg-dark-800 text-accent-primary cursor-pointer"
+                                                title="Select all on this page"
+                                            />
+                                        </th>
                                         <SortableTh column="host" label="Host" />
                                         <SortableTh column="ip_address" label="IP Address" />
                                         <th className="px-4 py-3">Domain</th>
@@ -1609,11 +1786,15 @@ function AssetsView({ hosts, hostsTotal = 0, hostsPage = 1, hostsPerPage = 100, 
                                 </thead>
                                 <tbody className="divide-y divide-dark-800">
                                     {paginatedHosts.map((host) => (
-                                        <tr key={host.id} className="group hover:bg-dark-800/30 transition-colors">
+                                        <tr key={host.id} className={`group hover:bg-dark-800/30 transition-colors ${host.excluded ? 'opacity-60' : ''}`}>
+                                            <td className="px-4 py-3">
+                                                <SelectCheckbox host={host} />
+                                            </td>
                                             <td className="px-4 py-3">
                                                 <Link to={`/host/${host.id}`} className="flex items-center gap-3 font-medium text-dark-200 hover:text-accent-primary">
                                                     <Server size={16} className="text-dark-500" />
                                                     {host.display_name}
+                                                    {host.excluded && <ExcludedBadge />}
                                                 </Link>
                                             </td>
                                             <td className="px-4 py-3 text-sm text-dark-400 font-mono">

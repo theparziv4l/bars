@@ -358,15 +358,18 @@ async def execute_flow(flow_id: int, data: FlowExecutionCreate, db: AsyncSession
     """Execute a flow (starts initial steps in background)."""
     from app.core.flow_manager import flow_manager
 
-    flow_exec, _executions = await flow_manager.start_flow(
-        db=db,
-        flow_id=flow_id,
-        variables=data.variables,
-        host_id=data.host_id,
-        target=data.target,
-        targets=data.targets or [],
-        host_ids=data.host_ids or [],
-    )
+    try:
+        flow_exec, _executions = await flow_manager.start_flow(
+            db=db,
+            flow_id=flow_id,
+            variables=data.variables,
+            host_id=data.host_id,
+            target=data.target,
+            targets=data.targets or [],
+            host_ids=data.host_ids or [],
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     return FlowExecutionResponse(
         id=flow_exec.id,

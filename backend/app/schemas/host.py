@@ -42,6 +42,7 @@ class HostBase(BaseModel):
     notes: Optional[str] = Field(None, description="Notes about the host")
     extra_data: dict = Field(default_factory=dict)
     tags: List[str] = Field(default_factory=list, description="Service-type tags for target filtering")
+    excluded: bool = Field(False, description="Out of scope: no execution path may target this host")
 
 
 class HostCreate(HostBase):
@@ -59,6 +60,7 @@ class HostUpdate(BaseModel):
     notes: Optional[str] = None
     extra_data: Optional[dict] = None
     tags: Optional[List[str]] = None
+    excluded: Optional[bool] = None
 
 
 class HostResponse(HostBase):
@@ -76,6 +78,12 @@ class HostResponse(HostBase):
     service_count: int = 0
     execution_count: int = 0
     file_count: int = 0
+
+
+class HostBulkScopeRequest(BaseModel):
+    """Mark a set of hosts in or out of scope."""
+    host_ids: List[int] = Field(..., min_length=1, description="Hosts to update")
+    excluded: bool = Field(..., description="True = out of scope, False = back in scope")
 
 
 class HostListResponse(BaseModel):

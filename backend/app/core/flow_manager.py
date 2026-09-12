@@ -71,7 +71,7 @@ from app.models.execution import Execution, ExecutionStatus
 from app.models.checklist import ChecklistItem
 from app.core.orchestrator import task_orchestrator
 from app.core.templating import template_engine
-from app.core.utils import is_unset, merge_set_values
+from app.core.utils import is_unset, merge_set_values, excluded_targets
 
 
 class FlowManager:
@@ -120,11 +120,15 @@ class FlowManager:
         if not flow:
             raise ValueError(f"Flow {flow_id} not found")
 
+        from app.models.host import Host
+
         # Resolve targets from host_ids if supplied
         if host_ids and not targets:
-            from app.models.host import Host
             host_result = await db.execute(
-                select(Host.ip_address).where(Host.id.in_(host_ids))
+                select(Host.ip_address).where(
+                    Host.id.in_(host_ids),
+                    Host.excluded.is_(False),
+                )
             )
             resolved = [r[0] for r in host_result.all() if r[0]]
             if resolved:
@@ -138,6 +142,27 @@ class FlowManager:
         merged_targets = list(targets or [])
         if target and target not in merged_targets:
             merged_targets.insert(0, target)
+
+        # ROE carve-out. One filter here covers the host picker, the manual-targets
+        # textarea and auto-resolution; per-step "all"/"filtered" modes resolve their
+        # own hosts later and filter in _resolve_step_targets.
+        excluded = await excluded_targets(db, flow.project_id)
+        if excluded:
+            kept = [t for t in merged_targets if str(t) not in excluded]
+            if len(kept) != len(merged_targets):
+                print(
+                    f"[FlowManager] Dropped {len(merged_targets) - len(kept)} "
+                    f"out-of-scope target(s) from flow {flow_id}"
+                )
+                merged_targets = kept
+            if target and str(target) in excluded:
+                target = merged_targets[0] if merged_targets else None
+            if host_id:
+                host_row = (
+                    await db.execute(select(Host.excluded).where(Host.id == host_id))
+                ).first()
+                if host_row and host_row[0]:
+                    raise ValueError("Flow host is excluded from scope")
 
         # Create FlowExecution record
         import uuid
@@ -649,6 +674,7 @@ class FlowManager:
                         Host.project_id == flow.project_id,
                         Host.ip_address.isnot(None),
                         Host.deleted_at.is_(None),
+                        Host.excluded.is_(False),
                         text("json_extract(hosts.extra_data, '$.domain') = :domain_val"),
                     ).limit(5000),
                     {"domain_val": domain_name},
@@ -662,6 +688,7 @@ class FlowManager:
                 Host.project_id == flow.project_id,
                 Host.ip_address.isnot(None),
                 Host.deleted_at.is_(None),
+                Host.excluded.is_(False),
             ).limit(5000)
         )
         return [r[0] for r in hosts_result.all() if r[0]]
@@ -710,6 +737,7 @@ class FlowManager:
                 Host.project_id == project_id,
                 Host.ip_address.isnot(None),
                 Host.deleted_at.is_(None),
+                Host.excluded.is_(False),
             )
             params = {}
             if ad_domain_id:
@@ -740,6 +768,8 @@ class FlowManager:
                     select(Host.ip_address).where(
                         Host.project_id == project_id,
                         Host.ip_address.isnot(None),
+                        Host.deleted_at.is_(None),
+                        Host.excluded.is_(False),
                         tag_filter,
                     ).limit(5000),
                     params,

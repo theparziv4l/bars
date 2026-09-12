@@ -186,6 +186,8 @@ export const useHostsStore = create((set, get) => ({
     hostsOsFilter: null,
     hostsPortSearch: null,
     hostsDomainFilter: null,
+    // null = show every host; 'true'/'false' = excluded-only / in-scope-only
+    hostsScopeFilter: null,
     currentHost: null,
     currentProjectId: null,
     hostsParams: { per_page: 100, page: 1 },
@@ -197,10 +199,11 @@ export const useHostsStore = create((set, get) => ({
     setHostsOsFilter: (val) => set({ hostsOsFilter: val || null }),
     setHostsPortSearch: (val) => set({ hostsPortSearch: val != null && val !== '' ? Number(val) : null }),
     setHostsDomainFilter: (val) => set({ hostsDomainFilter: val || null }),
+    setHostsScopeFilter: (val) => set({ hostsScopeFilter: val || null }),
 
     fetchHosts: async (projectId, params = {}) => {
         set({ loading: true, currentProjectId: projectId, hostsParams: params })
-        const { hostsSortBy, hostsSortOrder, hostsTagsFilter, hostsSmbSigningFilter, hostsOsFilter, hostsPortSearch, hostsDomainFilter } = get()
+        const { hostsSortBy, hostsSortOrder, hostsTagsFilter, hostsSmbSigningFilter, hostsOsFilter, hostsPortSearch, hostsDomainFilter, hostsScopeFilter } = get()
         const mergedParams = {
             ...params,
             ...(hostsSortBy != null && { sort_by: hostsSortBy, sort_order: params.sort_order ?? hostsSortOrder }),
@@ -209,6 +212,7 @@ export const useHostsStore = create((set, get) => ({
             ...(hostsOsFilter && { os_info: hostsOsFilter }),
             ...(hostsPortSearch != null && { port: hostsPortSearch }),
             ...(hostsDomainFilter && { domain: hostsDomainFilter }),
+            ...(hostsScopeFilter && { excluded: hostsScopeFilter }),
         }
         try {
             const { data } = await hostsApi.list(projectId, mergedParams)

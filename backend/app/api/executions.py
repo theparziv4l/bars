@@ -28,6 +28,23 @@ from app.core.notifications import notification_manager
 router = APIRouter()
 
 
+async def _reject_excluded_host(db: AsyncSession, host_id: Optional[int]) -> None:
+    """Refuse a host-scoped execution against an out-of-scope host.
+
+    The orchestrator fails the same case, but only after an execution record exists;
+    refusing at the API keeps a stale tab or a raw POST from littering the timeline
+    with failures.
+    """
+    if not host_id:
+        return
+    row = (await db.execute(select(Host.excluded).where(Host.id == host_id))).first()
+    if row and row[0]:
+        raise HTTPException(
+            status_code=400,
+            detail="Host is excluded from scope. Re-include it in the Assets tab to run against it.",
+        )
+
+
 @router.get("", response_model=ExecutionListResponse)
 async def list_executions(
     project_id: Optional[int] = None,
@@ -91,6 +108,8 @@ async def start_execution(
     current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     """Start a new execution (returns immediately, runs in background)."""
+    await _reject_excluded_host(db, data.host_id)
+
     if settings.CLAIMS_ENABLED and current_user is not None:
         try:
             await claim_item_scope(
@@ -184,6 +203,8 @@ async def start_bulk_execution(
     db: AsyncSession = Depends(get_db)
 ):
     """Execute multiple checklist items."""
+    await _reject_excluded_host(db, data.host_id)
+
     executions = await task_orchestrator.execute_bulk(
         db=db,
         item_ids=data.item_ids,

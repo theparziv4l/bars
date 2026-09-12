@@ -21,6 +21,7 @@ from app.schemas.host import (
     HostListResponse,
     HostScriptScanRequest,
     HostScriptScanResponse,
+    HostBulkScopeRequest,
 )
 from app.core import script_scanner
 
@@ -73,6 +74,7 @@ async def _host_sync_payload(db: AsyncSession, host: Host) -> dict:
         "notes": host.notes,
         "extra_data": host.extra_data,
         "tags": host.tags,
+        "excluded": host.excluded,
         "updated_at": host.updated_at.isoformat() if host.updated_at else None,
         "deleted_at": host.deleted_at.isoformat() if host.deleted_at else None,
     }
@@ -137,6 +139,7 @@ async def list_hosts(
     os_info: Optional[str] = Query(None, alias="os_info", description="Filter by exact OS info value"),
     port: Optional[int] = Query(None, description="Filter hosts with a service on this port"),
     domain: Optional[str] = Query(None, description="Filter by AD domain from extra_data"),
+    excluded: Optional[bool] = Query(None, description="Filter by scope: true = excluded only, false = in scope only"),
     sort_by: Optional[str] = Query(None, description="Sort column: host, ip_address, os_info, discovered_at, smb_signing, service_count, execution_count, file_count"),
     sort_order: Optional[str] = Query("asc", description="Sort direction: asc or desc"),
     db: AsyncSession = Depends(get_db)
@@ -173,6 +176,8 @@ async def list_hosts(
             query = query.where(text(
                 "json_extract(hosts.extra_data, '$.smb_signing') IS NULL"
             ))
+    if excluded is not None:
+        query = query.where(Host.excluded.is_(excluded))
     if os_info:
         query = query.where(Host.os_info == os_info)
     if port is not None:
@@ -240,6 +245,35 @@ async def create_host(data: HostCreate, db: AsyncSession = Depends(get_db)):
         payload=await _host_sync_payload(db, host),
     )
     return _host_to_response(host)
+
+
+@router.post("/bulk-scope")
+async def bulk_set_scope(data: HostBulkScopeRequest, db: AsyncSession = Depends(get_db)):
+    """Mark hosts in or out of scope in one shot.
+
+    Declared before ``/{host_id}`` so the literal path wins over the int path param.
+    """
+    result = await db.execute(
+        select(Host).where(Host.id.in_(data.host_ids), Host.deleted_at.is_(None))
+    )
+    hosts = result.scalars().all()
+    if not hosts:
+        raise HTTPException(status_code=404, detail="No matching hosts")
+
+    for host in hosts:
+        host.excluded = data.excluded
+    await db.flush()
+
+    for host in hosts:
+        await sync_service.record_event(
+            db,
+            entity_type="hosts",
+            entity_public_id=host.public_id,
+            operation="update",
+            payload=await _host_sync_payload(db, host),
+        )
+
+    return {"updated": len(hosts), "excluded": data.excluded}
 
 
 @router.get("/{host_id}", response_model=HostResponse)
@@ -391,6 +425,7 @@ def _host_to_response(host: Host, counts: Optional[dict] = None) -> HostResponse
         notes=host.notes,
         extra_data=host.extra_data,
         tags=host.tags if hasattr(host, "tags") and host.tags is not None else [],
+        excluded=bool(getattr(host, "excluded", False)),
         discovered_at=host.discovered_at,
         updated_at=host.updated_at,
         display_name=host.display_name,

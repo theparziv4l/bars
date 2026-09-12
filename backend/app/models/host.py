@@ -75,6 +75,10 @@ class Host(Base):
     
     # Service-type tags (e.g. ["http", "smb", "ssh"]) for target filtering
     tags: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+
+    # Out-of-scope marker (ROE carve-out). Excluded hosts stay in the DB with all
+    # their services/findings/history, but no execution path may target them.
+    excluded: Mapped[bool] = mapped_column(default=False, nullable=False, index=True)
     
     # Timestamps
     discovered_at: Mapped[datetime] = mapped_column(

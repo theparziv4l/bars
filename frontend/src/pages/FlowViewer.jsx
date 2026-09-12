@@ -104,7 +104,10 @@ export default function FlowViewer() {
         if (!flow?.project_id) return;
         try {
             const response = await hostsApi.list(flow.project_id, { per_page: 500 });
-            setHosts(response.data?.items || response.data || []);
+            // Excluded hosts are out of scope — the backend drops them from flow targets,
+            // so never offer them in the picker.
+            const items = response.data?.items || response.data || [];
+            setHosts(items.filter(h => !h.excluded));
         } catch { /* ignore */ }
     }, [flow?.project_id]);
 

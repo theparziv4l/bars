@@ -937,6 +937,12 @@ class SyncService:
             host, payload,
             ("ip_address", "hostname", "fqdn", "os_info", "notes", "extra_data", "tags"),
         )
+        # ROE carve-out: every node must agree or one peer happily scans a host another
+        # peer put out of scope. Coerced rather than routed through _apply_present, whose
+        # None-normalisation only knows how to empty dicts/lists — a null here would hit
+        # a NOT NULL column.
+        if "excluded" in payload:
+            host.excluded = bool(payload["excluded"])
         host.deleted_at = _parse_dt(payload.get("deleted_at"))
         host.updated_at = _parse_dt(payload.get("updated_at")) or datetime.utcnow()
 

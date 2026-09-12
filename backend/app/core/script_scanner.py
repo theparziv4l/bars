@@ -105,7 +105,13 @@ async def generate_service_scan_items(
     """
     result = await db.execute(
         select(Host)
-        .where(Host.project_id == project_id)
+        .where(
+            Host.project_id == project_id,
+            Host.deleted_at.is_(None),
+            # Out-of-scope hosts must not inflate a tag's port set or host count —
+            # the generated items resolve {targets} from those same tags at run time.
+            Host.excluded.is_(False),
+        )
         .options(selectinload(Host.services))
     )
     hosts = result.scalars().all()
@@ -249,6 +255,8 @@ async def launch_host_script_scan(
     host = result.scalar_one_or_none()
     if not host:
         raise ValueError("Host not found")
+    if host.excluded:
+        raise ValueError("Host is excluded from scope")
     if not host.project_id:
         raise ValueError("Host has no project")
 

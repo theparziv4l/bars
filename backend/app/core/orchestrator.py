@@ -21,7 +21,7 @@ from app.core.parser import output_parser
 from app.core.templating import template_engine
 from app.core.notifications import notification_manager
 from app.core.host_runner import host_runner
-from app.core.utils import is_unset
+from app.core.utils import is_unset, as_target_list, excluded_targets
 from app.core.sync import (
     sync_service,
     execution_sync_payload,
@@ -228,6 +228,28 @@ class TaskOrchestrator:
         
         return execution
     
+    async def _fail_execution(self, execution_id: int, item_id: int, message: str) -> None:
+        """Mark a pre-created execution FAILED without ever launching a command."""
+        from app.database import async_session_maker
+
+        print(f"[Orchestrator] Execution {execution_id} refused: {message}")
+        try:
+            async with async_session_maker() as db:
+                result = await db.execute(
+                    select(Execution).where(Execution.id == execution_id)
+                )
+                execution = result.scalar_one_or_none()
+                if execution:
+                    execution.status = ExecutionStatus.FAILED
+                    execution.stderr = message
+                    execution.completed_at = datetime.utcnow()
+                    await db.commit()
+            await notification_manager.send_execution_status(
+                execution_id, "failed", details={"error": message}, item_id=item_id
+            )
+        except Exception as e:
+            print(f"[Orchestrator] Failed to record refusal for {execution_id}: {e}")
+
     async def run_execution_background(
         self, execution_id: int, item_id: int, host_id: Optional[int] = None,
         variables: Optional[Dict[str, Any]] = None,
@@ -242,6 +264,77 @@ class TaskOrchestrator:
         # otherwise satisfy every ``"x" in variables`` guard below and suppress target
         # resolution, batching and output injection.
         variables = {k: v for k, v in (variables or {}).items() if not is_unset(v)}
+
+        # Resolve the item once: its project scopes the out-of-scope host set, and its
+        # command template decides file-based vs iterative batching further down.
+        project_id = None
+        command_template = None
+        async with async_session_maker() as db:
+            result = await db.execute(
+                select(ChecklistItem)
+                .where(ChecklistItem.id == item_id)
+                .options(selectinload(ChecklistItem.group))
+            )
+            item = result.scalar_one_or_none()
+            if item:
+                command_template = item.command_template
+                if item.group:
+                    project_id = item.group.project_id
+            if project_id is None and variables.get("flow_id"):
+                try:
+                    flow_result = await db.execute(
+                        select(Flow).where(Flow.id == int(variables["flow_id"]))
+                    )
+                    flow = flow_result.scalar_one_or_none()
+                    if flow:
+                        project_id = flow.project_id
+                except Exception as e:
+                    print(f"[Orchestrator] Failed to resolve project_id from flow: {e}")
+            excluded = await excluded_targets(db, project_id)
+            host_is_excluded = False
+            if host_id:
+                host_row = (
+                    await db.execute(select(Host.excluded).where(Host.id == host_id))
+                ).first()
+                host_is_excluded = bool(host_row and host_row[0])
+
+        # A host-scoped run (Execute Task on one host, a flow step in "single" target
+        # mode) never populates {target} from the picker, so the list filter below would
+        # miss it.
+        if host_is_excluded:
+            await self._fail_execution(
+                execution_id, item_id,
+                "This host is excluded from scope. "
+                "Re-include it in the Assets tab to run against it.",
+            )
+            return
+
+        # ROE carve-out, enforced here — before the batch/file-based split — so iterative
+        # children, the {targets} file and a plain single run are all covered by one
+        # guard. Every other entry point funnels through this method.
+        if excluded:
+            for key in ("target", "targets"):
+                if is_unset(variables.get(key)) or key not in variables:
+                    continue
+                original = variables[key]
+                before = as_target_list(original)
+                kept = [v for v in before if str(v) not in excluded]
+                if len(kept) == len(before):
+                    continue
+                print(
+                    f"[Orchestrator] Dropped {len(before) - len(kept)} out-of-scope "
+                    f"target(s) from '{key}' (item {item_id})"
+                )
+                if not kept:
+                    await self._fail_execution(
+                        execution_id, item_id,
+                        "All requested targets are excluded from scope. "
+                        "Re-include them in the Assets tab to run this task.",
+                    )
+                    return
+                variables[key] = (
+                    " ".join(str(v) for v in kept) if isinstance(original, str) else kept
+                )
 
         # Check for multiple targets in "target" variable
         raw_target = variables.get("target")
@@ -260,19 +353,11 @@ class TaskOrchestrator:
         
         if "targets" in variables:
             use_file_based_batch = True
-        else:
-            # Check Command Template for "{targets}" usage
+        elif command_override:
             # If command_override is provided, we check that instead of item.command_template
-            if command_override:
-                if "{targets}" in command_override:
-                    use_file_based_batch = True
-            else:
-                async with async_session_maker() as db:
-                    from app.models.checklist import ChecklistItem
-                    result = await db.execute(select(ChecklistItem).where(ChecklistItem.id == item_id))
-                    item = result.scalar_one_or_none()
-                    if item and item.command_template and "{targets}" in item.command_template:
-                        use_file_based_batch = True
+            use_file_based_batch = "{targets}" in command_override
+        else:
+            use_file_based_batch = bool(command_template) and "{targets}" in command_template
         
         if use_file_based_batch:
             # File-Based Batching: Flatten "target" (list) into "targets" (list) if needed
@@ -858,6 +943,8 @@ class TaskOrchestrator:
                     .where(
                         Host.project_id == project_id,
                         Host.ip_address.isnot(None),
+                        Host.deleted_at.is_(None),
+                        Host.excluded.is_(False),
                         tag_filter,
                     )
                     .limit(5000)

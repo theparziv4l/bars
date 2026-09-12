@@ -6,7 +6,7 @@ import {
     File, Folder, ChevronRight, ChevronDown, RefreshCw, HardDrive,
     Lock, Unlock, Eye, EyeOff, Database, Share2, Maximize2, X,
     Settings, Upload, FolderOpen, ArrowUp, AlertCircle, Target,
-    Copy, FileText
+    Copy, FileText, Ban
 } from 'lucide-react'
 import { hostsApi, filesApi, executionsApi, projectsApi } from '../services/api'
 import toast from 'react-hot-toast'
@@ -187,12 +187,18 @@ export default function HostDashboard() {
                                     SMB Signing: Disabled
                                 </span>
                             )}
+                            {host?.excluded && (
+                                <span className="flex items-center gap-1 text-accent-danger bg-accent-danger/10 px-2 py-0.5 rounded text-xs font-medium border border-accent-danger/20">
+                                    <Ban size={12} />
+                                    Excluded from scope
+                                </span>
+                            )}
                         </div>
                     </div>
                 </div>
                 <button
                     onClick={async () => {
-                        if (scriptScanLoading || !host?.services?.length) return
+                        if (scriptScanLoading || !host?.services?.length || host?.excluded) return
                         setScriptScanLoading(true)
                         try {
                             const { data } = await hostsApi.scriptScan(hostId)
@@ -207,9 +213,9 @@ export default function HostDashboard() {
                             setScriptScanLoading(false)
                         }
                     }}
-                    disabled={scriptScanLoading || !host?.services?.length}
+                    disabled={scriptScanLoading || !host?.services?.length || host?.excluded}
                     className="btn-primary btn-sm flex items-center gap-2"
-                    title={!host?.services?.length ? 'Discover services first' : 'Run NSE script scan for this host'}
+                    title={host?.excluded ? 'Host is excluded from scope — re-include it in the Assets tab' : !host?.services?.length ? 'Discover services first' : 'Run NSE script scan for this host'}
                 >
                     {scriptScanLoading ? <Loader2 size={16} className="animate-spin" /> : <Target size={16} />}
                     Script Scan

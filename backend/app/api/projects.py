@@ -936,7 +936,11 @@ async def export_services(
     for host in project.hosts:
         if not host.ip_address:
             continue
-            
+        # These files are fed straight to tools (-iL / -p) — an out-of-scope host
+        # landing in one is the same as scanning it.
+        if host.excluded:
+            continue
+
         for svc in host.services:
             if not svc.name or svc.state != "open":
                 continue
@@ -989,6 +993,63 @@ async def export_services(
         "directory": services_dir,
         "file_count": len(created_files)
     }
+
+
+@router.post("/{project_id}/export-ips")
+async def export_ips(
+    project_id: int,
+    data: Optional[dict] = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
+    """Write an IP list to <project>/scope/targets.txt for use with nmap -iL and friends.
+
+    Body: ``{"host_ids": [1, 2]}`` to export a selection, or omit it for every in-scope
+    host. Excluded hosts are never written, even when their id is passed explicitly.
+    """
+    await _require_project_member(db, project_id, current_user)
+    import os
+    import shlex
+    from app.core.host_runner import host_runner
+    from app.core.utils import resolve_project_path
+
+    result = await db.execute(select(Project).where(Project.id == project_id))
+    project = result.scalar_one_or_none()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    query = select(Host.ip_address).where(
+        Host.project_id == project_id,
+        Host.ip_address.isnot(None),
+        Host.deleted_at.is_(None),
+        Host.excluded.is_(False),
+    )
+    # An explicit-but-empty selection means "nothing", never "everything" — only an
+    # absent key falls through to the whole project.
+    host_ids = (data or {}).get("host_ids")
+    if host_ids is not None:
+        query = query.where(Host.id.in_(host_ids))
+
+    ips = sorted({r[0] for r in (await db.execute(query)).all() if r[0]})
+    if not ips:
+        raise HTTPException(status_code=400, detail="No in-scope hosts with an IP to export")
+
+    scope_dir = os.path.join(resolve_project_path(project), "scope")
+    targets_file = os.path.join(scope_dir, "targets.txt")
+    await host_runner.execute_sync(f"mkdir -p {shlex.quote(scope_dir)}")
+    written = await host_runner.execute_sync(
+        f"printf '%s\n' {shlex.quote(chr(10).join(ips))} > {shlex.quote(targets_file)}"
+    )
+    # The write happens on the host agent. Reporting success for a write that never
+    # landed would leave the operator pointing -iL at a file that isn't there.
+    if written.get("exit_code") != 0:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Host agent could not write {targets_file}: "
+                   f"{(written.get('stderr') or 'agent unreachable').strip()[:200]}",
+        )
+
+    return {"status": "success", "path": targets_file, "count": len(ips)}
 
 
 @router.post("/{project_id}/script-scan", response_model=GenerateScriptScanResponse)

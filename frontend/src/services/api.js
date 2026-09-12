@@ -63,6 +63,9 @@ export const projectsApi = {
     update: (id, data) => api.put(`/projects/${id}`, data),
     delete: (id) => api.delete(`/projects/${id}`),
     exportServices: (id) => api.post(`/projects/${id}/export-services`),
+    // hostIds must be non-empty or omitted: [] is truthy in JS but falsy in Python, so
+    // sending it would fall through to "export every in-scope host in the project".
+    exportIps: (id, hostIds = null) => api.post(`/projects/${id}/export-ips`, hostIds?.length ? { host_ids: hostIds } : {}),
     generateScriptScan: (id, data = {}) => api.post(`/projects/${id}/script-scan`, data),
     getVariables: (id, adDomainId) => api.get(`/projects/${id}/variables`, { params: adDomainId != null ? { ad_domain_id: adDomainId } : {} }),
     getHostTags: (id) => api.get(`/projects/${id}/host-tags`),
@@ -114,6 +117,7 @@ export const hostsApi = {
     timeline: (id) => api.get(`/hosts/${id}/timeline`),
     addService: (hostId, data) => api.post(`/hosts/${hostId}/services`, data),
     scriptScan: (hostId, data = {}) => api.post(`/hosts/${hostId}/script-scan`, data),
+    bulkScope: (hostIds, excluded) => api.post('/hosts/bulk-scope', { host_ids: hostIds, excluded }),
 }
 
 // Checklists
