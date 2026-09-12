@@ -3,14 +3,49 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV_DIR="$SCRIPT_DIR/.bars/venv"
+VENV_PYTHON="$VENV_DIR/bin/python"
 REQUIREMENTS="$SCRIPT_DIR/cli/requirements.txt"
 
-if [ ! -f "$VENV_DIR/bin/python" ]; then
+# Gate on the dependencies importing, not on the venv directory existing. A venv whose
+# pip install never finished — interrupted, offline, or built without pip because
+# python3-venv was missing — used to satisfy the old `-f bin/python` test, so every
+# later run skipped the bootstrap and died on "No module named 'typer'" with no way
+# out but deleting .bars/venv by hand. Keep in sync with cli/requirements.txt.
+if ! "$VENV_PYTHON" -c 'import typer, rich' >/dev/null 2>&1; then
     echo "[bars] Bootstrapping CLI environment..."
     mkdir -p "$SCRIPT_DIR/.bars"
-    python3 -m venv "$VENV_DIR"
-    "$VENV_DIR/bin/pip" install -q -r "$REQUIREMENTS"
+
+    if [ ! -x "$VENV_PYTHON" ]; then
+        python3 -m venv "$VENV_DIR" || {
+            echo "[bars] Could not create a virtualenv." >&2
+            echo "[bars] Install the venv module, then re-run:  sudo apt install -y python3-venv" >&2
+            exit 1
+        }
+    fi
+
+    # `python -m pip`, never bin/pip: the shim hardcodes an absolute shebang, so it
+    # breaks with "bad interpreter" if the checkout is ever moved or renamed.
+    if ! "$VENV_PYTHON" -m pip --version >/dev/null 2>&1; then
+        echo "[bars] Virtualenv has no pip; rebuilding it..."
+        rm -rf "$VENV_DIR"
+        python3 -m venv "$VENV_DIR" || {
+            echo "[bars] Could not create a virtualenv." >&2
+            echo "[bars] Install the venv module, then re-run:  sudo apt install -y python3-venv" >&2
+            exit 1
+        }
+        "$VENV_PYTHON" -m pip --version >/dev/null 2>&1 || {
+            echo "[bars] Virtualenv still has no pip after a rebuild." >&2
+            echo "[bars] Install it, then re-run:  sudo apt install -y python3-venv python3-pip" >&2
+            exit 1
+        }
+    fi
+
+    if ! "$VENV_PYTHON" -m pip install -q -r "$REQUIREMENTS"; then
+        echo "[bars] Failed to install CLI dependencies from $REQUIREMENTS." >&2
+        echo "[bars] Fix the error above (usually no network), then re-run ./bars — it retries." >&2
+        exit 1
+    fi
     echo "[bars] Ready."
 fi
 
-exec "$VENV_DIR/bin/python" -m cli.main "$@"
+exec "$VENV_PYTHON" -m cli.main "$@"

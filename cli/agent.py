@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import secrets
+import shutil
 import signal
 import subprocess
 import time
@@ -24,21 +25,56 @@ from cli.state import is_pid_alive, is_agent_process
 console = Console()
 
 AGENT_PYTHON = HOST_AGENT_VENV / "bin" / "python"
-AGENT_PIP = HOST_AGENT_VENV / "bin" / "pip"
+
+
+# Keep in sync with host_agent/requirements.txt.
+AGENT_MODULES = ("fastapi", "uvicorn", "pydantic")
+
+
+def _agent_deps_importable() -> bool:
+    """True when the agent venv can actually import what main.py needs."""
+    if not AGENT_PYTHON.exists():
+        return False
+    return subprocess.run(
+        [str(AGENT_PYTHON), "-c", f"import {', '.join(AGENT_MODULES)}"],
+        capture_output=True,
+    ).returncode == 0
 
 
 def ensure_agent_venv() -> None:
-    if AGENT_PYTHON.exists():
+    """Create the host agent venv and install its dependencies, repairing a half-built one.
+
+    Checked by import rather than by the venv directory existing: an interrupted or
+    offline pip install leaves the interpreter in place, and the old existence test then
+    skipped this every run — the agent only failed later, with a ModuleNotFoundError
+    buried in its log file.
+    """
+    if _agent_deps_importable():
         console.print("  [dim]Agent venv already exists[/dim]")
         return
-    console.print("  Creating agent virtualenv...")
-    subprocess.run(
-        ["python3", "-m", "venv", str(HOST_AGENT_VENV)],
-        check=True,
-    )
+
+    if not AGENT_PYTHON.exists():
+        console.print("  Creating agent virtualenv...")
+        try:
+            subprocess.run(["python3", "-m", "venv", str(HOST_AGENT_VENV)], check=True)
+        except subprocess.CalledProcessError:
+            console.print("  [red]Could not create the agent virtualenv.[/red]")
+            console.print("  [dim]Install it, then re-run: sudo apt install -y python3-venv[/dim]")
+            raise
+    else:
+        console.print("  Repairing agent virtualenv (dependencies missing)...")
+
+    # `python -m pip`, never bin/pip: the shim hardcodes an absolute shebang and breaks
+    # with "bad interpreter" once the checkout is moved or renamed.
+    pip_cmd = [str(AGENT_PYTHON), "-m", "pip"]
+    if subprocess.run([*pip_cmd, "--version"], capture_output=True).returncode != 0:
+        console.print("  Agent virtualenv has no pip; rebuilding it...")
+        shutil.rmtree(HOST_AGENT_VENV, ignore_errors=True)
+        subprocess.run(["python3", "-m", "venv", str(HOST_AGENT_VENV)], check=True)
+
     console.print("  Installing agent dependencies...")
     subprocess.run(
-        [str(AGENT_PIP), "install", "-q", "-r", str(HOST_AGENT_REQUIREMENTS)],
+        [*pip_cmd, "install", "-q", "-r", str(HOST_AGENT_REQUIREMENTS)],
         check=True,
     )
     console.print("  [green]Agent venv ready[/green]")

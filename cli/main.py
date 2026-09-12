@@ -380,9 +380,14 @@ def _install_system_packages(assume_yes: bool) -> None:
         missing.append("docker.io")
     if not check_compose_v2().passed:
         missing.append("docker-compose-plugin")
+    # The host agent gets its own venv. Debian/Kali ship ensurepip separately, and
+    # without it `python3 -m venv` produces an interpreter with no pip at all.
+    if subprocess.run(["python3", "-m", "venv", "--help"],
+                      capture_output=True).returncode != 0:
+        missing.append("python3-venv")
 
     if not missing:
-        console.print("  [dim]Docker and Compose v2 already present[/dim]")
+        console.print("  [dim]Docker, Compose v2 and python3-venv already present[/dim]")
         return
 
     console.print(f"  Missing: [yellow]{', '.join(missing)}[/yellow]")

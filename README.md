@@ -343,6 +343,8 @@ scripts/     rsync helpers for pushing to a second machine
 | Symptom | Fix |
 |---|---|
 | `permission denied … /var/run/docker.sock` | `./bars fix-docker`, then log out/in or `newgrp docker`. |
+| `ModuleNotFoundError: No module named 'typer'` | A CLI bootstrap that half-finished. `./bars` now detects and repairs this itself — just re-run it. If it reports it cannot create a virtualenv: `sudo apt install -y python3-venv`. |
+| `bad interpreter: …/venv/bin/python3` | A venv built under a different path; venvs are not relocatable. `rm -rf .bars/venv host_agent/venv && ./bars install`. |
 | Executions stay PENDING / "host agent unreachable" | Agent not running: `./bars status`. On Linux the backend reaches it via `host.docker.internal`, which needs the `extra_hosts: host-gateway` mapping already in the compose files. |
 | Tool "not found" in an execution | The agent runs on the *host*, so the binary must be in the host user's `PATH` — not inside a container. |
 | Port 3000/8000/8001 already in use | `./bars start` fails the prereq check and names the port; free it or change the mapping in `docker-compose.yml`. |
