@@ -9,7 +9,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
+from app.core.auth import get_current_user_optional
 from app.database import get_db
+from app.models.user import User
 from app.models.project import Project
 from app.models.host import Host
 from app.models.checklist import ChecklistGroup
@@ -57,9 +59,12 @@ async def generate_report(
     format: str = "markdown",
     include_logs: bool = True,
     include_files: bool = True,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     """Generate a report for a project (markdown | html | pdf), driven by Findings."""
+    from app.api.projects import _require_project_member
+    await _require_project_member(db, project_id, current_user)
     result = await db.execute(
         select(Project).where(Project.id == project_id)
         .options(
@@ -126,16 +131,24 @@ async def generate_report(
 
 
 @router.get("/list")
-async def list_reports():
+async def list_reports(
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
     """List generated reports."""
     reports = await asyncio.to_thread(_list_reports_sync, settings.REPORTS_PATH)
     return {"reports": reports}
 
 
 @router.get("/download/{filename}")
-async def download_report(filename: str):
+async def download_report(
+    filename: str,
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
     """Download a generated report."""
-    report_path = settings.REPORTS_PATH / filename
+    base = settings.REPORTS_PATH.resolve()
+    report_path = (settings.REPORTS_PATH / filename).resolve()
+    if report_path != base and base not in report_path.parents:
+        raise HTTPException(status_code=404, detail="Report not found")
     exists = await asyncio.to_thread(report_path.exists)
     if not exists:
         raise HTTPException(status_code=404, detail="Report not found")
