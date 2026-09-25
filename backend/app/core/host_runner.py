@@ -91,16 +91,23 @@ class HostRunner:
                                 pass
                                 
         except Exception as e:
-            yield {"stream": "stderr", "text": f"Connection Error: {str(e)}"}
-            yield {"exit_code": -1}
+            # Transport failure: mark it distinctly and emit NO exit_code, so
+            # callers report connection-lost instead of a fake command failure.
+            msg = f"Connection Error: {str(e)}"
+            yield {"stream": "stderr", "text": msg}
+            yield {"transport_error": msg}
 
-    async def cancel_execution(self, execution_id: str) -> bool:
-        """Cancel an execution on the host agent."""
+    async def cancel_execution(self, execution_id: str, timeout: float = 10) -> bool:
+        """Cancel an execution on the host agent (bounded wait)."""
         url = f"{self.agent_url}/cancel/{execution_id}"
         try:
             session = await self._get_session()
-            async with session.post(url) as response:
-                return response.status == 200
+
+            async def _do() -> bool:
+                async with session.post(url) as response:
+                    return response.status == 200
+
+            return await asyncio.wait_for(_do(), timeout=timeout)
         except Exception as e:
             print(f"Failed to cancel execution {execution_id}: {e}")
             return False
