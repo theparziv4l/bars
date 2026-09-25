@@ -50,7 +50,7 @@ async def _run_race():
         async def do_pause():
             async with maker() as db:
                 try:
-                    await pause_flow_execution(flow_id, "fx-p", db)
+                    await pause_flow_execution(flow_id, "fx-p", db, None)
                 except Exception:
                     pass
 

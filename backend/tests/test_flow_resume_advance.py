@@ -87,7 +87,7 @@ async def _run_api():
         orch.create_execution_record = AsyncMock(side_effect=_fake_create)
         orch.run_execution_background = AsyncMock(return_value=None)
         async with maker() as db:
-            resp = await resume_flow_execution(flow_id, "fx-rs", db)
+            resp = await resume_flow_execution(flow_id, "fx-rs", db, None)
             assert resp["status"] == "resumed", resp
         await asyncio.sleep(0)
         await asyncio.sleep(0)

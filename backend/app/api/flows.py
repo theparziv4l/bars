@@ -9,9 +9,11 @@ from sqlalchemy import select, inspect as sa_inspect
 from sqlalchemy.orm import selectinload, joinedload
 
 from app.database import get_db
+from app.core.auth import get_current_user_optional
 from app.models.flow import Flow, FlowStep
 from app.models.flow_execution import FlowExecution
 from app.models.checklist import ChecklistItem, ChecklistGroup
+from app.models.user import User
 from app.core.sync import sync_service, flow_sync_payload, flow_step_sync_payload
 from app.core.utils import merge_set_values
 from app.schemas.flow import (
@@ -23,13 +25,31 @@ from app.schemas.execution import ExecutionResponse
 router = APIRouter()
 
 
+async def _flow_project_id(db: AsyncSession, flow_id: int) -> Optional[int]:
+    row = (await db.execute(select(Flow.id, Flow.project_id).where(Flow.id == flow_id))).first()
+    return row[1] if row else None
+
+
+async def _exec_project_id(db: AsyncSession, flow_execution_id: str) -> Optional[int]:
+    fer = (await db.execute(
+        select(FlowExecution.flow_id).where(FlowExecution.id == flow_execution_id)
+    )).scalar_one_or_none()
+    if fer is None:
+        return None
+    return await _flow_project_id(db, fer)
+
+
 @router.get("", response_model=List[FlowResponse])
 async def list_flows(
     project_id: Optional[int] = None,
     is_template: bool = False,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     """List flows for a project or global templates."""
+    if project_id:
+        from app.api.projects import _require_project_member
+        await _require_project_member(db, project_id, current_user)
     query = select(Flow)
     
     if project_id:
@@ -62,8 +82,15 @@ async def list_flows(
 
 
 @router.post("", response_model=FlowResponse, status_code=201)
-async def create_flow(data: FlowCreate, db: AsyncSession = Depends(get_db)):
+async def create_flow(
+    data: FlowCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
     """Create a new flow."""
+    if data.project_id is not None:
+        from app.api.projects import _require_project_member
+        await _require_project_member(db, data.project_id, current_user)
     flow = Flow(
         project_id=data.project_id,
         name=data.name,
@@ -125,7 +152,11 @@ async def create_flow(data: FlowCreate, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/{flow_id}", response_model=FlowResponse)
-async def get_flow(flow_id: int, db: AsyncSession = Depends(get_db)):
+async def get_flow(
+    flow_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
     """Get a flow by ID."""
     result = await db.execute(
         select(Flow).where(Flow.id == flow_id)
@@ -134,6 +165,9 @@ async def get_flow(flow_id: int, db: AsyncSession = Depends(get_db)):
     flow = result.scalar_one_or_none()
     if not flow:
         raise HTTPException(status_code=404, detail="Flow not found")
+    if flow.project_id is not None:
+        from app.api.projects import _require_project_member
+        await _require_project_member(db, flow.project_id, current_user)
 
     ad_domain_name = None
     if getattr(flow, "ad_domain_id", None):
@@ -147,7 +181,12 @@ async def get_flow(flow_id: int, db: AsyncSession = Depends(get_db)):
 
 
 @router.put("/{flow_id}", response_model=FlowResponse)
-async def update_flow(flow_id: int, data: FlowUpdate, db: AsyncSession = Depends(get_db)):
+async def update_flow(
+    flow_id: int,
+    data: FlowUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
     """Update a flow."""
     result = await db.execute(
         select(Flow).where(Flow.id == flow_id)
@@ -156,6 +195,9 @@ async def update_flow(flow_id: int, data: FlowUpdate, db: AsyncSession = Depends
     flow = result.scalar_one_or_none()
     if not flow:
         raise HTTPException(status_code=404, detail="Flow not found")
+    if flow.project_id is not None:
+        from app.api.projects import _require_project_member
+        await _require_project_member(db, flow.project_id, current_user)
     
     for field, value in data.model_dump(exclude_unset=True, exclude={"steps"}).items():
         setattr(flow, field, value)
@@ -231,7 +273,11 @@ async def update_flow(flow_id: int, data: FlowUpdate, db: AsyncSession = Depends
 
 
 @router.delete("/{flow_id}", status_code=204)
-async def delete_flow(flow_id: int, db: AsyncSession = Depends(get_db)):
+async def delete_flow(
+    flow_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
     """Delete a flow."""
     result = await db.execute(
         select(Flow).where(Flow.id == flow_id).options(selectinload(Flow.steps))
@@ -239,6 +285,9 @@ async def delete_flow(flow_id: int, db: AsyncSession = Depends(get_db)):
     flow = result.scalar_one_or_none()
     if not flow:
         raise HTTPException(status_code=404, detail="Flow not found")
+    if flow.project_id is not None:
+        from app.api.projects import _require_project_member
+        await _require_project_member(db, flow.project_id, current_user)
     try:
         payload = await flow_sync_payload(db, flow)
         await sync_service.record_event(
@@ -259,8 +308,11 @@ async def import_flow(
     template_flow_ids: List[int],
     db: AsyncSession = Depends(get_db),
     ad_domain_id: Optional[int] = None,
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     """Import flow templates into a project."""
+    from app.api.projects import _require_project_member
+    await _require_project_member(db, project_id, current_user)
     result = await db.execute(
         select(Flow)
         .where(Flow.id.in_(template_flow_ids))
@@ -354,9 +406,18 @@ async def import_flow(
 
 
 @router.post("/{flow_id}/execute", response_model=FlowExecutionResponse)
-async def execute_flow(flow_id: int, data: FlowExecutionCreate, db: AsyncSession = Depends(get_db)):
+async def execute_flow(
+    flow_id: int,
+    data: FlowExecutionCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
     """Execute a flow (starts initial steps in background)."""
     from app.core.flow_manager import flow_manager
+    _pid = await _flow_project_id(db, flow_id)
+    if _pid is not None:
+        from app.api.projects import _require_project_member
+        await _require_project_member(db, _pid, current_user)
 
     try:
         flow_exec, _executions = await flow_manager.start_flow(
@@ -388,9 +449,10 @@ async def execute_flow(flow_id: int, data: FlowExecutionCreate, db: AsyncSession
 
 @router.post("/{flow_id}/execution/{flow_execution_id}/stop")
 async def stop_flow_execution(
-    flow_id: int, 
-    flow_execution_id: str, 
-    db: AsyncSession = Depends(get_db)
+    flow_id: int,
+    flow_execution_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     """Stop all running tasks for a flow execution."""
     from app.models.execution import Execution, ExecutionStatus
@@ -398,8 +460,12 @@ async def stop_flow_execution(
     from app.core.flow_manager import flow_manager
 
     result = await db.execute(select(Flow).where(Flow.id == flow_id))
-    if not result.scalar_one_or_none():
+    flow = result.scalar_one_or_none()
+    if not flow:
          raise HTTPException(status_code=404, detail="Flow not found")
+    if flow.project_id is not None:
+        from app.api.projects import _require_project_member
+        await _require_project_member(db, flow.project_id, current_user)
 
     # Serialize with completion-driven advancement: re-check state under lock.
     lock = await flow_manager._get_flow_lock(flow_execution_id)
@@ -447,11 +513,19 @@ async def pause_flow_execution(
     flow_id: int,
     flow_execution_id: str,
     db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     """Pause a running flow execution. Cancels the currently running step immediately."""
     from app.models.execution import Execution, ExecutionStatus
     from app.core.orchestrator import task_orchestrator
     from app.core.flow_manager import flow_manager
+
+    _frow = (await db.execute(select(Flow).where(Flow.id == flow_id))).scalar_one_or_none()
+    if _frow is None:
+        raise HTTPException(status_code=404, detail="Flow not found")
+    if _frow.project_id is not None:
+        from app.api.projects import _require_project_member
+        await _require_project_member(db, _frow.project_id, current_user)
 
     # Serialize with completion-driven advancement: re-check state under lock.
     lock = await flow_manager._get_flow_lock(flow_execution_id)
@@ -496,10 +570,16 @@ async def resume_flow_execution(
     flow_id: int,
     flow_execution_id: str,
     db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     """Resume a paused flow execution from the step it was paused at."""
     from app.core.flow_manager import flow_manager
     from app.models.execution import Execution, ExecutionStatus
+
+    _rpid = await _flow_project_id(db, flow_id)
+    if _rpid is not None:
+        from app.api.projects import _require_project_member
+        await _require_project_member(db, _rpid, current_user)
 
     # Serialize with completion-driven advancement: re-check state under lock.
     lock = await flow_manager._get_flow_lock(flow_execution_id)
@@ -631,6 +711,7 @@ async def get_flow_execution_status(
     flow_id: int,
     flow_execution_id: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     """Get step-by-step execution status for a flow (latest or specific run)."""
     from app.models.execution import Execution, ExecutionStatus
@@ -642,6 +723,9 @@ async def get_flow_execution_status(
     flow = result.scalar_one_or_none()
     if not flow:
         raise HTTPException(status_code=404, detail="Flow not found")
+    if flow.project_id is not None:
+        from app.api.projects import _require_project_member
+        await _require_project_member(db, flow.project_id, current_user)
 
     # Find the FlowExecution to display
     if flow_execution_id:
@@ -732,8 +816,16 @@ async def get_flow_execution_status(
 
 
 @router.get("/{flow_id}/executions", response_model=List[FlowExecutionResponse])
-async def list_flow_executions(flow_id: int, db: AsyncSession = Depends(get_db)):
+async def list_flow_executions(
+    flow_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
     """List all execution runs for a flow."""
+    _lpid = await _flow_project_id(db, flow_id)
+    if _lpid is not None:
+        from app.api.projects import _require_project_member
+        await _require_project_member(db, _lpid, current_user)
     result = await db.execute(
         select(FlowExecution)
         .where(FlowExecution.flow_id == flow_id)
@@ -753,9 +845,17 @@ async def list_flow_executions(flow_id: int, db: AsyncSession = Depends(get_db))
 
 
 @router.get("/execution/{flow_execution_id}/context")
-async def get_execution_context(flow_execution_id: str, db: AsyncSession = Depends(get_db)):
+async def get_execution_context(
+    flow_execution_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
     """Get current variable context for a flow execution."""
     from app.models.execution import Execution
+    _cpid = await _exec_project_id(db, flow_execution_id)
+    if _cpid is not None:
+        from app.api.projects import _require_project_member
+        await _require_project_member(db, _cpid, current_user)
     
     # Fetch all executions for this flow run
     stmt = (
@@ -798,14 +898,19 @@ async def get_execution_context(flow_execution_id: str, db: AsyncSession = Depen
 
 @router.get("/execution/{flow_execution_id}/next")
 async def get_next_tasks(
-    flow_execution_id: str, 
-    flow_id: Optional[int] = None, 
-    db: AsyncSession = Depends(get_db)
+    flow_execution_id: str,
+    flow_id: Optional[int] = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     """
     Get tasks ready to be executed.
     Requires flow_id to resolve the definition, or infers it if possible.
     """
+    _npid = await _flow_project_id(db, flow_id) if flow_id else await _exec_project_id(db, flow_execution_id)
+    if _npid is not None:
+        from app.api.projects import _require_project_member
+        await _require_project_member(db, _npid, current_user)
     from app.models.execution import Execution
     from app.core.flow_manager import flow_manager as fm
 
@@ -882,9 +987,17 @@ def _flow_to_response(flow: Flow, ad_domain_name: Optional[str] = None) -> FlowR
 async def export_flows_json(
     project_id: Optional[int] = None,
     flow_id: Optional[int] = None,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     """Export flows in JSON format."""
+    from app.api.projects import _require_project_member
+    if project_id:
+        await _require_project_member(db, project_id, current_user)
+    elif flow_id:
+        _epid = await _flow_project_id(db, flow_id)
+        if _epid is not None:
+            await _require_project_member(db, _epid, current_user)
     query = select(Flow).options(
         selectinload(Flow.steps).selectinload(FlowStep.checklist_item)
     )
@@ -951,9 +1064,13 @@ async def import_flows_file(
     project_id: Optional[int] = None,
     ad_domain_id: Optional[int] = None,
     file: UploadFile = File(...),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     """Import flows from a JSON file. If project_id is None, import as global templates."""
+    if project_id is not None:
+        from app.api.projects import _require_project_member
+        await _require_project_member(db, project_id, current_user)
     if not file.filename.endswith('.json'):
         raise HTTPException(status_code=400, detail="Invalid file format. Please upload a JSON file.")
         
