@@ -322,6 +322,27 @@ class FlowManager:
         async with lock:
             await self._schedule_next_steps_locked(db, flow_execution_id, last_execution)
 
+    @staticmethod
+    def _live_stage_execs(stage_execs: list) -> list:
+        """Drop superseded rows from earlier pause/resume generations.
+
+        A CANCELLED row is superseded when it completed before the newest row
+        of the same step was even created (i.e. it belongs to a pre-resume
+        generation). Fresh cancellations always complete after creation.
+        """
+        created = [e.created_at for e in stage_execs if e.created_at]
+        if not created:
+            return list(stage_execs)
+        newest = max(created)
+        return [
+            e for e in stage_execs
+            if not (
+                e.status == ExecutionStatus.CANCELLED
+                and e.completed_at is not None
+                and e.completed_at < newest
+            )
+        ]
+
     async def _schedule_next_steps_locked(self, db: AsyncSession, flow_execution_id: str, last_execution: Execution):
         # Load FlowExecution record
         fe_result = await db.execute(
@@ -343,8 +364,12 @@ class FlowManager:
 
         current_index = last_execution.flow_step_index
 
-        # Wait for all tasks at current stage to finish
-        current_stage_execs = [e for e in executions if e.flow_step_index == current_index]
+        # Wait for all tasks at current stage to finish. Superseded
+        # pause/resume generations are dropped so a resumed stage completing
+        # doesn't self-cancel on its own paused rows.
+        current_stage_execs = self._live_stage_execs(
+            [e for e in executions if e.flow_step_index == current_index]
+        )
         if any(e.status in (ExecutionStatus.RUNNING, ExecutionStatus.PENDING) for e in current_stage_execs):
             print(f"[FlowManager] Stage {current_index} still running. Waiting.")
             return
