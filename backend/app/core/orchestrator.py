@@ -2362,10 +2362,16 @@ class TaskOrchestrator:
                         await session.rollback()
                         raise
 
+            # Wait for every sibling before surfacing failures: no detached
+            # tasks, no never-retrieved exceptions. First error still raises
+            # (callers map it to 500), but only after all items finished.
             results = await asyncio.gather(*[
                 _execute_with_own_session(item_id)
                 for item_id in item_ids
-            ])
+            ], return_exceptions=True)
+            errors = [r for r in results if isinstance(r, Exception)]
+            if errors:
+                raise errors[0]
             return list(results)
     
     def get_running_executions(self) -> List[int]:
