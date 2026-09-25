@@ -41,11 +41,11 @@ class _StubHttp:
         self.get_open = None
         self.post_open = None
 
-    def get(self, url):
+    def get(self, url, headers=None):
         self.get_open = self.open_counter[0]
         return _Resp({"node_id": "peer", "events": self.events})
 
-    def post(self, url, json=None):
+    def post(self, url, json=None, headers=None):
         self.post_open = self.open_counter[0]
         return _Resp({"applied": 1, "skipped": 0, "latest_logical_ts": 5,
                        "min_deferred_ts": None})

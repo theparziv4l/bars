@@ -1,7 +1,8 @@
 """Sync transport endpoints for multi-node replication."""
+import hmac
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,6 +25,14 @@ from app.models.user import User
 router = APIRouter()
 
 
+def _require_peer_token(request: Request) -> None:
+    if not settings.SYNC_PEER_TOKEN:
+        raise HTTPException(status_code=503, detail="Sync peer auth not configured")
+    presented = request.headers.get("X-Sync-Token", "")
+    if not hmac.compare_digest(presented, settings.SYNC_PEER_TOKEN):
+        raise HTTPException(status_code=401, detail="Invalid peer token")
+
+
 def _normalize_base_url(url: str) -> str:
     u = (url or "").strip().rstrip("/")
     if not u:
@@ -35,6 +44,7 @@ def _normalize_base_url(url: str) -> str:
 
 @router.get("/pull", response_model=SyncPullResponse)
 async def pull_events(
+    request: Request,
     since_logical_ts: int = Query(0, ge=0),
     limit: int = Query(200, ge=1, le=5000),
     project_public_id: Optional[str] = Query(None, description="If set, return only events for this project"),
@@ -43,6 +53,7 @@ async def pull_events(
     """Return local events newer than provided cursor, optionally filtered by project."""
     if not settings.SYNC_ENABLED:
         raise HTTPException(status_code=503, detail="Sync is disabled")
+    _require_peer_token(request)
     events = await sync_service.pull_events(
         db,
         since_logical_ts=since_logical_ts,
@@ -69,11 +80,13 @@ async def pull_events(
 @router.post("/push", response_model=SyncPushResponse)
 async def push_events(
     data: SyncPushRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ):
     """Ingest remote events from peer node."""
     if not settings.SYNC_ENABLED:
         raise HTTPException(status_code=503, detail="Sync is disabled")
+    _require_peer_token(request)
     result = await sync_service.ingest_remote_events(
         db,
         peer_node_id=data.source_node_id,

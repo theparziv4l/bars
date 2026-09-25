@@ -67,6 +67,10 @@ class SyncWorker:
             self._session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=20))
         return self._session
 
+    def _peer_headers(self) -> dict:
+        token = settings.SYNC_PEER_TOKEN or ""
+        return {"X-Sync-Token": token} if token else {}
+
     async def _resolve_peers(self) -> list[str]:
         """Build deduplicated peer list, caching DB lookups."""
         env_peers = get_sync_peer_urls()
@@ -151,7 +155,7 @@ class SyncWorker:
         pull_url = f"{sync_base}/pull?since_logical_ts={pull_cursor}&limit={settings.SYNC_BATCH_SIZE}"
         if project_public_id:
             pull_url += f"&project_public_id={project_public_id}"
-        async with session.get(pull_url) as response:
+        async with session.get(pull_url, headers=self._peer_headers()) as response:
             if response.status != 200:
                 body = await response.text()
                 self._peer_fail_count[peer_base_url] = self._peer_fail_count.get(peer_base_url, 0) + 1
@@ -217,7 +221,7 @@ class SyncWorker:
         }
         push_url = f"{sync_base}/push"
         # POST with no DB session open; cursor write gets a fresh session after.
-        async with session.post(push_url, json=request_body) as response:
+        async with session.post(push_url, json=request_body, headers=self._peer_headers()) as response:
             push_status = response.status
             if push_status != 200:
                 body = await response.text()
