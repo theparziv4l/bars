@@ -329,8 +329,8 @@ class FlowManager:
         )
         flow_exec = fe_result.scalar_one_or_none()
 
-        if flow_exec and flow_exec.status == "paused":
-            print(f"[FlowManager] Flow {flow_execution_id} is paused. Not scheduling next steps.")
+        if flow_exec is not None and flow_exec.status != "running":
+            print(f"[FlowManager] Flow {flow_execution_id} is {flow_exec.status}. Not scheduling next steps.")
             return
 
         # Load all executions for this flow run
