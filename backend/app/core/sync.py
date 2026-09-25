@@ -195,10 +195,24 @@ async def finding_sync_payload(db: AsyncSession, finding) -> Dict[str, Any]:
     if finding.host_id:
         host = (await db.execute(select(Host).where(Host.id == finding.host_id))).scalar_one_or_none()
         host_public_id = host.public_id if host else None
+    item_public_id = None
+    if finding.item_id:
+        item = (await db.execute(
+            select(ChecklistItem).where(ChecklistItem.id == finding.item_id)
+        )).scalar_one_or_none()
+        item_public_id = item.public_id if item else None
+    execution_public_id = None
+    if finding.execution_id:
+        ex = (await db.execute(
+            select(Execution).where(Execution.id == finding.execution_id)
+        )).scalar_one_or_none()
+        execution_public_id = ex.public_id if ex else None
     return {
         "public_id": finding.public_id,
         "project_public_id": project_public_id,
         "host_public_id": host_public_id,
+        "item_public_id": item_public_id,
+        "execution_public_id": execution_public_id,
         "title": finding.title,
         "description": finding.description,
         "severity": finding.severity.value if finding.severity else "info",
@@ -1518,16 +1532,49 @@ class SyncService:
                 select(Host).where(Host.public_id == payload["host_public_id"])
             )).scalar_one_or_none()
             host_id = host.id if host else None
+        item_id = None
+        if payload.get("item_public_id"):
+            item = (await db.execute(
+                select(ChecklistItem).where(ChecklistItem.public_id == payload["item_public_id"])
+            )).scalar_one_or_none()
+            item_id = item.id if item else None
+        execution_id = None
+        if payload.get("execution_public_id"):
+            ex = (await db.execute(
+                select(Execution).where(Execution.public_id == payload["execution_public_id"])
+            )).scalar_one_or_none()
+            execution_id = ex.id if ex else None
 
         finding = (await db.execute(
             select(Finding).where(Finding.public_id == public_id)
         )).scalar_one_or_none()
         if finding is None:
-            finding = Finding(public_id=public_id, project_id=project_id, title=payload.get("title") or "Finding")
-            db.add(finding)
+            # Adopt on the same natural key the local ingester dedupes on
+            # (project_id, item_id, host_id, title): another node may have found
+            # the same thing with a different public_id.
+            title = payload.get("title") or "Finding"
+            nk = (await db.execute(
+                select(Finding).where(
+                    Finding.project_id == project_id,
+                    Finding.item_id == item_id,
+                    Finding.host_id == host_id,
+                    Finding.title == title,
+                )
+            )).scalar_one_or_none()
+            if nk is not None:
+                nk.public_id = public_id
+                finding = nk
+            else:
+                finding = Finding(
+                    public_id=public_id, project_id=project_id,
+                    item_id=item_id, execution_id=execution_id, title=title,
+                )
+                db.add(finding)
 
         finding.project_id = project_id
         finding.host_id = host_id or finding.host_id
+        finding.item_id = item_id or finding.item_id
+        finding.execution_id = execution_id or finding.execution_id
         finding.title = payload.get("title") or finding.title
         if "description" in payload:
             finding.description = payload["description"]
@@ -1546,7 +1593,7 @@ class SyncService:
         )
         finding.source = payload.get("source") or finding.source or "alert"
         if payload.get("occurrences"):
-            finding.occurrences = payload.get("occurrences")
+            finding.occurrences = max(finding.occurrences or 0, int(payload["occurrences"]))
         finding.deleted_at = _parse_dt(payload.get("deleted_at"))
         finding.updated_at = _parse_dt(payload.get("updated_at")) or datetime.utcnow()
 
