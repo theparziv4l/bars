@@ -1,12 +1,40 @@
 """Application configuration settings."""
+import os
 import socket
+import uuid
 from pydantic_settings import BaseSettings
 from pathlib import Path
 from typing import Optional
 
-# Machine-unique-ish default so two sync nodes don't share "node-local" (which breaks
-# the last-write-wins tiebreak). Operators SHOULD still set NODE_ID explicitly per node.
-_DEFAULT_NODE_ID = f"node-{socket.gethostname() or 'local'}"
+
+def resolve_node_id(storage_dir=None) -> str:
+    """Stable per-node id: explicit env wins, else a persisted generated id.
+
+    Hostname defaults collide across cloned images/containers (shared cursors,
+    broken LWW tiebreaks), so the generated id is written to ``.node_id`` once
+    and reused on every later start.
+    """
+    env = os.environ.get("NODE_ID")
+    if env and env.strip():
+        return env.strip()
+    directory = Path(storage_dir) if storage_dir else (Path(__file__).resolve().parent.parent / "storage")
+    path = directory / ".node_id"
+    try:
+        existing = path.read_text().strip()
+        if existing:
+            return existing
+    except OSError:
+        pass
+    generated = f"node-{uuid.uuid4().hex[:12]}"
+    try:
+        directory.mkdir(parents=True, exist_ok=True)
+        path.write_text(generated)
+    except OSError:
+        return f"node-{socket.gethostname() or 'local'}"
+    return generated
+
+
+_DEFAULT_NODE_ID = resolve_node_id()
 
 
 class Settings(BaseSettings):
