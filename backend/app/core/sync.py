@@ -855,7 +855,7 @@ class SyncService:
         try:
             project.status = ProjectStatus(status_value)
         except Exception:
-            project.status = ProjectStatus.PLANNING
+            pass  # unknown status from a newer peer: keep existing, don't clobber
 
         project.name = payload.get("name", project.name)
         _apply_present(project, payload, ("description", "scope", "extra_data"))
