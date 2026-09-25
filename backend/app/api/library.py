@@ -1,6 +1,7 @@
 """Whole-library export/import API endpoints."""
 import json
 from datetime import datetime
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,9 +9,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from app.database import get_db
+from app.core.auth import get_current_user_optional
 from app.models.checklist import ChecklistGroup, ChecklistItem
 from app.models.flow import Flow, FlowStep
 from app.models.library_variable import LibraryVariable
+from app.models.user import User
 
 router = APIRouter()
 
@@ -89,7 +92,10 @@ def _serialize_variables(variables) -> list:
 
 
 @router.get("/export")
-async def export_whole_library(db: AsyncSession = Depends(get_db)):
+async def export_whole_library(
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
     """Export the entire library (checklists, flows, variables) as a single JSON file."""
     groups_result = await db.execute(
         select(ChecklistGroup)
@@ -131,6 +137,7 @@ async def export_whole_library(db: AsyncSession = Depends(get_db)):
 async def import_whole_library(
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     """Import a whole-library JSON file. Accepts any combination of checklists, flows, and variables."""
     if not file.filename.endswith(".json"):

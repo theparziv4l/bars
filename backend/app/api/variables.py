@@ -8,8 +8,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.database import get_db
+from app.core.auth import get_current_user_optional
 from app.models.library_variable import LibraryVariable
 from app.models.project import Project
+from app.models.user import User
 from app.models.variable import ProjectVariable
 from app.core.sync import sync_service
 
@@ -17,7 +19,10 @@ router = APIRouter()
 
 
 @router.get("/library")
-async def list_library_variables(db: AsyncSession = Depends(get_db)):
+async def list_library_variables(
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
     """List all library variable templates."""
     result = await db.execute(
         select(LibraryVariable).order_by(LibraryVariable.key)
@@ -40,7 +45,8 @@ async def list_library_variables(db: AsyncSession = Depends(get_db)):
 @router.post("/library", status_code=201)
 async def create_library_variable(
     data: dict,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     """Create or update a library variable template."""
     key = data.get("key")
@@ -88,7 +94,8 @@ async def create_library_variable(
 async def update_library_variable(
     variable_id: int,
     data: dict,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     """Update a library variable template."""
     result = await db.execute(
@@ -126,7 +133,8 @@ async def update_library_variable(
 @router.delete("/library/{variable_id}", status_code=204)
 async def delete_library_variable(
     variable_id: int,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     """Delete a library variable template."""
     result = await db.execute(
@@ -144,6 +152,7 @@ async def delete_library_variable(
 @router.get("/export/json")
 async def export_library_variables_json(
     db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     """Export all library variables as a JSON file."""
     result = await db.execute(
@@ -178,6 +187,7 @@ async def export_library_variables_json(
 async def import_library_variables_file(
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     """Import library variables from a JSON file (upsert by key)."""
     if not file.filename.endswith(".json"):
@@ -267,9 +277,12 @@ async def import_library_variables(
     project_id: int,
     variable_ids: List[int],
     ad_domain_id: Optional[int] = None,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     """Import library variables into a project, optionally scoped to an AD domain."""
+    from app.api.projects import _require_project_member
+    await _require_project_member(db, project_id, current_user)
     result = await db.execute(
         select(LibraryVariable).where(LibraryVariable.id.in_(variable_ids))
     )

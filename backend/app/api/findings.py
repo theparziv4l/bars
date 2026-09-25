@@ -8,8 +8,10 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
+from app.core.auth import get_current_user_optional
 from app.core.sync import sync_service, finding_sync_payload
 from app.models.finding import Finding, FindingSeverity, FindingStatus, SEVERITY_ORDER
+from app.models.user import User
 
 router = APIRouter()
 
@@ -100,7 +102,10 @@ async def list_findings(
     status: Optional[FindingStatus] = None,
     host_id: Optional[int] = None,
     db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
+    from app.api.projects import _require_project_member
+    await _require_project_member(db, project_id, current_user)
     stmt = select(Finding).where(Finding.project_id == project_id, Finding.deleted_at.is_(None))
     if severity is not None:
         stmt = stmt.where(Finding.severity == severity)
@@ -114,8 +119,14 @@ async def list_findings(
 
 
 @router.get("/summary")
-async def findings_summary(project_id: int, db: AsyncSession = Depends(get_db)):
+async def findings_summary(
+    project_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
     """Severity rollup (excludes false-positives). Feeds the dashboard + report exec summary."""
+    from app.api.projects import _require_project_member
+    await _require_project_member(db, project_id, current_user)
     stmt = (
         select(Finding.severity, func.count())
         .where(
@@ -134,7 +145,13 @@ async def findings_summary(project_id: int, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("", response_model=FindingResponse, status_code=201)
-async def create_finding(data: FindingCreate, db: AsyncSession = Depends(get_db)):
+async def create_finding(
+    data: FindingCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
+    from app.api.projects import _require_project_member
+    await _require_project_member(db, data.project_id, current_user)
     finding = Finding(**data.model_dump(), source="manual")
     db.add(finding)
     await db.flush()
@@ -144,13 +161,27 @@ async def create_finding(data: FindingCreate, db: AsyncSession = Depends(get_db)
 
 
 @router.get("/{finding_id}", response_model=FindingResponse)
-async def get_finding(finding_id: int, db: AsyncSession = Depends(get_db)):
-    return await _get(db, finding_id)
+async def get_finding(
+    finding_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
+    finding = await _get(db, finding_id)
+    from app.api.projects import _require_project_member
+    await _require_project_member(db, finding.project_id, current_user)
+    return finding
 
 
 @router.put("/{finding_id}", response_model=FindingResponse)
-async def update_finding(finding_id: int, data: FindingUpdate, db: AsyncSession = Depends(get_db)):
+async def update_finding(
+    finding_id: int,
+    data: FindingUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
     finding = await _get(db, finding_id)
+    from app.api.projects import _require_project_member
+    await _require_project_member(db, finding.project_id, current_user)
     for field, value in data.model_dump(exclude_unset=True).items():
         setattr(finding, field, value)
     finding.updated_at = datetime.utcnow()
@@ -161,8 +192,15 @@ async def update_finding(finding_id: int, data: FindingUpdate, db: AsyncSession 
 
 
 @router.delete("/{finding_id}", status_code=204)
-async def delete_finding(finding_id: int, db: AsyncSession = Depends(get_db)):
+async def delete_finding(
+    finding_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
     finding = (await db.execute(select(Finding).where(Finding.id == finding_id))).scalar_one_or_none()
+    if finding is not None:
+        from app.api.projects import _require_project_member
+        await _require_project_member(db, finding.project_id, current_user)
     if finding and finding.deleted_at is None:
         finding.deleted_at = datetime.utcnow()
         await db.flush()

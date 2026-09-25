@@ -15,6 +15,27 @@ from app.config import settings
 
 router = APIRouter()
 
+
+def _like_escape(s: str) -> str:
+    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+async def _host_project_id(db, host_id: int):
+    """Project owning a host (None when host missing)."""
+    from app.models.host import Host
+    return (await db.execute(select(Host.project_id).where(Host.id == host_id))).scalar_one_or_none()
+
+
+async def _file_project_id(db, file_id: int):
+    """Project owning a discovered file via its host (None when unresolvable)."""
+    from app.models.host import Host
+    row = (await db.execute(
+        select(Host.project_id).join(DiscoveredFile, DiscoveredFile.host_id == Host.id)
+        .where(DiscoveredFile.id == file_id)
+    )).scalar_one_or_none()
+    return row
+
+
 CREDENTIAL_KEY_MAP = {
     "username": ["smb_user", "username", "user", "smb_username"],
     "password": ["smb_pass", "password", "pass", "smb_password"],
@@ -96,21 +117,26 @@ async def list_files(
     search: Optional[str] = None,
     page: int = Query(1, ge=1),
     per_page: int = Query(100, ge=1, le=500),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     """List discovered files for a host with pagination."""
+    from app.api.projects import _require_project_member
+    _hpid = await _host_project_id(db, host_id)
+    if _hpid is not None:
+        await _require_project_member(db, _hpid, current_user)
 
     query = select(DiscoveredFile).where(DiscoveredFile.host_id == host_id)
     if share_name:
         query = query.where(DiscoveredFile.share_name == share_name)
     if path:
-        query = query.where(DiscoveredFile.path.like(f"{path}%"))
+        query = query.where(DiscoveredFile.path.like(f"{_like_escape(path)}%", escape="\\"))
     if file_type:
         query = query.where(DiscoveredFile.file_type == file_type)
     if interesting_only:
         query = query.where(DiscoveredFile.is_interesting == True)
     if search:
-        query = query.where(DiscoveredFile.name.ilike(f"%{search}%"))
+        query = query.where(DiscoveredFile.name.ilike(f"%{_like_escape(search)}%", escape="\\"))
 
     subq = query.subquery()
     total = (await db.execute(select(func.count()).select_from(subq))).scalar_one()
@@ -130,8 +156,17 @@ async def list_files(
 
 
 @router.get("/tree")
-async def get_file_tree(host_id: int, share_name: Optional[str] = None, db: AsyncSession = Depends(get_db)):
+async def get_file_tree(
+    host_id: int,
+    share_name: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
     """Get file tree structure for virtual explorer."""
+    from app.api.projects import _require_project_member
+    _hpid = await _host_project_id(db, host_id)
+    if _hpid is not None:
+        await _require_project_member(db, _hpid, current_user)
     query = select(DiscoveredFile).where(DiscoveredFile.host_id == host_id)
     if share_name:
         query = query.where(DiscoveredFile.share_name == share_name)
@@ -189,8 +224,16 @@ async def get_file_tree(host_id: int, share_name: Optional[str] = None, db: Asyn
 
 
 @router.get("/shares")
-async def list_shares(host_id: int, db: AsyncSession = Depends(get_db)):
+async def list_shares(
+    host_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
     """List discovered shares for a host with detailed metadata."""
+    from app.api.projects import _require_project_member
+    _hpid = await _host_project_id(db, host_id)
+    if _hpid is not None:
+        await _require_project_member(db, _hpid, current_user)
     # Get all share entries (file_type = 'share')
     result = await db.execute(
         select(DiscoveredFile).where(
@@ -297,7 +340,11 @@ print(json.dumps({{'current_path': target, 'parent_path': parent, 'entries': ent
 
 
 @router.get("/resolve-smb-credentials")
-async def resolve_smb_credentials(host_id: int, db: AsyncSession = Depends(get_db)):
+async def resolve_smb_credentials(
+    host_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
     """Resolve SMB credentials for a host: auto from AD domain variables, fallback to project-level."""
     from app.models.host import Host
     from app.models.project import Project
@@ -306,6 +353,8 @@ async def resolve_smb_credentials(host_id: int, db: AsyncSession = Depends(get_d
     host = host_result.scalar_one_or_none()
     if not host:
         raise HTTPException(status_code=404, detail="Host not found")
+    from app.api.projects import _require_project_member
+    await _require_project_member(db, host.project_id, current_user)
 
     proj_result = await db.execute(select(Project).where(Project.id == host.project_id))
     project = proj_result.scalar_one_or_none()
@@ -316,22 +365,38 @@ async def resolve_smb_credentials(host_id: int, db: AsyncSession = Depends(get_d
 
 
 @router.get("/{file_id}")
-async def get_file_details(file_id: int, db: AsyncSession = Depends(get_db)):
+async def get_file_details(
+    file_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
     """Get file details."""
     result = await db.execute(select(DiscoveredFile).where(DiscoveredFile.id == file_id))
     file = result.scalar_one_or_none()
     if not file:
         raise HTTPException(status_code=404, detail="File not found")
+    from app.api.projects import _require_project_member
+    _fpid = await _file_project_id(db, file_id)
+    if _fpid is not None:
+        await _require_project_member(db, _fpid, current_user)
     return _file_to_dict(file)
 
 
 @router.get("/{file_id}/download")
-async def download_file(file_id: int, db: AsyncSession = Depends(get_db)):
+async def download_file(
+    file_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
     """Download a discovered file."""
     result = await db.execute(select(DiscoveredFile).where(DiscoveredFile.id == file_id))
     file = result.scalar_one_or_none()
     if not file:
         raise HTTPException(status_code=404, detail="File not found")
+    from app.api.projects import _require_project_member
+    _fpid = await _file_project_id(db, file_id)
+    if _fpid is not None:
+        await _require_project_member(db, _fpid, current_user)
     
     if not file.local_path:
         raise HTTPException(status_code=400, detail="File not downloaded locally")
@@ -344,7 +409,12 @@ async def download_file(file_id: int, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/{file_id}/fetch")
-async def fetch_file(file_id: int, data: Optional[dict] = Body(None), db: AsyncSession = Depends(get_db)):
+async def fetch_file(
+    file_id: int,
+    data: Optional[dict] = Body(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
     """Download a discovered file from remote SMB share to local project directory."""
     from app.models.host import Host
     from app.models.project import Project
@@ -358,6 +428,10 @@ async def fetch_file(file_id: int, data: Optional[dict] = Body(None), db: AsyncS
     file = result.scalar_one_or_none()
     if not file:
         raise HTTPException(status_code=404, detail="File not found")
+    from app.api.projects import _require_project_member
+    _fpid = await _file_project_id(db, file_id)
+    if _fpid is not None:
+        await _require_project_member(db, _fpid, current_user)
 
     host_result = await db.execute(select(Host).where(Host.id == file.host_id))
     host = host_result.scalar_one_or_none()
@@ -428,12 +502,20 @@ async def fetch_file(file_id: int, data: Optional[dict] = Body(None), db: AsyncS
 
 
 @router.get("/{file_id}/serve")
-async def serve_local_file(file_id: int, db: AsyncSession = Depends(get_db)):
+async def serve_local_file(
+    file_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
     """Serve an already-downloaded file to the browser."""
     result = await db.execute(select(DiscoveredFile).where(DiscoveredFile.id == file_id))
     file = result.scalar_one_or_none()
     if not file:
         raise HTTPException(status_code=404, detail="File not found")
+    from app.api.projects import _require_project_member
+    _fpid = await _file_project_id(db, file_id)
+    if _fpid is not None:
+        await _require_project_member(db, _fpid, current_user)
 
     if not file.local_path:
         raise HTTPException(status_code=400, detail="File not downloaded locally yet")
@@ -446,7 +528,11 @@ async def serve_local_file(file_id: int, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/upload")
-async def upload_to_share(data: dict, db: AsyncSession = Depends(get_db)):
+async def upload_to_share(
+    data: dict,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
     """Upload a local file to a writable SMB share."""
     from app.models.host import Host
     from app.models.project import Project
@@ -464,6 +550,8 @@ async def upload_to_share(data: dict, db: AsyncSession = Depends(get_db)):
     host = host_result.scalar_one_or_none()
     if not host:
         raise HTTPException(status_code=404, detail="Host not found")
+    from app.api.projects import _require_project_member
+    await _require_project_member(db, host.project_id, current_user)
 
     proj_result = await db.execute(select(Project).where(Project.id == host.project_id))
     project = proj_result.scalar_one_or_none()
@@ -517,7 +605,11 @@ MAX_TEXT_SIZE = 1 * 1024 * 1024  # 1 MB
 
 
 @router.get("/{file_id}/content")
-async def get_file_content(file_id: int, db: AsyncSession = Depends(get_db)):
+async def get_file_content(
+    file_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
     """Read text content of a downloaded file for in-browser viewing."""
     from app.core.host_runner import host_runner
 
@@ -525,6 +617,10 @@ async def get_file_content(file_id: int, db: AsyncSession = Depends(get_db)):
     file = result.scalar_one_or_none()
     if not file:
         raise HTTPException(status_code=404, detail="File not found")
+    from app.api.projects import _require_project_member
+    _fpid = await _file_project_id(db, file_id)
+    if _fpid is not None:
+        await _require_project_member(db, _fpid, current_user)
 
     if not file.local_path:
         raise HTTPException(status_code=400, detail="File not downloaded locally yet")
@@ -554,9 +650,12 @@ async def search_files(
     project_id: int,
     query: str,
     file_type: Optional[str] = None,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     """Search files across all hosts in a project."""
+    from app.api.projects import _require_project_member
+    await _require_project_member(db, project_id, current_user)
     from app.models.host import Host
     
     # Get hosts in project
@@ -568,7 +667,7 @@ async def search_files(
     
     file_query = select(DiscoveredFile).where(
         DiscoveredFile.host_id.in_(host_ids),
-        DiscoveredFile.name.ilike(f"%{query}%")
+        DiscoveredFile.name.ilike(f"%{_like_escape(query)}%", escape="\\")
     )
     
     if file_type:
