@@ -161,6 +161,10 @@ class TaskOrchestrator:
         self._semaphore = asyncio.Semaphore(self.max_concurrent)
         self._running_tasks: Dict[int, TaskContext] = {}
         self._lock = asyncio.Lock()
+        # Striped creation locks: bounded, never evicted. Check+insert+flush
+        # for one (item, host) scope is atomic per stripe, closing the
+        # duplicate race without serializing unrelated scopes.
+        self._create_locks = [asyncio.Lock() for _ in range(64)]
     
     async def create_execution_record(
         self, db: AsyncSession, item_id: int, host_id: Optional[int] = None,
@@ -190,34 +194,36 @@ class TaskOrchestrator:
         if not item:
             raise ValueError(f"Checklist item {item_id} not found")
 
-        duplicate_query = select(Execution.id).where(
-            Execution.item_id == item_id,
-            Execution.status.in_([ExecutionStatus.PENDING, ExecutionStatus.RUNNING]),
-        )
-        if host_id is None:
-            duplicate_query = duplicate_query.where(Execution.host_id.is_(None))
-        else:
-            duplicate_query = duplicate_query.where(Execution.host_id == host_id)
-        if exclude_execution_id is not None:
-            duplicate_query = duplicate_query.where(Execution.id != exclude_execution_id)
-        duplicate_result = await db.execute(duplicate_query.limit(1))
-        existing_id = duplicate_result.scalar_one_or_none()
-        if existing_id:
-            raise ValueError(f"Execution already active for item/host scope: {existing_id}")
-        
-        version = item.next_version
-        
-        # Create execution with PENDING status
-        execution = Execution(
-            item_id=item_id, host_id=host_id, version=version,
-            status=ExecutionStatus.PENDING, command=command_override or "(pending)",
-            variables_used=variables,
-            flow_execution_id=flow_execution_id,
-            flow_step_index=flow_step_index,
-            started_by_user_id=started_by_user_id,
-        )
-        db.add(execution)
-        await db.flush()
+        stripe = self._create_locks[hash((item_id, host_id)) % len(self._create_locks)]
+        async with stripe:
+            duplicate_query = select(Execution.id).where(
+                Execution.item_id == item_id,
+                Execution.status.in_([ExecutionStatus.PENDING, ExecutionStatus.RUNNING]),
+            )
+            if host_id is None:
+                duplicate_query = duplicate_query.where(Execution.host_id.is_(None))
+            else:
+                duplicate_query = duplicate_query.where(Execution.host_id == host_id)
+            if exclude_execution_id is not None:
+                duplicate_query = duplicate_query.where(Execution.id != exclude_execution_id)
+            duplicate_result = await db.execute(duplicate_query.limit(1))
+            existing_id = duplicate_result.scalar_one_or_none()
+            if existing_id:
+                raise ValueError(f"Execution already active for item/host scope: {existing_id}")
+
+            version = item.next_version
+
+            # Create execution with PENDING status
+            execution = Execution(
+                item_id=item_id, host_id=host_id, version=version,
+                status=ExecutionStatus.PENDING, command=command_override or "(pending)",
+                variables_used=variables,
+                flow_execution_id=flow_execution_id,
+                flow_step_index=flow_step_index,
+                started_by_user_id=started_by_user_id,
+            )
+            db.add(execution)
+            await db.flush()
         
         # Send initial status notification
         await notification_manager.send_execution_status(
