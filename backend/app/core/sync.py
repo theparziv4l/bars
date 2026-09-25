@@ -3,11 +3,11 @@ from __future__ import annotations
 
 import shlex
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 import uuid
 from typing import Any, Dict, Iterable, Optional
 
-from sqlalchemy import select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -524,22 +524,19 @@ class SyncService:
         project_public_id: Optional[str] = None,
     ) -> list[SyncEvent]:
         """Return local events newer than cursor, optionally filtered by project."""
-        fetch_limit = limit * 5 if project_public_id else limit
-        result = await db.execute(
-            select(SyncEvent)
-            .where(SyncEvent.logical_ts > since_logical_ts)
-            .order_by(SyncEvent.logical_ts.asc(), SyncEvent.source_node_id.asc())
-            .limit(fetch_limit)
-        )
-        events = result.scalars().all()
+        stmt = select(SyncEvent).where(SyncEvent.logical_ts > since_logical_ts)
         if project_public_id:
-            filtered = [
-                e for e in events
-                if (e.entity_type == "projects" and e.entity_public_id == project_public_id)
-                or (e.payload and e.payload.get("project_public_id") == project_public_id)
-            ]
-            return filtered[:limit]
-        return events
+            stmt = stmt.where(
+                or_(
+                    (SyncEvent.entity_type == "projects")
+                    & (SyncEvent.entity_public_id == project_public_id),
+                    SyncEvent.payload["project_public_id"].as_string() == project_public_id,
+                )
+            )
+        result = await db.execute(
+            stmt.order_by(SyncEvent.logical_ts.asc(), SyncEvent.source_node_id.asc()).limit(limit)
+        )
+        return list(result.scalars().all())
 
     async def ingest_remote_events(
         self,
@@ -1601,6 +1598,17 @@ class SyncService:
             finding.occurrences = max(finding.occurrences or 0, int(payload["occurrences"]))
         finding.deleted_at = _parse_dt(payload.get("deleted_at"))
         finding.updated_at = _parse_dt(payload.get("updated_at")) or datetime.utcnow()
+
+
+async def purge_old_events(db: AsyncSession, *, days: int) -> int:
+    """Delete sync events older than `days`. Returns the deleted count.
+
+    Only run when the operator opts in via SYNC_EVENT_RETENTION_DAYS: a peer
+    offline longer than the window permanently loses the purged events.
+    """
+    cutoff = datetime.utcnow() - timedelta(days=days)
+    result = await db.execute(delete(SyncEvent).where(SyncEvent.created_at < cutoff))
+    return result.rowcount or 0
 
 
 def _parse_dt(value: Any) -> Optional[datetime]:

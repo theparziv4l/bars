@@ -8,7 +8,7 @@ from typing import Any
 import aiohttp
 
 from app.config import get_sync_peer_urls, settings
-from app.core.sync import get_peer_urls_from_db, sync_service
+from app.core.sync import get_peer_urls_from_db, purge_old_events, sync_service
 from app.database import async_session_maker
 
 _IDLE_INTERVAL = 60
@@ -103,6 +103,15 @@ class SyncWorker:
                 await self._sync_peer(peer, project_public_id=project_public_id)
             except Exception as exc:
                 print(f"[SyncWorker] Peer sync failed for {peer}: {exc}")
+        if settings.SYNC_EVENT_RETENTION_DAYS:
+            try:
+                async with async_session_maker() as db:
+                    deleted = await purge_old_events(db, days=settings.SYNC_EVENT_RETENTION_DAYS)
+                    await db.commit()
+                    if deleted:
+                        print(f"[SyncWorker] Purged {deleted} old sync event(s)")
+            except Exception as exc:
+                print(f"[SyncWorker] Retention purge failed: {exc}")
         return True
 
     async def _run_loop(self) -> None:

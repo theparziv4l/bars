@@ -84,6 +84,9 @@ class Settings(BaseSettings):
     SYNC_PEERS: str = ""
     SYNC_PULL_INTERVAL_SECONDS: int = 5
     SYNC_BATCH_SIZE: int = 200
+    # Delete sync events older than this many days (None = keep forever).
+    # Only enable when every peer syncs more often than this window.
+    SYNC_EVENT_RETENTION_DAYS: int | None = None
     # Optional URL to show in UI as "your node address" for collaborators (e.g. http://your-ip:8000)
     PUBLIC_BASE_URL: str = ""
     # Current user's home directory resolved at runtime.
