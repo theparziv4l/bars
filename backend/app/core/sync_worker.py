@@ -81,10 +81,10 @@ class SyncWorker:
             try:
                 async with async_session_maker() as db:
                     self._cached_db_peers = await get_peer_urls_from_db(db)
+                self._last_db_peer_check = now
+                self._peers_dirty = False
             except Exception as exc:
                 print(f"[SyncWorker] Failed to load DB peers: {exc}")
-            self._last_db_peer_check = now
-            self._peers_dirty = False
 
         seen: set[str] = set()
         peers: list[str] = []
