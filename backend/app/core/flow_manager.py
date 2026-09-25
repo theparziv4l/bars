@@ -1,4 +1,5 @@
 """Flow manager for orchestrating dynamic checklists and pipelines."""
+import logging
 import asyncio
 import ast
 import operator as _operator
@@ -9,6 +10,8 @@ from typing import Dict, Any, List, Optional, Tuple
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, text
 from sqlalchemy.orm import selectinload
+
+logger = logging.getLogger(__name__)
 
 _SAFE_CMP = {
     ast.Eq: _operator.eq, ast.NotEq: _operator.ne,
@@ -109,7 +112,7 @@ class FlowManager:
         from app.core.notifications import notification_manager
         await notification_manager.add_listener(self.handle_event)
         self._initialized = True
-        print("[FlowManager] Initialized and listening for events.")
+        logger.info("[FlowManager] Initialized and listening for events.")
 
     # ------------------------------------------------------------------
     # start_flow
@@ -163,7 +166,7 @@ class FlowManager:
         if excluded:
             kept = [t for t in merged_targets if str(t) not in excluded]
             if len(kept) != len(merged_targets):
-                print(
+                logger.info(
                     f"[FlowManager] Dropped {len(merged_targets) - len(kept)} "
                     f"out-of-scope target(s) from flow {flow_id}"
                 )
@@ -196,7 +199,7 @@ class FlowManager:
         db.add(flow_exec)
         await db.flush()
 
-        print(f"[FlowManager] Starting Flow: {flow.name} ({flow_execution_id})")
+        logger.info(f"[FlowManager] Starting Flow: {flow.name} ({flow_execution_id})")
 
         # Load steps
         step_result = await db.execute(
@@ -250,7 +253,7 @@ class FlowManager:
             else:
                 stale_q = stale_q.where(Execution.host_id.is_(None))
             for stale in (await db.execute(stale_q)).scalars().all():
-                print(f"[FlowManager] Cancelling stale execution {stale.id} for item {step.checklist_item_id}")
+                logger.info(f"[FlowManager] Cancelling stale execution {stale.id} for item {step.checklist_item_id}")
                 stale.status = ExecutionStatus.CANCELLED
                 stale.completed_at = datetime.utcnow()
                 stale.stderr = (stale.stderr or "") + "\n[Auto-cancelled] Superseded by new flow execution."
@@ -271,7 +274,7 @@ class FlowManager:
 
         for step in initial_steps:
             if step.checklist_item is not None and not step.checklist_item.enabled:
-                print(f"[FlowManager] Skipping step {step.order_index} (item disabled).")
+                logger.info(f"[FlowManager] Skipping step {step.order_index} (item disabled).")
                 continue
             step_vars = await self._resolve_step_variables(step, base_vars, {}, {})
             step_vars["flow_id"] = flow.id
@@ -279,7 +282,7 @@ class FlowManager:
                 step_vars["project_id"] = flow.project_id
 
             if not self._evaluate_condition(step, base_vars, {}, {}):
-                print(f"[FlowManager] Skipping step {step.order_index} due to condition.")
+                logger.info(f"[FlowManager] Skipping step {step.order_index} due to condition.")
                 continue
 
             # Resolve per-step targets based on target_mode
@@ -305,7 +308,7 @@ class FlowManager:
         if not pending_tasks:
             # Every initial step was condition-skipped: nothing will fire a completion
             # event to advance this flow, so finalize now instead of hanging "running".
-            print("[FlowManager] No initial steps ran (all skipped). Finalizing flow.")
+            logger.info("[FlowManager] No initial steps ran (all skipped). Finalizing flow.")
             await self._finalize_flow_execution(db, flow_exec, "completed")
             return flow_exec, started_executions
 
@@ -342,7 +345,7 @@ class FlowManager:
             )
             execution = result.scalar_one_or_none()
             if execution and execution.flow_execution_id:
-                print(f"[FlowManager] Execution {execution_id} finished ({status}). Advance flow {execution.flow_execution_id}.")
+                logger.info(f"[FlowManager] Execution {execution_id} finished ({status}). Advance flow {execution.flow_execution_id}.")
                 await self._schedule_next_steps(db, execution.flow_execution_id, execution)
 
     # ------------------------------------------------------------------
@@ -408,7 +411,7 @@ class FlowManager:
             all_future_steps = result.scalars().all()
 
             if not all_future_steps:
-                print("[FlowManager] Flow complete.")
+                logger.info("[FlowManager] Flow complete.")
                 await self._finalize_flow_execution(db, flow_exec, "completed")
                 return
 
@@ -423,10 +426,10 @@ class FlowManager:
                 ).limit(1)
             )
             if existing_next.scalar_one_or_none() is not None:
-                print(f"[FlowManager] Stage {next_index} already scheduled; skipping (concurrent completion).")
+                logger.info(f"[FlowManager] Stage {next_index} already scheduled; skipping (concurrent completion).")
                 return
 
-            print(f"[FlowManager] Scheduling Stage {next_index} ({len(next_steps)} steps)")
+            logger.info(f"[FlowManager] Scheduling Stage {next_index} ({len(next_steps)} steps)")
 
             # One commit per stage: a mid-stage failure rolls the whole stage
             # back and fails the flow loudly instead of leaving a half-
@@ -435,7 +438,7 @@ class FlowManager:
             try:
                 for step in next_steps:
                     if step.checklist_item is not None and not step.checklist_item.enabled:
-                        print(f"[FlowManager] Skipping step {step.order_index} (item disabled).")
+                        logger.info(f"[FlowManager] Skipping step {step.order_index} (item disabled).")
                         continue
                     step_vars = await self._resolve_step_variables(
                         step, base_vars, execution_outputs,
@@ -446,7 +449,7 @@ class FlowManager:
                         step, base_vars, execution_outputs,
                         item_name_to_exe, latest_item_name_to_exe,
                     ):
-                        print(f"[FlowManager] Skipping step {step.order_index} due to condition.")
+                        logger.info(f"[FlowManager] Skipping step {step.order_index} due to condition.")
                         continue
 
                     step_host_id, step_target_vars = await self._resolve_step_targets(
@@ -467,7 +470,7 @@ class FlowManager:
                 await db.commit()
             except Exception as e:
                 await db.rollback()
-                print(f"[FlowManager] Stage {next_index} scheduling failed: {e}")
+                logger.error(f"[FlowManager] Stage {next_index} scheduling failed: {e}")
                 await self._finalize_flow_execution(
                     db, flow_exec, "failed",
                     error=f"Stage {next_index} scheduling failed: {e}")
@@ -488,7 +491,7 @@ class FlowManager:
                 return
 
             # Whole stage was condition-skipped — advance to the following stage.
-            print(f"[FlowManager] Stage {next_index} fully skipped; advancing past it.")
+            logger.info(f"[FlowManager] Stage {next_index} fully skipped; advancing past it.")
             cursor_index = next_index
 
     async def _schedule_next_steps_locked(self, db: AsyncSession, flow_execution_id: str, last_execution: Execution):
@@ -499,7 +502,7 @@ class FlowManager:
         flow_exec = fe_result.scalar_one_or_none()
 
         if flow_exec is not None and flow_exec.status != "running":
-            print(f"[FlowManager] Flow {flow_execution_id} is {flow_exec.status}. Not scheduling next steps.")
+            logger.info(f"[FlowManager] Flow {flow_execution_id} is {flow_exec.status}. Not scheduling next steps.")
             return
 
         # Load all executions for this flow run
@@ -519,11 +522,11 @@ class FlowManager:
             [e for e in executions if e.flow_step_index == current_index]
         )
         if any(e.status in (ExecutionStatus.RUNNING, ExecutionStatus.PENDING) for e in current_stage_execs):
-            print(f"[FlowManager] Stage {current_index} still running. Waiting.")
+            logger.info(f"[FlowManager] Stage {current_index} still running. Waiting.")
             return
 
         if any(e.status == ExecutionStatus.CANCELLED for e in current_stage_execs):
-            print(f"[FlowManager] Stage {current_index} cancelled. Halting flow.")
+            logger.info(f"[FlowManager] Stage {current_index} cancelled. Halting flow.")
             await self._finalize_flow_execution(db, flow_exec, "cancelled")
             return
 
@@ -546,7 +549,7 @@ class FlowManager:
             row = fs_result.first()
             flow_id = row[0] if row else None
         if not flow_id:
-            print("[FlowManager] Could not determine Flow ID for next step.")
+            logger.info("[FlowManager] Could not determine Flow ID for next step.")
             return
 
         # Handle failure policy
@@ -564,12 +567,12 @@ class FlowManager:
             failed_policies = {policy_by_item.get(e.item_id, "stop") for e in failed_execs}
 
             if "stop" in failed_policies:
-                print(f"[FlowManager] Step {current_index} failed. on_failure=stop. Halting.")
+                logger.error(f"[FlowManager] Step {current_index} failed. on_failure=stop. Halting.")
                 await self._finalize_flow_execution(db, flow_exec, "failed", error=f"Step {current_index} failed (on_failure=stop)")
                 return
             if "skip_remaining" in failed_policies:
                 # Distinct from stop: end the flow now but as completed/partial, not failed.
-                print(f"[FlowManager] Step {current_index} failed. on_failure=skip_remaining. Ending flow (partial).")
+                logger.error(f"[FlowManager] Step {current_index} failed. on_failure=skip_remaining. Ending flow (partial).")
                 await self._finalize_flow_execution(db, flow_exec, "completed", error=f"Ended early at step {current_index} (skip_remaining after failure)")
                 return
             # all failed steps are "continue" — fall through
@@ -926,7 +929,7 @@ class FlowManager:
                 # render() returns the literal "{step_0.hosts}" when it cannot resolve.
                 # Storing that would hand a non-empty junk string to the command AND make
                 # _resolve_step_targets believe the step has mapped targets.
-                print(
+                logger.info(
                     f"[FlowManager] Step {step.order_index} input '{input_name}' unresolved: "
                     f"{', '.join(unresolved)}"
                 )
@@ -967,7 +970,7 @@ class FlowManager:
             # than silently returning False — a broken condition previously looked like
             # an intentional skip, hiding steps that never ran. A legitimately-false
             # condition returns False normally via safe_eval_condition.
-            print(f"[FlowManager] Condition eval error for step "
+            logger.error(f"[FlowManager] Condition eval error for step "
                   f"{getattr(step, 'order_index', '?')} ({step.condition!r}): {e}. Running step (fail-open).")
             return True
 

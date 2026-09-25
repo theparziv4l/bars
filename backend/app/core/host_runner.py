@@ -1,9 +1,12 @@
 """
 Host Runner functionality for communicating with the Host Agent.
 """
+import logging
 import aiohttp
 import asyncio
 from typing import Optional, AsyncGenerator, Dict, Any
+
+logger = logging.getLogger(__name__)
 
 
 class HostRunner:
@@ -109,7 +112,7 @@ class HostRunner:
 
             return await asyncio.wait_for(_do(), timeout=timeout)
         except Exception as e:
-            print(f"Failed to cancel execution {execution_id}: {e}")
+            logger.error(f"Failed to cancel execution {execution_id}: {e}")
             return False
 
     async def execute_sync(self, command: str, cwd: Optional[str] = None, timeout: int = 60) -> Dict[str, Any]:

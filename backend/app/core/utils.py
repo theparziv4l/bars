@@ -1,7 +1,10 @@
 """Shared utilities."""
+import logging
 import os
 import re
 from typing import Optional, TYPE_CHECKING
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from app.models.project import Project
@@ -150,7 +153,7 @@ def parse_network_interfaces(ip_data: list) -> dict:
                     break
                     
     except Exception as e:
-        print(f"Error parsing network interfaces: {e}")
+        logger.error(f"Error parsing network interfaces: {e}")
         return {}
         
     return interfaces

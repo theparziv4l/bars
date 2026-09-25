@@ -3,6 +3,7 @@
 Bridges the ephemeral alert pipeline (``ChecklistItem.alert_patterns`` ->
 ``execution.alerts_triggered``) to durable, deduped ``Finding`` records.
 """
+import logging
 from datetime import datetime
 
 from sqlalchemy import select
@@ -11,6 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.checklist import ChecklistItem
 from app.models.execution import Execution
 from app.models.finding import Finding, FindingSeverity, FindingStatus, SEVERITY_ORDER
+
+logger = logging.getLogger(__name__)
 
 # Legacy alert buckets -> Finding severities (also accept direct finding severities).
 _SEV_MAP = {
@@ -112,7 +115,7 @@ async def ingest_execution_findings(db: AsyncSession, execution: Execution, item
                     operation="update", payload=payload,
                 )
         except Exception as e:
-            print(f"[Findings] sync record failed: {e}")
+            logger.error(f"[Findings] sync record failed: {e}")
 
         # Tell connected clients, or the Findings page only shows these after a reload.
         try:
@@ -121,6 +124,6 @@ async def ingest_execution_findings(db: AsyncSession, execution: Execution, item
                 "finding_created", project_id, {"count": len(touched), "created": created}
             )
         except Exception as e:
-            print(f"[Findings] notify failed: {e}")
+            logger.error(f"[Findings] notify failed: {e}")
 
     return created

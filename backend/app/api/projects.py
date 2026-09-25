@@ -1,4 +1,5 @@
 """Project API endpoints."""
+import logging
 import json
 from datetime import datetime
 from typing import Dict, List, Optional
@@ -19,6 +20,8 @@ from app.schemas.project import ProjectCreate, ProjectUpdate, ProjectResponse, P
 from app.schemas.host import GenerateScriptScanRequest, GenerateScriptScanResponse
 from app.schemas.auth import ProjectMemberCreate, ProjectMemberResponse
 from app.core import script_scanner
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -232,9 +235,9 @@ async def create_project(
             # warn but don't fail project creation? 
             # If we fail here, user can't create project.
             # Let's log it.
-            print(f"Failed to create project directory: {result['stderr']}")
+            logger.error(f"Failed to create project directory: {result['stderr']}")
     except Exception as e:
-        print(f"Error creating project directory: {e}")
+        logger.error(f"Error creating project directory: {e}")
 
     project = Project(
         name=data.name,
@@ -276,9 +279,9 @@ async def create_project(
             ip_data = json.loads(ip_result["stdout"])
             attacker_ips = parse_network_interfaces(ip_data)
         else:
-             print(f"Failed to get host IPs: {ip_result['stderr']}")
+             logger.error(f"Failed to get host IPs: {ip_result['stderr']}")
     except Exception as e:
-        print(f"Error getting host IPs: {e}")
+        logger.error(f"Error getting host IPs: {e}")
 
     if attacker_ips:
         ips_var = ProjectVariable(project_id=project.id, key="attacker-ips", value=json.dumps(attacker_ips), var_type="json")
@@ -320,7 +323,7 @@ async def create_project(
     try:
         await auto_import_for_project(db, project.id, domain_ids)
     except Exception as e:
-        print(f"[ProjectSetup] Auto-import failed: {e}")
+        logger.error(f"[ProjectSetup] Auto-import failed: {e}")
 
     await sync_service.record_event(
         db,

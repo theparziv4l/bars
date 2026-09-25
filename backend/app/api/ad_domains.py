@@ -1,4 +1,5 @@
 """AD Domain management API."""
+import logging
 from datetime import datetime
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException
@@ -10,6 +11,8 @@ from app.database import get_db
 from app.models.ad_domain import ADDomain
 from app.models.user import User
 from app.core.sync import sync_service
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -113,7 +116,7 @@ async def create_ad_domain(
     try:
         await auto_import_for_domain(db, project_id, domain.id)
     except Exception as e:
-        print(f"[ADDomain] Auto-import for domain failed: {e}")
+        logger.error(f"[ADDomain] Auto-import for domain failed: {e}")
 
     await db.commit()
     return _domain_to_dict(domain)

@@ -1,6 +1,8 @@
 """Background worker for periodic peer pull/push synchronization."""
 from __future__ import annotations
 
+import logging
+
 import asyncio
 import time
 from typing import Any
@@ -10,6 +12,8 @@ import aiohttp
 from app.config import get_sync_peer_urls, settings
 from app.core.sync import get_peer_urls_from_db, purge_old_events, sync_service
 from app.database import async_session_maker
+
+logger = logging.getLogger(__name__)
 
 _IDLE_INTERVAL = 60
 _DB_PEER_CHECK_INTERVAL = 60
@@ -88,7 +92,7 @@ class SyncWorker:
                 self._last_db_peer_check = now
                 self._peers_dirty = False
             except Exception as exc:
-                print(f"[SyncWorker] Failed to load DB peers: {exc}")
+                logger.error(f"[SyncWorker] Failed to load DB peers: {exc}")
 
         seen: set[str] = set()
         peers: list[str] = []
@@ -110,16 +114,16 @@ class SyncWorker:
             try:
                 await self._sync_peer(peer, project_public_id=project_public_id)
             except Exception as exc:
-                print(f"[SyncWorker] Peer sync failed for {peer}: {exc}")
+                logger.error(f"[SyncWorker] Peer sync failed for {peer}: {exc}")
         if settings.SYNC_EVENT_RETENTION_DAYS:
             try:
                 async with async_session_maker() as db:
                     deleted = await purge_old_events(db, days=settings.SYNC_EVENT_RETENTION_DAYS)
                     await db.commit()
                     if deleted:
-                        print(f"[SyncWorker] Purged {deleted} old sync event(s)")
+                        logger.info(f"[SyncWorker] Purged {deleted} old sync event(s)")
             except Exception as exc:
-                print(f"[SyncWorker] Retention purge failed: {exc}")
+                logger.error(f"[SyncWorker] Retention purge failed: {exc}")
         return True
 
     async def _run_loop(self) -> None:
@@ -129,7 +133,7 @@ class SyncWorker:
             except asyncio.CancelledError:
                 break
             except Exception as exc:
-                print(f"[SyncWorker] Cycle failed, continuing: {exc}")
+                logger.error(f"[SyncWorker] Cycle failed, continuing: {exc}")
                 had_peers = False
             interval = (
                 max(1, settings.SYNC_PULL_INTERVAL_SECONDS) if had_peers
@@ -163,7 +167,7 @@ class SyncWorker:
                     settings.SYNC_PULL_INTERVAL_SECONDS * (2 ** (self._peer_fail_count[peer_base_url] - 1)),
                     self._max_backoff_seconds,
                 )
-                print(
+                logger.error(
                     f"[SyncWorker] Pull from {peer_base_url} failed: status={response.status} "
                     f"body={body[:200]} (backoff {backoff}s)"
                 )
@@ -174,7 +178,7 @@ class SyncWorker:
                 try:
                     payload = await response.json()
                 except Exception as parse_err:
-                    print(
+                    logger.warning(
                         f"[SyncWorker] Pull from {peer_base_url} returned non-JSON: {parse_err}"
                     )
                     events = []
@@ -225,7 +229,7 @@ class SyncWorker:
             push_status = response.status
             if push_status != 200:
                 body = await response.text()
-                print(f"[SyncWorker] Push to {peer_base_url} failed: status={push_status} body={body[:200]}")
+                logger.error(f"[SyncWorker] Push to {peer_base_url} failed: status={push_status} body={body[:200]}")
             else:
                 latest = local_events[-1].logical_ts
                 try:

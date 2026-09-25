@@ -1,9 +1,12 @@
 """Notification manager for pattern-based alerts."""
+import logging
 import asyncio
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Set
 from dataclasses import dataclass, field
 from enum import Enum
+
+logger = logging.getLogger(__name__)
 
 
 class AlertSeverity(str, Enum):
@@ -87,7 +90,7 @@ class NotificationManager:
                     listener(event_type, data)
             except Exception as e:
                 # Log but don't crash on listener errors
-                print(f"Notification listener error: {e}")
+                logger.error(f"Notification listener error: {e}")
 
         if listeners:
             await asyncio.gather(*(_invoke(li) for li in listeners))

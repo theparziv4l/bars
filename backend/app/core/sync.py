@@ -1,6 +1,8 @@
 """Synchronization service for multi-node event replication."""
 from __future__ import annotations
 
+import logging
+
 import asyncio
 import shlex
 from dataclasses import dataclass
@@ -26,6 +28,8 @@ from app.models.sync import SyncCursor, SyncEvent, SyncPeer
 
 # Service is in host module
 from app.models.host import Service
+
+logger = logging.getLogger(__name__)
 
 # Generic service names: do not overwrite a specific name with these when applying sync payloads
 _SYNC_GENERIC_SERVICE_NAMES = frozenset({
@@ -586,7 +590,7 @@ class SyncService:
             except OperationalError as exc:
                 last_exc = exc
                 await db.rollback()
-                print(f"[Sync] Ingest hit lock contention, retrying ({attempt + 1}/{_MAX_INGEST_ATTEMPTS})")
+                logger.info(f"[Sync] Ingest hit lock contention, retrying ({attempt + 1}/{_MAX_INGEST_ATTEMPTS})")
                 await asyncio.sleep(0.1 * (2 ** attempt))
         assert last_exc is not None
         raise last_exc
@@ -705,7 +709,7 @@ class SyncService:
             # deferred (no valid ts to pin the cursor with) — one bad event
             # must not stall the peer.
             result.skipped += 1
-            print(f"[Sync] Skipping malformed event: {exc}")
+            logger.info(f"[Sync] Skipping malformed event: {exc}")
             return None
         payload = incoming.get("payload") or {}
 
@@ -758,7 +762,7 @@ class SyncService:
                         applied_now = True
                     except _FKNotReady as exc:
                         deferred = True
-                        print(f"[Sync] Deferring {entity_type} {entity_public_id} for retry: {exc}")
+                        logger.info(f"[Sync] Deferring {entity_type} {entity_public_id} for retry: {exc}")
                 else:
                     result.skipped += 1
 
@@ -797,7 +801,7 @@ class SyncService:
             # never nukes its batch.
             exists = await db.execute(select(SyncEvent.id).where(SyncEvent.event_id == event_id))
             if exists.scalar_one_or_none() is None:
-                print(f"[Sync] Skipping event that violates constraints: {entity_type} {entity_public_id}")
+                logger.info(f"[Sync] Skipping event that violates constraints: {entity_type} {entity_public_id}")
             result.skipped += 1
             result.latest_logical_ts = max(result.latest_logical_ts, logical_ts)
             return None
@@ -822,9 +826,9 @@ class SyncService:
                 path = get_project_path(name)
                 result = await host_runner.execute_sync(f"mkdir -p {shlex.quote(path)}")
                 if result.get("exit_code") != 0:
-                    print(f"[Sync] Failed to create project directory {path}: {result.get('stderr', '')}")
+                    logger.error(f"[Sync] Failed to create project directory {path}: {result.get('stderr', '')}")
             except Exception as exc:
-                print(f"[Sync] Error creating project directory for {name}: {exc}")
+                logger.error(f"[Sync] Error creating project directory for {name}: {exc}")
 
     async def _apply_event(
         self,

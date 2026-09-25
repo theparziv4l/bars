@@ -1,6 +1,8 @@
 """Collaboration helpers: claim ownership and duplicate prevention."""
 from __future__ import annotations
 
+import logging
+
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -15,6 +17,8 @@ from app.models.checklist_claim import ChecklistClaim
 from app.models.execution import Execution, ExecutionStatus
 from app.models.user import ProjectMember, User
 from app.core.sync import sync_service, claim_sync_payload
+
+logger = logging.getLogger(__name__)
 
 
 class ClaimConflictError(Exception):
@@ -137,7 +141,7 @@ async def claim_item_scope(
                         payload=payload,
                     )
                 except Exception as e:
-                    print(f"[Collaboration] Sync record (claim) failed: {e}")
+                    logger.error(f"[Collaboration] Sync record (claim) failed: {e}")
                 return claim
 
             is_expired = _is_claim_expired(claim, now)
@@ -169,7 +173,7 @@ async def claim_item_scope(
                     payload=payload,
                 )
             except Exception as e:
-                print(f"[Collaboration] Sync record (claim update) failed: {e}")
+                logger.error(f"[Collaboration] Sync record (claim update) failed: {e}")
             return claim
         except IntegrityError as e:
             last_error = e
@@ -243,7 +247,7 @@ async def release_item_scope(
             payload=payload,
         )
     except Exception as e:
-        print(f"[Collaboration] Sync record (release) failed: {e}")
+        logger.error(f"[Collaboration] Sync record (release) failed: {e}")
     return claim
 
 

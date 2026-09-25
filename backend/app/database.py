@@ -1,8 +1,11 @@
 """Database configuration and session management."""
+import logging
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy import text, event
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 # Create async engine with SQLite-specific settings
@@ -223,7 +226,7 @@ async def _seed_default_admin():
         )
         session.add(admin)
         await session.commit()
-        print("Default admin account created (admin / admin). Password change required on first login.")
+        logger.info("Default admin account created (admin / admin). Password change required on first login.")
 
 
 async def close_db():

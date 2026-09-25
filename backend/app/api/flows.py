@@ -1,4 +1,5 @@
 """Flow API endpoints."""
+import logging
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from fastapi.responses import JSONResponse
@@ -21,6 +22,8 @@ from app.schemas.flow import (
     FlowExecutionCreate, FlowExecutionResponse, FlowExecutionStatus,
 )
 from app.schemas.execution import ExecutionResponse
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -147,7 +150,7 @@ async def create_flow(
                 payload=step_payload,
             )
     except Exception as e:
-        print(f"[Flows] Sync record (create_flow) failed: {e}")
+        logger.error(f"[Flows] Sync record (create_flow) failed: {e}")
     return _flow_to_response(flow)
 
 
@@ -215,7 +218,7 @@ async def update_flow(
                     payload=step_payload,
                 )
             except Exception as e:
-                print(f"[Flows] Sync record (step delete) failed: {e}")
+                logger.error(f"[Flows] Sync record (step delete) failed: {e}")
         # Clear existing steps
         for step in flow.steps:
             await db.delete(step)
@@ -268,7 +271,7 @@ async def update_flow(
                     payload=step_payload,
                 )
     except Exception as e:
-        print(f"[Flows] Sync record (update_flow) failed: {e}")
+        logger.error(f"[Flows] Sync record (update_flow) failed: {e}")
     return _flow_to_response(flow)
 
 
@@ -298,7 +301,7 @@ async def delete_flow(
             payload=payload,
         )
     except Exception as e:
-        print(f"[Flows] Sync record (delete_flow) failed: {e}")
+        logger.error(f"[Flows] Sync record (delete_flow) failed: {e}")
     await db.delete(flow)
 
 
@@ -395,7 +398,7 @@ async def import_flow(
                     payload=step_payload,
                 )
         except Exception as e:
-            print(f"[Flows] Sync record (import_flow) failed: {e}")
+            logger.error(f"[Flows] Sync record (import_flow) failed: {e}")
         imported.append(new_flow)
         
     await db.commit()

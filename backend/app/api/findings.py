@@ -1,4 +1,5 @@
 """Findings / vulnerability API — CRUD + severity rollup."""
+import logging
 from datetime import datetime
 from typing import Optional, List
 
@@ -13,6 +14,8 @@ from app.core.sync import sync_service, finding_sync_payload
 from app.models.finding import Finding, FindingSeverity, FindingStatus, SEVERITY_ORDER
 from app.models.user import User
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
 
 
@@ -25,7 +28,7 @@ async def _record(db: AsyncSession, finding: Finding, operation: str) -> None:
             operation=operation, payload=payload,
         )
     except Exception as e:  # noqa: BLE001
-        print(f"[Findings] sync record failed: {e}")
+        logger.error(f"[Findings] sync record failed: {e}")
 
 
 class FindingCreate(BaseModel):
