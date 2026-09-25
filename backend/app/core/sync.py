@@ -109,7 +109,10 @@ _ENTITY_ORDER_INDEX = {t: i for i, t in enumerate(_ENTITY_APPLY_ORDER)}
 
 def _ingest_sort_key(event: Dict[str, Any]) -> tuple[int, str, int]:
     """Sort by logical_ts, source_node_id, then by entity dependency order."""
-    logical_ts = int(event.get("logical_ts", 0))
+    try:
+        logical_ts = int(event.get("logical_ts", 0))
+    except (TypeError, ValueError):
+        logical_ts = 0  # malformed envelope: sorts first, skipped in _ingest_one
     source_node_id = str(event.get("source_node_id", ""))
     entity_type = str(event.get("entity_type", ""))
     type_order = _ENTITY_ORDER_INDEX.get(entity_type, 999)
@@ -582,12 +585,20 @@ class SyncService:
         result: IngestResult,
     ) -> Optional[int]:
         """Ingest a single event. Returns its logical_ts if deferred, else None."""
-        event_id = incoming["event_id"]
-        logical_ts = int(incoming["logical_ts"])
-        source_node_id = str(incoming["source_node_id"])
-        entity_type = str(incoming["entity_type"])
-        entity_public_id = str(incoming["entity_public_id"])
-        operation = str(incoming["operation"])
+        try:
+            event_id = incoming["event_id"]
+            logical_ts = int(incoming["logical_ts"])
+            source_node_id = str(incoming["source_node_id"])
+            entity_type = str(incoming["entity_type"])
+            entity_public_id = str(incoming["entity_public_id"])
+            operation = str(incoming["operation"])
+        except (KeyError, TypeError, ValueError) as exc:
+            # Poison envelope: count it and move on. Never recorded, never
+            # deferred (no valid ts to pin the cursor with) — one bad event
+            # must not stall the peer.
+            result.skipped += 1
+            print(f"[Sync] Skipping malformed event: {exc}")
+            return None
         payload = incoming.get("payload") or {}
 
         exists = await db.execute(select(SyncEvent.id).where(SyncEvent.event_id == event_id))

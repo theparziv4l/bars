@@ -22,7 +22,7 @@ class SyncPushRequest(BaseModel):
     """Incoming remote push payload."""
 
     source_node_id: str
-    events: List[SyncEventMessage]
+    events: List[SyncEventMessage] = Field(max_length=1000)
 
 
 class SyncPushResponse(BaseModel):
