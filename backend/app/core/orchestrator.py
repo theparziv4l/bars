@@ -150,6 +150,7 @@ class TaskContext:
     stderr_buffer: str = ""
     cancelled: bool = False
     started_at: Optional[datetime] = None
+    parent_execution_id: Optional[int] = None
 
 
 class TaskOrchestrator:
@@ -1047,7 +1048,10 @@ class TaskOrchestrator:
 
         # execution already added
 
-        context = TaskContext(execution_id=execution.id)
+        context = TaskContext(
+            execution_id=execution.id,
+            parent_execution_id=(variables or {}).get("parent_execution_id"),
+        )
         if unresolved:
             # A visible warning beats a command that quietly runs with a dangling flag.
             # Primed on the buffer (not execution.stderr) because _run_subprocess assigns
@@ -2210,73 +2214,60 @@ class TaskOrchestrator:
             raise
 
     async def cancel_execution(self, execution_id: int) -> bool:
-        # For now, local cancel flag only. Agent cancellation to be implemented.
+        """Flag a live execution (and its batch children) cancelled.
+
+        Returns True when a live task was found. Agent-side cancel is retried;
+        a persistent agent failure is recorded on the execution row but does
+        not flip the result (callers map False to "not running").
+        """
         async with self._lock:
             context = self._running_tasks.get(execution_id)
-        if not context:
-            return False
-        context.cancelled = True
-        
-        # Check if this is a parent execution (Batch)
-        # We need to find all children and cancel them too
-        # Since we don't track children in memory easily, we rely on DB or broad sweep
-        # Best approach: Scan all running tasks, check if their variable "parent_execution_id" == execution_id
-        
-        async with self._lock:
-             # Iterate over a copy of running tasks
-             for eid, ctx in list(self._running_tasks.items()):
-                 if eid == execution_id: continue
-                 
-                 # Check if this task is a child of the cancelled parent
-                 # We need to access the execution object/variables. 
-                 # Context doesn't store variables.
-                 # OPTION: Store parent_id in TaskContext?
-                 # OPTION: Query DB? Slow.
-                 # OPTION: Just rely on the loop in _run_batch_execution to stop?
-                 # The loop only checks before starting NEXT child. 
-                 # We need to stop CURRENT running child.
-                 
-                 # Let's try to query DB for running children
-                 pass
+            if context is None:
+                return False
+            context.cancelled = True
+            snapshot = list(self._running_tasks.items())
 
-        # Call Host Runner to cancel process on agent (for the parent itself, likely valid if it was running a command, 
-        # but for batch parent it's just a loop. The Loop will check context.cancelled.)
-        
-        # Also cancel the specific child that might be running
-        # We can find it by querying Execution where parent_id = execution_id AND status = RUNNING
-        from app.database import async_session_maker
-        async with async_session_maker() as db:
-             from app.models.execution import Execution
-             # Find running children
-             # We need to cast variable JSON lookup or just iterate in python if low volume
-             # usage of encoded JSON in SQL is tricky for "variables_used->>parent_execution_id" depending on DB (SQLite vs PG)
-             
-             # Fallback: We know the loop in _run_batch_execution holds the lock or can track current child?
-             # No, _run_batch_execution is async.
-             
-             # Simple approach: Loop all running tasks in this orchestrator memory, check their DB record
-             # optimization: assume we don't have thousands of concurrent tasks
-             
-             running_ids = list(self._running_tasks.keys())
-             if running_ids:
-                 stmt = select(Execution).where(
-                     Execution.id.in_(running_ids),
-                     Execution.status == ExecutionStatus.RUNNING
-                 )
-                 result = await db.execute(stmt)
-                 running_execs = result.scalars().all()
-                 
-                 for cx in running_execs:
-                     parent_id = cx.variables_used.get("parent_execution_id")
-                     if parent_id == execution_id:
-                         # This is a child. Cancel it.
-                         child_ctx = self._running_tasks.get(cx.id)
-                         if child_ctx:
-                             child_ctx.cancelled = True
-                             await host_runner.cancel_execution(str(cx.id))
-        
-        await host_runner.cancel_execution(str(execution_id))
-        
+        # Flag children via the in-memory parent map (no DB scan).
+        child_ids = [
+            eid for eid, ctx in snapshot
+            if eid != execution_id and ctx.parent_execution_id == execution_id
+        ]
+        for eid in child_ids:
+            async with self._lock:
+                ctx = self._running_tasks.get(eid)
+                if ctx is not None:
+                    ctx.cancelled = True
+
+        # Tell the agent (children first, then the primary), with retries.
+        agent_failed: list[str] = []
+        for target in [str(i) for i in child_ids] + [str(execution_id)]:
+            ok = False
+            for _ in range(3):
+                try:
+                    if await host_runner.cancel_execution(target):
+                        ok = True
+                        break
+                except Exception:
+                    pass
+                await asyncio.sleep(0.2)
+            if not ok:
+                agent_failed.append(target)
+        if agent_failed:
+            print(f"[Orchestrator] Agent-side cancel failed for: {', '.join(agent_failed)}")
+            try:
+                from app.database import async_session_maker
+                async with async_session_maker() as db:
+                    row = (await db.execute(
+                        select(Execution).where(Execution.id == execution_id)
+                    )).scalar_one_or_none()
+                    if row is not None:
+                        row.stderr = (row.stderr or "") + (
+                            "\n[Warning] Agent-side cancel failed for "
+                            f"{', '.join(agent_failed)}; the process may still be running."
+                        )
+                        await db.commit()
+            except Exception as e:
+                print(f"[Orchestrator] Failed to record cancel warning: {e}")
         return True
     
     async def execute_bulk(self, db: AsyncSession, item_ids: List[int], host_id: Optional[int] = None,
