@@ -403,7 +403,7 @@ class TaskOrchestrator:
                     flow_execution_id=flow_execution_id,
                     flow_step_index=flow_step_index,
                     execution_id_override=execution_id,  # Use the pre-created execution
-                    commit_transaction=True,  # Commit after status=RUNNING to release lock
+                    # RUNNING is committed inside execute_item before streaming
                     command_override=command_override
                 )
                 await db.commit()
@@ -608,7 +608,7 @@ class TaskOrchestrator:
                                 host_id=target_host_id,
                                 variables=child_vars,
                                 execution_id_override=child_exec.id,
-                                commit_transaction=True,
+                                # RUNNING committed inside execute_item
                                 command_override=command_override,
                             )
 
@@ -798,7 +798,6 @@ class TaskOrchestrator:
         flow_execution_id: Optional[str] = None, flow_step_index: Optional[int] = None,
         output_callback: Optional[Callable[[str], None]] = None,
         execution_id_override: Optional[int] = None,
-        commit_transaction: bool = False,
         command_override: Optional[str] = None
     ) -> Execution:
         """Execute a checklist item. If execution_id_override is provided, reuse that execution record."""
@@ -1068,11 +1067,10 @@ class TaskOrchestrator:
         execution.status = ExecutionStatus.RUNNING
         execution.started_at = datetime.utcnow()
 
-        if commit_transaction:
-            await db.commit()
-            await db.refresh(execution)
-        else:
-            await db.flush()
+        # Always commit RUNNING before the agent stream starts: holding a write
+        # txn across an hours-long SSE stream would serialize all WAL writers.
+        await db.commit()
+        await db.refresh(execution)
 
         try:
             payload = await execution_sync_payload(db, execution)
@@ -1083,10 +1081,7 @@ class TaskOrchestrator:
                 operation="update",
                 payload=payload,
             )
-            if commit_transaction:
-                await db.commit()
-            else:
-                await db.flush()
+            await db.commit()
         except Exception as e:
             print(f"[Orchestrator] Sync record (running) failed: {e}")
 
@@ -2349,7 +2344,7 @@ class TaskOrchestrator:
         if sequential:
             executions, outputs = [], {}
             for item_id in item_ids:
-                exec = await self.execute_item(db, item_id, host_id, variables, outputs, commit_transaction=True)
+                exec = await self.execute_item(db, item_id, host_id, variables, outputs)
                 executions.append(exec)
                 if exec.parsed_output:
                     outputs[exec.id] = exec.parsed_output
@@ -2360,7 +2355,7 @@ class TaskOrchestrator:
             async def _execute_with_own_session(item_id: int) -> Execution:
                 async with async_session_maker() as session:
                     try:
-                        result = await self.execute_item(session, item_id, host_id, variables, commit_transaction=True)
+                        result = await self.execute_item(session, item_id, host_id, variables)
                         await session.commit()
                         return result
                     except Exception:
