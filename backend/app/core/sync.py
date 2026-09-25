@@ -1,6 +1,7 @@
 """Synchronization service for multi-node event replication."""
 from __future__ import annotations
 
+import asyncio
 import shlex
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -8,6 +9,7 @@ import uuid
 from typing import Any, Dict, Iterable, Optional
 
 from sqlalchemy import delete, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -453,6 +455,19 @@ class IngestResult:
 class SyncService:
     """Event-log based sync helper."""
 
+    def __init__(self) -> None:
+        self._ingest_locks: dict[str, asyncio.Lock] = {}
+        self._ingest_locks_guard = asyncio.Lock()
+
+    async def _ingest_lock_for(self, peer_node_id: str) -> asyncio.Lock:
+        """Per-peer ingest lock. Keyspace is bounded (one key per peer), so no eviction."""
+        async with self._ingest_locks_guard:
+            lock = self._ingest_locks.get(peer_node_id)
+            if lock is None:
+                lock = asyncio.Lock()
+                self._ingest_locks[peer_node_id] = lock
+            return lock
+
     async def get_cursor(self, db: AsyncSession, peer_node_id: str, direction: str) -> int:
         result = await db.execute(
             select(SyncCursor).where(
@@ -562,24 +577,28 @@ class SyncService:
         # Bounded multi-pass: a child sorted before its parent defers on the first
         # pass and applies on a later pass once the parent exists. Stops early when
         # nothing deferred or no progress was made (missing parent isn't in the batch).
-        pending = sorted_events
-        for _ in range(_MAX_INGEST_PASSES):
-            pass_deferred: list[Dict[str, Any]] = []
-            pass_min_deferred: Optional[int] = None
-            for incoming in pending:
-                deferred_ts = await self._ingest_one(db, incoming=incoming, result=result)
-                if deferred_ts is not None:
-                    pass_deferred.append(incoming)
-                    pass_min_deferred = (
-                        deferred_ts if pass_min_deferred is None
-                        else min(pass_min_deferred, deferred_ts)
-                    )
-            min_deferred = pass_min_deferred
-            if not pass_deferred or len(pass_deferred) == len(pending):
-                break
-            pending = pass_deferred
+        # Serialized per peer so concurrent pull+push cycles can't interleave writes
+        # and cursor updates for the same peer.
+        peer_lock = await self._ingest_lock_for(peer_node_id)
+        async with peer_lock:
+            pending = sorted_events
+            for _ in range(_MAX_INGEST_PASSES):
+                pass_deferred: list[Dict[str, Any]] = []
+                pass_min_deferred: Optional[int] = None
+                for incoming in pending:
+                    deferred_ts = await self._ingest_one(db, incoming=incoming, result=result)
+                    if deferred_ts is not None:
+                        pass_deferred.append(incoming)
+                        pass_min_deferred = (
+                            deferred_ts if pass_min_deferred is None
+                            else min(pass_min_deferred, deferred_ts)
+                        )
+                min_deferred = pass_min_deferred
+                if not pass_deferred or len(pass_deferred) == len(pending):
+                    break
+                pending = pass_deferred
 
-        result.min_deferred_ts = min_deferred
+            result.min_deferred_ts = min_deferred
         cursor_ts = result.latest_logical_ts
         if min_deferred is not None:
             # Don't advance past the earliest deferred event, so it (and everything after)
@@ -647,34 +666,49 @@ class SyncService:
         # processed (which would make the dedupe check skip it permanently), and
         # a stale LWW-loser isn't logged either (it would only bloat the table
         # and amplify re-pushes). Seen-but-stale still advances the cursor.
-        deferred = False
-        applied_now = False
-        if latest_key is None or incoming_key > latest_key:
-            try:
-                await self._apply_event(db, entity_type=entity_type, operation=operation, payload=payload)
-                result.applied += 1
-                applied_now = True
-            except _FKNotReady as exc:
-                deferred = True
-                print(f"[Sync] Deferring {entity_type} {entity_public_id} for retry: {exc}")
-        else:
-            result.skipped += 1
+        # Each event runs in its own savepoint: a unique-violation race with a
+        # concurrent ingester rolls back just this event, never the batch.
+        try:
+            async with db.begin_nested():
+                deferred = False
+                applied_now = False
+                if latest_key is None or incoming_key > latest_key:
+                    try:
+                        await self._apply_event(db, entity_type=entity_type, operation=operation, payload=payload)
+                        applied_now = True
+                    except _FKNotReady as exc:
+                        deferred = True
+                        print(f"[Sync] Deferring {entity_type} {entity_public_id} for retry: {exc}")
+                else:
+                    result.skipped += 1
 
-        if deferred:
-            return logical_ts
-        if applied_now:
-            await self.record_event(
-                db,
-                entity_type=entity_type,
-                entity_public_id=entity_public_id,
-                operation=operation,
-                payload=payload,
-                logical_ts=logical_ts,
-                source_node_id=source_node_id,
-                event_id=event_id,
-            )
-        result.latest_logical_ts = max(result.latest_logical_ts, logical_ts)
-        return None
+                if deferred:
+                    return logical_ts
+                if applied_now:
+                    await self.record_event(
+                        db,
+                        entity_type=entity_type,
+                        entity_public_id=entity_public_id,
+                        operation=operation,
+                        payload=payload,
+                        logical_ts=logical_ts,
+                        source_node_id=source_node_id,
+                        event_id=event_id,
+                    )
+                    result.applied += 1
+                result.latest_logical_ts = max(result.latest_logical_ts, logical_ts)
+                return None
+        except IntegrityError:
+            # Lost a race (event or entity row committed by a concurrent
+            # ingester between our check and our flush): re-check. Recorded by
+            # the winner means a plain skip; otherwise skip+log so one bad row
+            # never nukes its batch.
+            exists = await db.execute(select(SyncEvent.id).where(SyncEvent.event_id == event_id))
+            if exists.scalar_one_or_none() is None:
+                print(f"[Sync] Skipping event that violates constraints: {entity_type} {entity_public_id}")
+            result.skipped += 1
+            result.latest_logical_ts = max(result.latest_logical_ts, logical_ts)
+            return None
 
     async def _mkdir_projects_for_events(self, events: list[Dict[str, Any]]) -> None:
         """Best-effort mkdir for projects in this batch, once per distinct name.
