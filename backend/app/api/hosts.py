@@ -433,25 +433,31 @@ async def start_host_script_scan(
 @router.get("/{host_id}/timeline")
 async def get_host_timeline(
     host_id: int,
-    limit: int = 50,
+    limit: int = Query(50, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     """Get execution timeline for a host."""
-    result = await db.execute(
-        select(Host).where(Host.id == host_id).options(selectinload(Host.executions))
-    )
-    host = result.scalar_one_or_none()
-    if not host:
+    result = await db.execute(select(Host.project_id).where(Host.id == host_id))
+    hpid = result.scalar_one_or_none()
+    if hpid is None:
         raise HTTPException(status_code=404, detail="Host not found")
     from app.api.projects import _require_project_member
-    await _require_project_member(db, host.project_id, current_user)
-    
-    executions = sorted(host.executions, key=lambda e: e.created_at, reverse=True)[:limit]
+    await _require_project_member(db, hpid, current_user)
+
+    # Column-select ordered/limited in SQL: never loads blobs for discarded rows.
+    from app.models.execution import Execution
+    rows = (await db.execute(
+        select(Execution.id, Execution.item_id, Execution.status, Execution.version,
+               Execution.started_at, Execution.completed_at)
+        .where(Execution.host_id == host_id)
+        .order_by(Execution.created_at.desc())
+        .limit(limit)
+    )).all()
     return [{
-        "id": e.id, "item_id": e.item_id, "status": e.status.value,
-        "version": e.version, "started_at": e.started_at, "completed_at": e.completed_at
-    } for e in executions]
+        "id": r[0], "item_id": r[1], "status": r[2].value,
+        "version": r[3], "started_at": r[4], "completed_at": r[5],
+    } for r in rows]
 
 
 def _host_to_response(host: Host, counts: Optional[dict] = None) -> HostResponse:

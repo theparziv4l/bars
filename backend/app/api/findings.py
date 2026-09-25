@@ -2,7 +2,7 @@
 from datetime import datetime
 from typing import Optional, List
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -101,6 +101,7 @@ async def list_findings(
     severity: Optional[FindingSeverity] = None,
     status: Optional[FindingStatus] = None,
     host_id: Optional[int] = None,
+    limit: int = Query(200, ge=1, le=2000),
     db: AsyncSession = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user_optional),
 ):
@@ -113,7 +114,9 @@ async def list_findings(
         stmt = stmt.where(Finding.status == status)
     if host_id is not None:
         stmt = stmt.where(Finding.host_id == host_id)
-    rows = list((await db.execute(stmt)).scalars().all())
+    # Bounded DB read first (newest window), then severity re-sort of the
+    # window: severity ordering is best-effort past the limit by design.
+    rows = list((await db.execute(stmt.order_by(Finding.updated_at.desc()).limit(limit))).scalars().all())
     rows.sort(key=lambda f: (SEVERITY_ORDER.get(f.severity, 0), f.updated_at), reverse=True)
     return rows
 
