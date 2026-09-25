@@ -537,10 +537,14 @@ class TaskOrchestrator:
                 nonlocal success_count, completed_count
 
                 if context.cancelled:
+                    async with progress_lock:
+                        completed_count += 1
                     return
 
                 async with batch_sem:
                     if context.cancelled:
+                        async with progress_lock:
+                            completed_count += 1
                         return
 
                     child_vars = base_variables.copy()
@@ -643,7 +647,12 @@ class TaskOrchestrator:
                 asyncio.create_task(_run_single_child(t))
                 for t in targets
             ]
-            await asyncio.gather(*tasks, return_exceptions=True)
+            child_results = await asyncio.gather(*tasks, return_exceptions=True)
+            for r in child_results:
+                if isinstance(r, BaseException):
+                    # _run_single_child catches Exception; anything surfacing
+                    # here escaped it — log for visibility.
+                    print(f"[Batch] Child raised {type(r).__name__}: {r}")
 
             # ── 3. Finalize Parent ──────────────────────────────────────
             async with async_session_maker() as final_db:
@@ -740,6 +749,39 @@ class TaskOrchestrator:
                         },
                         item_id=item_id,
                     )
+
+        except asyncio.CancelledError:
+            # Outer cancellation: the gather above already cancelled the
+            # children. Mark the parent CANCELLED via a shielded write
+            # (we are unwinding; the write must still land), notify, re-raise.
+            async def _mark_cancelled() -> None:
+                try:
+                    async with async_session_maker() as db:
+                        result = await db.execute(
+                            select(Execution).where(Execution.id == execution_id)
+                        )
+                        row = result.scalar_one_or_none()
+                        if row is not None and row.status == ExecutionStatus.RUNNING:
+                            row.status = ExecutionStatus.CANCELLED
+                            row.completed_at = datetime.utcnow()
+                            row.stderr = (row.stderr or "") + "\nBatch cancelled."
+                            row.stdout = (
+                                f"Cancelled after {completed_count}/{total} targets. "
+                                f"{success_count} successful."
+                            )
+                            await db.commit()
+                    await notification_manager.send_execution_status(
+                        execution_id, "cancelled",
+                        details={"completed_count": completed_count,
+                                 "success_count": success_count, "total": total,
+                                 "is_batch_parent": True},
+                        item_id=item_id,
+                    )
+                except Exception as inner:
+                    print(f"[Batch] Cancel finalize failed: {inner}")
+
+            await asyncio.shield(_mark_cancelled())
+            raise
 
         except Exception as e:
             print(f"[Batch] Fatal batch execution error: {e}")
