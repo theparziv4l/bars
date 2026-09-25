@@ -257,6 +257,9 @@ class FlowManager:
         started_executions = []
 
         for step in initial_steps:
+            if step.checklist_item is not None and not step.checklist_item.enabled:
+                print(f"[FlowManager] Skipping step {step.order_index} (item disabled).")
+                continue
             step_vars = await self._resolve_step_variables(step, base_vars, {}, {})
             step_vars["flow_id"] = flow.id
             if flow.project_id:
@@ -546,6 +549,9 @@ class FlowManager:
 
             scheduled = []
             for step in next_steps:
+                if step.checklist_item is not None and not step.checklist_item.enabled:
+                    print(f"[FlowManager] Skipping step {step.order_index} (item disabled).")
+                    continue
                 step_vars = await self._resolve_step_variables(
                     step, base_vars, execution_outputs,
                     item_name_to_exe, latest_item_name_to_exe,

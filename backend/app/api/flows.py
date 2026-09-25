@@ -400,13 +400,25 @@ async def stop_flow_execution(
     if not result.scalar_one_or_none():
          raise HTTPException(status_code=404, detail="Flow not found")
 
+    fe_result = await db.execute(
+        select(FlowExecution).where(FlowExecution.id == flow_execution_id)
+    )
+    flow_exec = fe_result.scalar_one_or_none()
+    if not flow_exec or flow_exec.flow_id != flow_id:
+        raise HTTPException(status_code=404, detail="Flow execution not found")
+    if flow_exec.status not in ("pending", "running", "paused"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot stop flow in '{flow_exec.status}' state",
+        )
+
     result = await db.execute(
         select(Execution)
         .where(Execution.flow_execution_id == flow_execution_id)
         .where(Execution.status.in_([ExecutionStatus.RUNNING, ExecutionStatus.PENDING]))
     )
     executions = result.scalars().all()
-    
+
     cancelled_count = 0
     for exc in executions:
         if exc.status == ExecutionStatus.RUNNING:
@@ -417,13 +429,8 @@ async def stop_flow_execution(
         exc.completed_at = datetime.utcnow()
 
     # Update FlowExecution record
-    fe_result = await db.execute(
-        select(FlowExecution).where(FlowExecution.id == flow_execution_id)
-    )
-    flow_exec = fe_result.scalar_one_or_none()
-    if flow_exec and flow_exec.status in ("pending", "running"):
-        flow_exec.status = "cancelled"
-        flow_exec.completed_at = datetime.utcnow()
+    flow_exec.status = "cancelled"
+    flow_exec.completed_at = datetime.utcnow()
 
     await db.commit()
     
@@ -444,7 +451,7 @@ async def pause_flow_execution(
         select(FlowExecution).where(FlowExecution.id == flow_execution_id)
     )
     flow_exec = fe_result.scalar_one_or_none()
-    if not flow_exec:
+    if not flow_exec or flow_exec.flow_id != flow_id:
         raise HTTPException(status_code=404, detail="Flow execution not found")
     if flow_exec.status != "running":
         raise HTTPException(status_code=400, detail=f"Cannot pause flow in '{flow_exec.status}' state")
@@ -488,7 +495,7 @@ async def resume_flow_execution(
         select(FlowExecution).where(FlowExecution.id == flow_execution_id)
     )
     flow_exec = fe_result.scalar_one_or_none()
-    if not flow_exec:
+    if not flow_exec or flow_exec.flow_id != flow_id:
         raise HTTPException(status_code=404, detail="Flow execution not found")
     if flow_exec.status != "paused":
         raise HTTPException(status_code=400, detail=f"Cannot resume flow in '{flow_exec.status}' state")
@@ -545,6 +552,8 @@ async def resume_flow_execution(
     from app.core.orchestrator import task_orchestrator
 
     for step in steps_to_run:
+        if step.checklist_item is not None and not step.checklist_item.enabled:
+            continue
         step_vars = await flow_manager._resolve_step_variables(
             step, base_vars, execution_outputs, item_name_to_exe
         )
@@ -769,7 +778,15 @@ async def get_next_tasks(
     """
     from app.models.execution import Execution
     from app.core.flow_manager import flow_manager as fm
-    
+
+    # A finished run has no next task — report terminal state, never ready/running.
+    fe_result = await db.execute(
+        select(FlowExecution).where(FlowExecution.id == flow_execution_id)
+    )
+    flow_exec = fe_result.scalar_one_or_none()
+    if flow_exec is not None and flow_exec.status not in ("pending", "running", "paused"):
+        return {"status": flow_exec.status, "flow_execution_id": flow_execution_id}
+
     # Get latest execution to infer flow_id if not provided
     stmt = select(Execution).where(Execution.flow_execution_id == flow_execution_id).order_by(Execution.flow_step_index.desc())
     executions = (await db.execute(stmt)).scalars().all()
