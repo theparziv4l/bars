@@ -9,7 +9,7 @@ import uuid
 from typing import Any, Dict, Iterable, Optional
 
 from sqlalchemy import delete, or_, select, tuple_
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -87,6 +87,11 @@ class _FKNotReady(Exception):
 # Max passes over a batch for deferred events. FK chains here are at most ~5 deep
 # (file -> execution -> item -> group -> project); one extra pass proves quiescence.
 _MAX_INGEST_PASSES = 6
+
+# Whole-batch ingest attempts on SQLITE_BUSY. Concurrent ingests can hit
+# BUSY_SNAPSHOT when upgrading a DEFERRED txn to a write (busy_timeout does
+# not cover snapshot conflicts); rollback + redo from a fresh snapshot.
+_MAX_INGEST_ATTEMPTS = 3
 
 
 # Apply order for FK dependency: users first, then projects, then project_members, etc.
@@ -564,11 +569,37 @@ class SyncService:
         Events are sorted by logical_ts, source_node_id, and entity type so that
         FK dependencies are respected (e.g. projects before project_members).
         """
-        result = IngestResult()
         sorted_events = sorted(list(events), key=_ingest_sort_key)
         # File IO before any DB write: a slow/hung host agent must never hold the
         # write txn (WAL single-writer) hostage.
         await self._mkdir_projects_for_events(sorted_events)
+        # Whole-batch retry on SQLITE_BUSY. Overlapping ingests can hit
+        # BUSY_SNAPSHOT upgrading a DEFERRED txn to a write (busy_timeout does
+        # not cover snapshot conflicts). Ingest is idempotent, so rollback and
+        # redo from a fresh snapshot converges.
+        last_exc: Optional[OperationalError] = None
+        for attempt in range(_MAX_INGEST_ATTEMPTS):
+            try:
+                return await self._ingest_attempt(
+                    db, peer_node_id=peer_node_id, sorted_events=sorted_events
+                )
+            except OperationalError as exc:
+                last_exc = exc
+                await db.rollback()
+                print(f"[Sync] Ingest hit lock contention, retrying ({attempt + 1}/{_MAX_INGEST_ATTEMPTS})")
+                await asyncio.sleep(0.1 * (2 ** attempt))
+        assert last_exc is not None
+        raise last_exc
+
+    async def _ingest_attempt(
+        self,
+        db: AsyncSession,
+        *,
+        peer_node_id: str,
+        sorted_events: list[Dict[str, Any]],
+    ) -> IngestResult:
+        """One ingest attempt: prefetch, locked multi-pass apply, cursor write."""
+        result = IngestResult()
         # Two SELECTs replace the per-event dedupe + latest lookups below.
         prefetch = await self._prefetch_batch_state(db, sorted_events)
         # Smallest logical_ts of an event we had to DEFER (parent not synced yet). We
@@ -603,17 +634,17 @@ class SyncService:
                 pending = pass_deferred
 
             result.min_deferred_ts = min_deferred
-        cursor_ts = result.latest_logical_ts
-        if min_deferred is not None:
-            # Don't advance past the earliest deferred event, so it (and everything after)
-            # is retried once its parent has synced.
-            cursor_ts = min(cursor_ts, min_deferred - 1)
-        await self.set_cursor(
-            db,
-            peer_node_id=peer_node_id,
-            direction="pull",
-            logical_ts=cursor_ts,
-        )
+            cursor_ts = result.latest_logical_ts
+            if min_deferred is not None:
+                # Don't advance past the earliest deferred event, so it (and everything after)
+                # is retried once its parent has synced.
+                cursor_ts = min(cursor_ts, min_deferred - 1)
+            await self.set_cursor(
+                db,
+                peer_node_id=peer_node_id,
+                direction="pull",
+                logical_ts=cursor_ts,
+            )
         return result
 
     async def _prefetch_batch_state(

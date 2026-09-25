@@ -23,8 +23,24 @@ def _ev(i):
     }
 
 
-async def _run():
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+async def _run(tmp_path):
+    # File DB (not :memory:): :memory: multiplexes all sessions onto ONE
+    # connection, where concurrent savepoints collide by name. Production uses
+    # a file DB with a connection pool, so the file DB is the honest harness.
+    # Production pragmas (WAL + busy_timeout) included for the same reason.
+    from sqlalchemy import event as sa_event
+
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path}/conc.db")
+
+    @sa_event.listens_for(engine.sync_engine, "connect")
+    def _pragmas(dbapi_connection, connection_record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA busy_timeout=30000")
+        cursor.execute("PRAGMA synchronous=NORMAL")
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     Session = async_sessionmaker(engine, expire_on_commit=False)
@@ -46,8 +62,8 @@ async def _run():
     print("PASS concurrent ingest")
 
 
-def test_concurrent_same_peer_ingest():
-    asyncio.run(_run())
+def test_concurrent_same_peer_ingest(tmp_path):
+    asyncio.run(_run(tmp_path))
 
 
 async def _savepoint_run():
