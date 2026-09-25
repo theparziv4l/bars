@@ -17,6 +17,7 @@ from app.models.checklist_claim import ChecklistClaim
 from app.models.execution import Execution, ExecutionStatus
 from app.models.user import ProjectMember, User
 from app.core.sync import sync_service, claim_sync_payload
+from app.core.utils import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +89,7 @@ async def claim_item_scope(
     )
     if membership.scalar_one_or_none() is None:
         raise ProjectAccessError("User is not a project member")
-    now = datetime.utcnow()
+    now = utcnow()
     lease = now + timedelta(seconds=lease_seconds or settings.DEFAULT_CLAIM_LEASE_SECONDS)
     scope_key = scope_key_for_host(host_id)
 
@@ -234,7 +235,7 @@ async def release_item_scope(
     claim.claimed_at = None
     claim.lease_expires_at = None
     claim.version += 1
-    claim.deleted_at = datetime.utcnow()
+    claim.deleted_at = utcnow()
     await db.flush()
     await db.refresh(claim)
     try:

@@ -2,12 +2,24 @@
 import logging
 import os
 import re
+from datetime import datetime, timezone
 from typing import Optional, TYPE_CHECKING
 
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from app.models.project import Project
+
+
+def utcnow() -> datetime:
+    """Naive UTC now — ``datetime.utcnow()`` replacement.
+
+    SQLite (and every comparison in this codebase) works with naive
+    datetimes; ``datetime.now(timezone.utc)`` would return aware ones and
+    break ``naive < aware`` comparisons. This keeps naive semantics while
+    silencing the deprecation.
+    """
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 def is_unset(value) -> bool:

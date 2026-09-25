@@ -23,7 +23,7 @@ from app.core.parser import output_parser
 from app.core.templating import template_engine
 from app.core.notifications import notification_manager
 from app.core.host_runner import host_runner
-from app.core.utils import is_unset, as_target_list, excluded_targets
+from app.core.utils import is_unset, as_target_list, excluded_targets, utcnow
 from app.core.sync import (
     sync_service,
     execution_sync_payload,
@@ -255,7 +255,7 @@ class TaskOrchestrator:
                 if execution:
                     execution.status = ExecutionStatus.FAILED
                     execution.stderr = message
-                    execution.completed_at = datetime.utcnow()
+                    execution.completed_at = utcnow()
                     await db.commit()
             await notification_manager.send_execution_status(
                 execution_id, "failed", details={"error": message}, item_id=item_id
@@ -430,7 +430,7 @@ class TaskOrchestrator:
                     if execution:
                         execution.status = ExecutionStatus.FAILED
                         execution.stderr = f"Background execution error: {str(e)}"
-                        execution.completed_at = datetime.utcnow()
+                        execution.completed_at = utcnow()
                         await db.commit()
                         await notification_manager.send_execution_status(
                             execution_id, "failed", 
@@ -488,7 +488,7 @@ class TaskOrchestrator:
                     return
 
                 parent_execution.status = ExecutionStatus.RUNNING
-                parent_execution.started_at = datetime.utcnow()
+                parent_execution.started_at = utcnow()
                 parent_execution.command = (
                     f"Batch Execution: {total} targets "
                     f"(concurrency={settings.BATCH_CONCURRENCY})"
@@ -685,7 +685,7 @@ class TaskOrchestrator:
                 parent_execution = result.scalar_one_or_none()
 
                 if parent_execution:
-                    parent_execution.completed_at = datetime.utcnow()
+                    parent_execution.completed_at = utcnow()
 
                     if context.cancelled:
                         parent_execution.status = ExecutionStatus.CANCELLED
@@ -786,7 +786,7 @@ class TaskOrchestrator:
                         row = result.scalar_one_or_none()
                         if row is not None and row.status == ExecutionStatus.RUNNING:
                             row.status = ExecutionStatus.CANCELLED
-                            row.completed_at = datetime.utcnow()
+                            row.completed_at = utcnow()
                             row.stderr = (row.stderr or "") + "\nBatch cancelled."
                             row.stdout = (
                                 f"Cancelled after {completed_count}/{total} targets. "
@@ -816,7 +816,7 @@ class TaskOrchestrator:
                     parent_execution = result.scalar_one_or_none()
                     if parent_execution and parent_execution.status == ExecutionStatus.RUNNING:
                         parent_execution.status = ExecutionStatus.FAILED
-                        parent_execution.completed_at = datetime.utcnow()
+                        parent_execution.completed_at = utcnow()
                         parent_execution.stderr = f"Batch execution aborted: {str(e)}"
                         parent_execution.stdout = (
                             f"Aborted after {completed_count}/{total} targets. "
@@ -1130,7 +1130,7 @@ class TaskOrchestrator:
         # Set RUNNING and persist before acquiring semaphore so the UI updates even when
         # we are queued behind other executions (avoids executions stuck in PENDING).
         execution.status = ExecutionStatus.RUNNING
-        execution.started_at = datetime.utcnow()
+        execution.started_at = utcnow()
 
         # Always commit RUNNING before the agent stream starts: holding a write
         # txn across an hours-long SSE stream would serialize all WAL writers.
@@ -1175,7 +1175,7 @@ class TaskOrchestrator:
             execution.stderr = (execution.stderr or "") + f"\nError: {str(e)}"
         finally:
             try:
-                execution.completed_at = datetime.utcnow()
+                execution.completed_at = utcnow()
                 if execution.status == ExecutionStatus.RUNNING:
                     # User cancel breaks the stream without raising CancelledError, and the
                     # agent reports timeouts via a "[Timeout]" stderr marker + exit -1.

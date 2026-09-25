@@ -28,6 +28,7 @@ from app.models.sync import SyncCursor, SyncEvent, SyncPeer
 
 # Service is in host module
 from app.models.host import Service
+from app.core.utils import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +55,7 @@ def _sync_should_apply_service_name(existing_name: Optional[str], incoming_name:
 
 
 def _now_ts() -> int:
-    return int(datetime.utcnow().timestamp() * 1_000_000)
+    return int(utcnow().timestamp() * 1_000_000)
 
 
 def _event_key(logical_ts: int, source_node_id: str, event_id: str = "") -> tuple[int, str, str]:
@@ -925,7 +926,7 @@ class SyncService:
             user.role = payload["role"]
         if "must_change_password" in payload:
             user.must_change_password = bool(payload["must_change_password"])
-        user.updated_at = _parse_dt(payload.get("updated_at")) or datetime.utcnow()
+        user.updated_at = _parse_dt(payload.get("updated_at")) or utcnow()
 
     async def _apply_project(self, db: AsyncSession, *, payload: Dict[str, Any]) -> None:
         public_id = payload.get("public_id")
@@ -965,7 +966,7 @@ class SyncService:
         project.start_date = _parse_dt(payload.get("start_date"))
         project.end_date = _parse_dt(payload.get("end_date"))
         project.deleted_at = _parse_dt(payload.get("deleted_at"))
-        project.updated_at = _parse_dt(payload.get("updated_at")) or datetime.utcnow()
+        project.updated_at = _parse_dt(payload.get("updated_at")) or utcnow()
 
         # Record the project path (pure). The actual mkdir runs in the ingest
         # pre-pass, BEFORE the write txn, so a slow host agent never holds it.
@@ -1028,7 +1029,7 @@ class SyncService:
             member.user_id = user_id
 
         member.deleted_at = _parse_dt(payload.get("deleted_at"))
-        member.updated_at = _parse_dt(payload.get("updated_at")) or datetime.utcnow()
+        member.updated_at = _parse_dt(payload.get("updated_at")) or utcnow()
 
     async def _apply_checklist_group(self, db: AsyncSession, *, payload: Dict[str, Any]) -> None:
         public_id = payload.get("public_id")
@@ -1070,7 +1071,7 @@ class SyncService:
         group.is_template = bool(payload.get("is_template", group.is_template))
         group.is_trashed = bool(payload.get("is_trashed", group.is_trashed))
         group.deleted_at = _parse_dt(payload.get("deleted_at"))
-        group.updated_at = _parse_dt(payload.get("updated_at")) or datetime.utcnow()
+        group.updated_at = _parse_dt(payload.get("updated_at")) or utcnow()
 
     async def _apply_checklist_item(self, db: AsyncSession, *, payload: Dict[str, Any]) -> None:
         public_id = payload.get("public_id")
@@ -1120,7 +1121,7 @@ class SyncService:
         item.order_index = int(payload.get("order_index", item.order_index) or 0)
         item.is_trashed = bool(payload.get("is_trashed", item.is_trashed))
         item.deleted_at = _parse_dt(payload.get("deleted_at"))
-        item.updated_at = _parse_dt(payload.get("updated_at")) or datetime.utcnow()
+        item.updated_at = _parse_dt(payload.get("updated_at")) or utcnow()
 
     async def _apply_checklist_group_delete(self, db: AsyncSession, *, payload: Dict[str, Any]) -> None:
         """Apply checklist group delete: remove row so peer state matches."""
@@ -1182,7 +1183,7 @@ class SyncService:
         if "excluded" in payload:
             host.excluded = bool(payload["excluded"])
         host.deleted_at = _parse_dt(payload.get("deleted_at"))
-        host.updated_at = _parse_dt(payload.get("updated_at")) or datetime.utcnow()
+        host.updated_at = _parse_dt(payload.get("updated_at")) or utcnow()
 
     async def _apply_project_variable(self, db: AsyncSession, *, payload: Dict[str, Any]) -> None:
         public_id = payload.get("public_id")
@@ -1242,7 +1243,7 @@ class SyncService:
             variable.value = payload["value"]
         variable.var_type = payload.get("var_type", variable.var_type)
         variable.deleted_at = _parse_dt(payload.get("deleted_at"))
-        variable.updated_at = _parse_dt(payload.get("updated_at")) or datetime.utcnow()
+        variable.updated_at = _parse_dt(payload.get("updated_at")) or utcnow()
 
     async def _apply_execution(self, db: AsyncSession, *, payload: Dict[str, Any]) -> None:
         public_id = payload.get("public_id")
@@ -1301,7 +1302,7 @@ class SyncService:
         except Exception:
             pass
         execution.deleted_at = _parse_dt(payload.get("deleted_at"))
-        execution.updated_at = _parse_dt(payload.get("updated_at")) or datetime.utcnow()
+        execution.updated_at = _parse_dt(payload.get("updated_at")) or utcnow()
         if payload.get("stdout") is not None:
             execution.stdout = payload.get("stdout")
         if payload.get("stderr") is not None:
@@ -1489,7 +1490,7 @@ class SyncService:
             flow.name = payload.get("name", flow.name)
             flow.is_template = bool(payload.get("is_template", flow.is_template))
             _apply_present(flow, payload, ("description", "flow_definition", "tags"))
-        flow.updated_at = _parse_dt(payload.get("updated_at")) or datetime.utcnow()
+        flow.updated_at = _parse_dt(payload.get("updated_at")) or utcnow()
 
     async def _apply_flow_delete(self, db: AsyncSession, *, payload: Dict[str, Any]) -> None:
         public_id = payload.get("public_id")
@@ -1661,7 +1662,7 @@ class SyncService:
         claim.is_active = bool(payload.get("is_active", False))
         claim.deleted_at = _parse_dt(payload.get("deleted_at"))
         claim.version = int(payload.get("version", claim.version))
-        claim.updated_at = _parse_dt(payload.get("updated_at")) or datetime.utcnow()
+        claim.updated_at = _parse_dt(payload.get("updated_at")) or utcnow()
 
     async def _apply_finding(self, db: AsyncSession, *, payload: Dict[str, Any]) -> None:
         from app.models.finding import Finding, FindingSeverity, FindingStatus
@@ -1747,7 +1748,7 @@ class SyncService:
         if payload.get("occurrences"):
             finding.occurrences = max(finding.occurrences or 0, int(payload["occurrences"]))
         finding.deleted_at = _parse_dt(payload.get("deleted_at"))
-        finding.updated_at = _parse_dt(payload.get("updated_at")) or datetime.utcnow()
+        finding.updated_at = _parse_dt(payload.get("updated_at")) or utcnow()
 
 
 async def purge_old_events(db: AsyncSession, *, days: int) -> int:
@@ -1756,7 +1757,7 @@ async def purge_old_events(db: AsyncSession, *, days: int) -> int:
     Only run when the operator opts in via SYNC_EVENT_RETENTION_DAYS: a peer
     offline longer than the window permanently loses the purged events.
     """
-    cutoff = datetime.utcnow() - timedelta(days=days)
+    cutoff = utcnow() - timedelta(days=days)
     result = await db.execute(delete(SyncEvent).where(SyncEvent.created_at < cutoff))
     return result.rowcount or 0
 

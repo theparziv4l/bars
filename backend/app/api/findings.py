@@ -13,6 +13,7 @@ from app.core.auth import get_current_user_optional
 from app.core.sync import sync_service, finding_sync_payload
 from app.models.finding import Finding, FindingSeverity, FindingStatus, SEVERITY_ORDER
 from app.models.user import User
+from app.core.utils import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -190,7 +191,7 @@ async def update_finding(
     await _require_project_member(db, finding.project_id, current_user)
     for field, value in data.model_dump(exclude_unset=True).items():
         setattr(finding, field, value)
-    finding.updated_at = datetime.utcnow()
+    finding.updated_at = utcnow()
     await db.flush()
     await db.refresh(finding)
     await _record(db, finding, "update")
@@ -208,7 +209,7 @@ async def delete_finding(
         from app.api.projects import _require_project_member
         await _require_project_member(db, finding.project_id, current_user)
     if finding and finding.deleted_at is None:
-        finding.deleted_at = datetime.utcnow()
+        finding.deleted_at = utcnow()
         await db.flush()
         await _record(db, finding, "delete")
     return None

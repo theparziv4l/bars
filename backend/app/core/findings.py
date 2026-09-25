@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.checklist import ChecklistItem
 from app.models.execution import Execution
 from app.models.finding import Finding, FindingSeverity, FindingStatus, SEVERITY_ORDER
+from app.core.utils import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +76,7 @@ async def ingest_execution_findings(db: AsyncSession, execution: Execution, item
             existing.execution_id = execution.id
             if matched:
                 existing.evidence_text = matched
-            existing.updated_at = datetime.utcnow()
+            existing.updated_at = utcnow()
             if SEVERITY_ORDER[severity] > SEVERITY_ORDER[existing.severity]:
                 existing.severity = severity
             touched.append(existing)

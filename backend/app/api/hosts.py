@@ -26,6 +26,7 @@ from app.schemas.host import (
     HostBulkScopeRequest,
 )
 from app.core import script_scanner
+from app.core.utils import utcnow
 
 router = APIRouter()
 
@@ -362,7 +363,7 @@ async def delete_host(
         raise HTTPException(status_code=404, detail="Host not found")
     from app.api.projects import _require_project_member
     await _require_project_member(db, host.project_id, current_user)
-    host.deleted_at = host.deleted_at or datetime.utcnow()
+    host.deleted_at = host.deleted_at or utcnow()
     await sync_service.record_event(
         db,
         entity_type="hosts",

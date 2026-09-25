@@ -17,6 +17,7 @@ from app.core.auth import get_current_user_optional
 from app.models.evidence import Evidence
 from app.models.finding import Finding
 from app.models.user import User
+from app.core.utils import utcnow
 
 router = APIRouter()
 
@@ -170,6 +171,6 @@ async def delete_evidence(
         from app.api.projects import _require_project_member
         await _require_project_member(db, ev.project_id, current_user)
     if ev and ev.deleted_at is None:
-        ev.deleted_at = datetime.utcnow()
+        ev.deleted_at = utcnow()
         await db.flush()
     return None

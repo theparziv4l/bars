@@ -8,6 +8,7 @@ from sqlalchemy import DateTime, Index, Integer, JSON, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
+from app.core.utils import utcnow
 
 
 class SyncEvent(Base):
@@ -36,8 +37,8 @@ class SyncEvent(Base):
     payload: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     logical_ts: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
     source_node_id: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
-    applied_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    applied_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
 
 
 class SyncCursor(Base):
@@ -54,8 +55,8 @@ class SyncCursor(Base):
     last_logical_ts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=utcnow,
+        onupdate=utcnow,
         nullable=False,
     )
 
@@ -69,4 +70,4 @@ class SyncPeer(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     base_url: Mapped[str] = mapped_column(String(512), nullable=False, unique=True, index=True)
     label: Mapped[str | None] = mapped_column(String(120), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)

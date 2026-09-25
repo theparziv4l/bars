@@ -32,6 +32,7 @@ from app.schemas.checklist import (
     ChecklistClaimInfo,
     ChecklistItemCreate, ChecklistItemUpdate, ChecklistItemResponse,
 )
+from app.core.utils import utcnow
 
 router = APIRouter()
 
@@ -381,7 +382,7 @@ async def delete_group(
             payload=await _group_sync_payload(db, group),
         )
     else:
-        group.deleted_at = datetime.utcnow()
+        group.deleted_at = utcnow()
         await sync_service.record_event(
             db,
             entity_type="checklist_groups",
@@ -707,7 +708,7 @@ async def delete_item(
             payload=await _item_sync_payload(db, item),
         )
     else:
-        item.deleted_at = datetime.utcnow()
+        item.deleted_at = utcnow()
         await sync_service.record_event(
             db,
             entity_type="checklist_items",
@@ -1075,7 +1076,7 @@ async def export_checklists_json(
         
     return JSONResponse(
         content=export_data,
-        headers={"Content-Disposition": f"attachment; filename=checklists_export_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.json"}
+        headers={"Content-Disposition": f"attachment; filename=checklists_export_{utcnow().strftime('%Y%m%d_%H%M%S')}.json"}
     )
 
 

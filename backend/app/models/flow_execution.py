@@ -6,6 +6,7 @@ from sqlalchemy import String, DateTime, JSON, Text, Integer, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+from app.core.utils import utcnow
 
 if TYPE_CHECKING:
     from app.models.flow import Flow
@@ -42,7 +43,7 @@ class FlowExecution(Base):
     started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, nullable=False
+        DateTime, default=utcnow, nullable=False
     )
 
     started_by_user_id: Mapped[Optional[int]] = mapped_column(

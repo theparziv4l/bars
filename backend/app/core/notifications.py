@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Set
 from dataclasses import dataclass, field
 from enum import Enum
+from app.core.utils import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +26,7 @@ class Alert:
     pattern: str
     matched_text: str
     context_line: Optional[str]
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=utcnow)
     acknowledged: bool = False
     
     def to_dict(self) -> Dict[str, Any]:
@@ -65,7 +66,7 @@ class NotificationManager:
     def _generate_alert_id(self) -> str:
         """Generate unique alert ID."""
         self._alert_counter += 1
-        return f"alert_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{self._alert_counter}"
+        return f"alert_{utcnow().strftime('%Y%m%d%H%M%S')}_{self._alert_counter}"
     
     async def add_listener(self, callback: Callable) -> None:
         """Add a notification listener."""
@@ -224,7 +225,7 @@ class NotificationManager:
             "status": status,
             "item_id": item_id,
             "details": details or {},
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": utcnow().isoformat()
         })
 
     async def send_project_update(
@@ -237,7 +238,7 @@ class NotificationManager:
         await self.notify(type, {
             "project_id": project_id,
             "data": data,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": utcnow().isoformat()
         })
 
 

@@ -6,6 +6,7 @@ from sqlalchemy import String, DateTime, JSON, Text, Integer, ForeignKey, Boolea
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+from app.core.utils import utcnow
 
 if TYPE_CHECKING:
     from app.models.project import Project
@@ -87,13 +88,13 @@ class Flow(Base):
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
-        default=datetime.utcnow,
+        default=utcnow,
         nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=utcnow,
+        onupdate=utcnow,
         nullable=False
     )
     

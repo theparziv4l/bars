@@ -9,6 +9,7 @@ from app.database import init_db, close_db
 from app.api import api_router
 from app.websocket import handle_websocket, setup_websocket_listener
 from app.core.sync_worker import sync_worker
+from app.core.utils import utcnow
 
 logging.basicConfig(
     level=logging.INFO,
@@ -39,7 +40,7 @@ async def _cleanup_orphan_executions(_session_maker=None):
         if not orphans:
             return
 
-        now = datetime.utcnow()
+        now = utcnow()
         for ex in orphans:
             ex.status = ExecutionStatus.CANCELLED
             ex.completed_at = now

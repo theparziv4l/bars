@@ -11,6 +11,7 @@ from sqlalchemy import String, Integer, ForeignKey, DateTime, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
+from app.core.utils import utcnow
 
 
 class Evidence(Base):
@@ -40,7 +41,7 @@ class Evidence(Base):
     mime: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
     filename: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
     deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True, index=True)
 
     def __repr__(self) -> str:

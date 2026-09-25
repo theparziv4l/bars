@@ -79,7 +79,7 @@ from app.models.execution import Execution, ExecutionStatus
 from app.models.checklist import ChecklistItem
 from app.core.orchestrator import task_orchestrator
 from app.core.templating import template_engine
-from app.core.utils import is_unset, merge_set_values, excluded_targets
+from app.core.utils import is_unset, merge_set_values, excluded_targets, utcnow
 
 
 class FlowManager:
@@ -193,7 +193,7 @@ class FlowManager:
             target=target,
             targets=merged_targets,
             host_id=host_id,
-            started_at=datetime.utcnow(),
+            started_at=utcnow(),
             started_by_user_id=user_id,
         )
         db.add(flow_exec)
@@ -211,7 +211,7 @@ class FlowManager:
         steps = step_result.scalars().all()
         if not steps:
             flow_exec.status = "completed"
-            flow_exec.completed_at = datetime.utcnow()
+            flow_exec.completed_at = utcnow()
             await db.flush()
             return flow_exec, []
 
@@ -255,7 +255,7 @@ class FlowManager:
             for stale in (await db.execute(stale_q)).scalars().all():
                 logger.info(f"[FlowManager] Cancelling stale execution {stale.id} for item {step.checklist_item_id}")
                 stale.status = ExecutionStatus.CANCELLED
-                stale.completed_at = datetime.utcnow()
+                stale.completed_at = utcnow()
                 stale.stderr = (stale.stderr or "") + "\n[Auto-cancelled] Superseded by new flow execution."
                 cancelled_stale.append(stale)
         await db.flush()
@@ -987,7 +987,7 @@ class FlowManager:
         if not flow_exec:
             return
         flow_exec.status = status
-        flow_exec.completed_at = datetime.utcnow()
+        flow_exec.completed_at = utcnow()
         if error:
             flow_exec.error = error
         await db.commit()

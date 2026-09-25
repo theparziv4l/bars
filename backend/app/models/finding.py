@@ -12,6 +12,7 @@ from sqlalchemy import String, Integer, Float, ForeignKey, JSON, DateTime, Text,
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
+from app.core.utils import utcnow
 
 if TYPE_CHECKING:
     pass
@@ -90,10 +91,10 @@ class Finding(Base):
     evidence_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # matched snippet
     occurrences: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
 
-    discovered_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    discovered_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+        DateTime, default=utcnow, onupdate=utcnow, nullable=False
     )
     deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True, index=True)
 

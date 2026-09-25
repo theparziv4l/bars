@@ -11,6 +11,7 @@ from app.database import get_db
 from app.models.ad_domain import ADDomain
 from app.models.user import User
 from app.core.sync import sync_service
+from app.core.utils import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -169,7 +170,7 @@ async def delete_ad_domain(
         raise HTTPException(status_code=404, detail="AD domain not found")
     await _require_project_member(db, domain.project_id, current_user)
 
-    domain.deleted_at = datetime.utcnow()
+    domain.deleted_at = utcnow()
     await sync_service.record_event(
         db,
         entity_type="ad_domains",

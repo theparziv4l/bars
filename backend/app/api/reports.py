@@ -19,6 +19,7 @@ from app.models.execution import Execution
 from app.models.finding import Finding, FindingSeverity, FindingStatus, SEVERITY_ORDER
 from app.models.evidence import Evidence
 from app.config import settings
+from app.core.utils import utcnow
 
 router = APIRouter()
 
@@ -102,7 +103,7 @@ async def generate_report(
 
     content = _generate_markdown_report(project, findings, rollup, ev_map, include_logs, include_files)
 
-    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    timestamp = utcnow().strftime("%Y%m%d_%H%M%S")
     # Sanitize the project name so it can't traverse out of REPORTS_PATH.
     safe_name = "".join(c if c.isalnum() or c in "-_" else "_" for c in (project.name or "project"))[:60]
     base = f"report_{safe_name}_{timestamp}"
@@ -187,7 +188,7 @@ def _generate_markdown_report(project: Project, findings, rollup, ev_map, includ
     lines = [
         f"# Penetration Test Report: {project.name}",
         "",
-        f"**Generated:** {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}",
+        f"**Generated:** {utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}",
         f"**Project Created:** {project.created_at.strftime('%Y-%m-%d')}",
         f"**Status:** {project.status.value}",
         "",

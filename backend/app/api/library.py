@@ -14,6 +14,7 @@ from app.models.checklist import ChecklistGroup, ChecklistItem
 from app.models.flow import Flow, FlowStep
 from app.models.library_variable import LibraryVariable
 from app.models.user import User
+from app.core.utils import utcnow
 
 router = APIRouter()
 
@@ -127,7 +128,7 @@ async def export_whole_library(
         headers={
             "Content-Disposition": (
                 f"attachment; filename=library_export_"
-                f"{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.json"
+                f"{utcnow().strftime('%Y%m%d_%H%M%S')}.json"
             )
         },
     )

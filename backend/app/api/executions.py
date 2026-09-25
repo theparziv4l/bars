@@ -24,6 +24,7 @@ from app.models.user import User
 from app.schemas.execution import ExecutionCreate, ExecutionResponse, ExecutionListResponse, BulkExecutionCreate
 from app.core.orchestrator import task_orchestrator
 from app.core.notifications import notification_manager
+from app.core.utils import utcnow
 
 router = APIRouter()
 
@@ -304,7 +305,7 @@ async def cancel_execution(
             raise HTTPException(status_code=404, detail="Execution not found")
         if execution.status in (ExecutionStatus.PENDING, ExecutionStatus.RUNNING):
             execution.status = ExecutionStatus.CANCELLED
-            execution.completed_at = datetime.utcnow()
+            execution.completed_at = utcnow()
             execution.stderr = (execution.stderr or "") + "\nCancelled (stale execution)."
             await db.commit()
             await notification_manager.send_execution_status(
@@ -347,7 +348,7 @@ async def cancel_batch_execution(
     children = children_result.scalars().all()
 
     cancelled_count = 0
-    now = datetime.utcnow()
+    now = utcnow()
     for child in children:
         child.status = ExecutionStatus.CANCELLED
         child.completed_at = now

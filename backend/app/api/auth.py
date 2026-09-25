@@ -12,6 +12,7 @@ from app.core.auth import create_access_token, get_current_user, hash_password, 
 from app.database import get_db
 from app.models.user import User
 from app.schemas.auth import ChangePasswordRequest, TokenResponse, UserLogin, UserResponse
+from app.core.utils import utcnow
 
 router = APIRouter()
 
@@ -57,7 +58,7 @@ async def login_user(data: UserLogin, request: Request, db: AsyncSession = Depen
         _record_login_failure(client_key)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
-    user.last_login_at = datetime.utcnow()
+    user.last_login_at = utcnow()
     await db.flush()
 
     token = create_access_token(user)

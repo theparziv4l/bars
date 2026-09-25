@@ -20,6 +20,7 @@ from app.schemas.project import ProjectCreate, ProjectUpdate, ProjectResponse, P
 from app.schemas.host import GenerateScriptScanRequest, GenerateScriptScanResponse
 from app.schemas.auth import ProjectMemberCreate, ProjectMemberResponse
 from app.core import script_scanner
+from app.core.utils import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -505,7 +506,7 @@ async def delete_project(
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     await _require_project_member(db, project_id, current_user)
-    project.deleted_at = datetime.utcnow()
+    project.deleted_at = utcnow()
     await sync_service.record_event(
         db,
         entity_type="projects",
@@ -646,7 +647,7 @@ async def remove_project_member(
     if member is None:
         raise HTTPException(status_code=404, detail="Project member not found")
 
-    member.deleted_at = datetime.utcnow()
+    member.deleted_at = utcnow()
     project_result = await db.execute(select(Project).where(Project.id == member.project_id))
     project = project_result.scalar_one_or_none()
     user_result = await db.execute(select(User).where(User.id == member.user_id))
@@ -856,7 +857,7 @@ async def delete_project_variable(
     var = result.scalar_one_or_none()
     if not var:
         raise HTTPException(status_code=404, detail="Variable not found")
-    var.deleted_at = datetime.utcnow()
+    var.deleted_at = utcnow()
     await sync_service.record_event(
         db,
         entity_type="project_variables",

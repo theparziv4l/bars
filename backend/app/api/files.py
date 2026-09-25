@@ -12,6 +12,7 @@ from app.models.file import DiscoveredFile
 from app.models.user import User
 from app.core.auth import get_current_user_optional
 from app.config import settings
+from app.core.utils import utcnow
 
 router = APIRouter()
 
@@ -490,7 +491,7 @@ async def fetch_file(
 
     # Update DB record
     file.local_path = local_file_path
-    file.downloaded_at = datetime.utcnow()
+    file.downloaded_at = utcnow()
     await db.flush()
     await db.refresh(file)
 

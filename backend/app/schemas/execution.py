@@ -2,6 +2,7 @@
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field, ConfigDict
+from app.core.utils import utcnow
 
 
 class ExecutionOutputResponse(BaseModel):
@@ -89,7 +90,7 @@ class ExecutionStreamMessage(BaseModel):
     execution_id: int
     event: str = Field(..., description="Event type: output, status, alert, complete")
     data: Any = Field(..., description="Event data")
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=utcnow)
 
 
 class BulkExecutionCreate(BaseModel):

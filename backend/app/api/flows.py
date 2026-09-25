@@ -16,7 +16,7 @@ from app.models.flow_execution import FlowExecution
 from app.models.checklist import ChecklistItem, ChecklistGroup
 from app.models.user import User
 from app.core.sync import sync_service, flow_sync_payload, flow_step_sync_payload
-from app.core.utils import merge_set_values
+from app.core.utils import merge_set_values, utcnow
 from app.schemas.flow import (
     FlowCreate, FlowUpdate, FlowResponse,
     FlowExecutionCreate, FlowExecutionResponse, FlowExecutionStatus,
@@ -499,11 +499,11 @@ async def stop_flow_execution(
                     cancelled_count += 1
             exc.status = ExecutionStatus.CANCELLED
             exc.stderr = "Flow execution stopped by user."
-            exc.completed_at = datetime.utcnow()
+            exc.completed_at = utcnow()
 
         # Update FlowExecution record
         flow_exec.status = "cancelled"
-        flow_exec.completed_at = datetime.utcnow()
+        flow_exec.completed_at = utcnow()
 
         await db.commit()
         flow_manager._release_flow_lock(flow_execution_id)
@@ -558,7 +558,7 @@ async def pause_flow_execution(
                 await task_orchestrator.cancel_execution(exc.id)
             exc.status = ExecutionStatus.CANCELLED
             exc.stderr = (exc.stderr or "") + "\n[Paused] Flow execution paused by user."
-            exc.completed_at = datetime.utcnow()
+            exc.completed_at = utcnow()
 
         flow_exec.status = "paused"
         flow_exec.paused_at_step = paused_step
@@ -1058,7 +1058,7 @@ async def export_flows_json(
         
     return JSONResponse(
         content=export_data,
-        headers={"Content-Disposition": f"attachment; filename=flows_export_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.json"}
+        headers={"Content-Disposition": f"attachment; filename=flows_export_{utcnow().strftime('%Y%m%d_%H%M%S')}.json"}
     )
 
 

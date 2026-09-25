@@ -7,6 +7,7 @@ from sqlalchemy import String, DateTime, JSON, Text, Integer, ForeignKey, BigInt
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+from app.core.utils import utcnow
 
 if TYPE_CHECKING:
     from app.models.host import Host
@@ -104,7 +105,7 @@ class DiscoveredFile(Base):
     # Timestamps
     discovered_at: Mapped[datetime] = mapped_column(
         DateTime,
-        default=datetime.utcnow,
+        default=utcnow,
         nullable=False
     )
     

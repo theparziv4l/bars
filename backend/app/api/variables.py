@@ -14,6 +14,7 @@ from app.models.project import Project
 from app.models.user import User
 from app.models.variable import ProjectVariable
 from app.core.sync import sync_service
+from app.core.utils import utcnow
 
 router = APIRouter()
 
@@ -177,7 +178,7 @@ async def export_library_variables_json(
         headers={
             "Content-Disposition": (
                 f"attachment; filename=variables_export_"
-                f"{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.json"
+                f"{utcnow().strftime('%Y%m%d_%H%M%S')}.json"
             )
         },
     )
