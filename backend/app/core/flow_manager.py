@@ -547,43 +547,54 @@ class FlowManager:
 
             print(f"[FlowManager] Scheduling Stage {next_index} ({len(next_steps)} steps)")
 
+            # One commit per stage: a mid-stage failure rolls the whole stage
+            # back and fails the flow loudly instead of leaving a half-
+            # committed stage and a run stuck "running".
             scheduled = []
-            for step in next_steps:
-                if step.checklist_item is not None and not step.checklist_item.enabled:
-                    print(f"[FlowManager] Skipping step {step.order_index} (item disabled).")
-                    continue
-                step_vars = await self._resolve_step_variables(
-                    step, base_vars, execution_outputs,
-                    item_name_to_exe, latest_item_name_to_exe,
-                )
+            try:
+                for step in next_steps:
+                    if step.checklist_item is not None and not step.checklist_item.enabled:
+                        print(f"[FlowManager] Skipping step {step.order_index} (item disabled).")
+                        continue
+                    step_vars = await self._resolve_step_variables(
+                        step, base_vars, execution_outputs,
+                        item_name_to_exe, latest_item_name_to_exe,
+                    )
 
-                if not self._evaluate_condition(
-                    step, base_vars, execution_outputs,
-                    item_name_to_exe, latest_item_name_to_exe,
-                ):
-                    print(f"[FlowManager] Skipping step {step.order_index} due to condition.")
-                    continue
+                    if not self._evaluate_condition(
+                        step, base_vars, execution_outputs,
+                        item_name_to_exe, latest_item_name_to_exe,
+                    ):
+                        print(f"[FlowManager] Skipping step {step.order_index} due to condition.")
+                        continue
 
-                flow_host_id = flow_exec.host_id if flow_exec else last_execution.host_id
-                flow_targets = flow_exec.targets if flow_exec else []
-                flow_target = flow_exec.target if flow_exec else None
+                    flow_host_id = flow_exec.host_id if flow_exec else last_execution.host_id
+                    flow_targets = flow_exec.targets if flow_exec else []
+                    flow_target = flow_exec.target if flow_exec else None
 
-                step_host_id, step_target_vars = await self._resolve_step_targets(
-                    db, step, flow_host_id, flow_targets, flow_target, flow.project_id, step_vars,
-                    ad_domain_id=getattr(flow, "ad_domain_id", None),
-                )
-                step_vars.update(step_target_vars)
+                    step_host_id, step_target_vars = await self._resolve_step_targets(
+                        db, step, flow_host_id, flow_targets, flow_target, flow.project_id, step_vars,
+                        ad_domain_id=getattr(flow, "ad_domain_id", None),
+                    )
+                    step_vars.update(step_target_vars)
 
-                execution = await task_orchestrator.create_execution_record(
-                    db=db,
-                    item_id=step.checklist_item_id,
-                    host_id=step_host_id,
-                    variables=step_vars,
-                    flow_execution_id=flow_execution_id,
-                    flow_step_index=step.order_index,
-                )
+                    execution = await task_orchestrator.create_execution_record(
+                        db=db,
+                        item_id=step.checklist_item_id,
+                        host_id=step_host_id,
+                        variables=step_vars,
+                        flow_execution_id=flow_execution_id,
+                        flow_step_index=step.order_index,
+                    )
+                    scheduled.append((execution, step, step_vars, step_host_id))
                 await db.commit()
-                scheduled.append((execution, step, step_vars, step_host_id))
+            except Exception as e:
+                await db.rollback()
+                print(f"[FlowManager] Stage {next_index} scheduling failed: {e}")
+                await self._finalize_flow_execution(
+                    db, flow_exec, "failed",
+                    error=f"Stage {next_index} scheduling failed: {e}")
+                return
 
             if scheduled:
                 for execution, step, step_vars, step_host_id in scheduled:
