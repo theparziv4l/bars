@@ -1114,120 +1114,123 @@ class TaskOrchestrator:
             execution.status = ExecutionStatus.FAILED
             execution.stderr = (execution.stderr or "") + f"\nError: {str(e)}"
         finally:
-            execution.completed_at = datetime.utcnow()
-            if execution.status == ExecutionStatus.RUNNING:
-                # User cancel breaks the stream without raising CancelledError, and the
-                # agent reports timeouts via a "[Timeout]" stderr marker + exit -1.
-                # Distinguish both so the UI doesn't show every one as a generic FAILED.
-                if context.cancelled:
-                    execution.status = ExecutionStatus.CANCELLED
-                elif execution.exit_code == 0:
-                    execution.status = ExecutionStatus.COMPLETED
-                elif execution.stderr and "[Timeout]" in execution.stderr:
-                    execution.status = ExecutionStatus.TIMEOUT
-                else:
-                    execution.status = ExecutionStatus.FAILED
-            
-            parsed = {}
-            if execution.stdout and item.output_regex:
-                # Use HostRunner for command extraction
-                async def executor_wrapper(cmd: str, cwd: Optional[str]) -> Dict[str, Any]:
-                    return await host_runner.execute_sync(cmd, cwd=cwd)
-
-                parsed = await output_parser.parse_output(
-                    execution.stdout,
-                    item.output_regex,
-                    cwd=cwd,
-                    command_executor=executor_wrapper,
-                )
-                execution.parsed_output = output_parser.to_json(parsed)
-                for key, res in parsed.items():
-                    import json
-                    stored_value = res.value
-                    if isinstance(res.value, (list, dict)):
-                        stored_value = json.dumps(res.value)
+            try:
+                execution.completed_at = datetime.utcnow()
+                if execution.status == ExecutionStatus.RUNNING:
+                    # User cancel breaks the stream without raising CancelledError, and the
+                    # agent reports timeouts via a "[Timeout]" stderr marker + exit -1.
+                    # Distinguish both so the UI doesn't show every one as a generic FAILED.
+                    if context.cancelled:
+                        execution.status = ExecutionStatus.CANCELLED
+                    elif execution.exit_code == 0:
+                        execution.status = ExecutionStatus.COMPLETED
+                    elif execution.stderr and "[Timeout]" in execution.stderr:
+                        execution.status = ExecutionStatus.TIMEOUT
                     else:
-                        stored_value = str(res.value)
+                        execution.status = ExecutionStatus.FAILED
+            
+                parsed = {}
+                if execution.stdout and item.output_regex:
+                    # Use HostRunner for command extraction
+                    async def executor_wrapper(cmd: str, cwd: Optional[str]) -> Dict[str, Any]:
+                        return await host_runner.execute_sync(cmd, cwd=cwd)
+
+                    parsed = await output_parser.parse_output(
+                        execution.stdout,
+                        item.output_regex,
+                        cwd=cwd,
+                        command_executor=executor_wrapper,
+                    )
+                    execution.parsed_output = output_parser.to_json(parsed)
+                    for key, res in parsed.items():
+                        import json
+                        stored_value = res.value
+                        if isinstance(res.value, (list, dict)):
+                            stored_value = json.dumps(res.value)
+                        else:
+                            stored_value = str(res.value)
                         
-                    db.add(ExecutionOutput(execution_id=execution.id, key=key, value=stored_value, data_type=res.data_type))
+                        db.add(ExecutionOutput(execution_id=execution.id, key=key, value=stored_value, data_type=res.data_type))
                 
-                # Variable Injection requires parsed output
-                await self._process_variable_injection(db, execution, item, parsed)
+                    # Variable Injection requires parsed output
+                    await self._process_variable_injection(db, execution, item, parsed)
 
-            if execution.stdout:
-                # Share/file discovery and asset discovery run regardless of output_regex
-                await self._process_discovered_files(db, execution, parsed)
-                await self._process_asset_discovery(db, execution)
+                if execution.stdout:
+                    # Share/file discovery and asset discovery run regardless of output_regex
+                    await self._process_discovered_files(db, execution, parsed)
+                    await self._process_asset_discovery(db, execution)
 
-            # Persist alert matches as structured, deduped Findings — survives restart
-            # (unlike the in-memory Alert) and feeds the report. Same txn as the output.
-            if execution.alerts_triggered:
-                try:
-                    from app.core.findings import ingest_execution_findings
-                    await ingest_execution_findings(db, execution, item)
-                except Exception as fe:
-                    print(f"[Orchestrator] Finding ingest failed: {fe}")
+                # Persist alert matches as structured, deduped Findings — survives restart
+                # (unlike the in-memory Alert) and feeds the report. Same txn as the output.
+                if execution.alerts_triggered:
+                    try:
+                        from app.core.findings import ingest_execution_findings
+                        await ingest_execution_findings(db, execution, item)
+                    except Exception as fe:
+                        print(f"[Orchestrator] Finding ingest failed: {fe}")
 
-            async with self._lock:
-                self._running_tasks.pop(execution.id, None)
+                async with self._lock:
+                    self._running_tasks.pop(execution.id, None)
 
-            # Commit changes (output, status) BEFORE notifying listeners
-            # This ensures FlowManager sees the COMPLETED status in its own session
-            await db.commit()
-            await db.refresh(execution)
-            try:
-                payload = await execution_sync_payload(db, execution)
-                await sync_service.record_event(
-                    db,
-                    entity_type="executions",
-                    entity_public_id=execution.public_id,
-                    operation="update",
-                    payload=payload,
-                )
+                # Commit changes (output, status) BEFORE notifying listeners
+                # This ensures FlowManager sees the COMPLETED status in its own session
                 await db.commit()
-            except Exception as e:
-                print(f"[Orchestrator] Sync record (completed) failed: {e}")
-
-            # SYNC TO PROJECT CHECKLIST (User Request)
-            # Ensure outputs are loaded before sync (execution may be expired after commit).
-            await db.refresh(execution, attribute_names=["outputs"])
-            try:
-                await self._sync_execution_to_project_item(db, execution, item)
-            except Exception as e:
-                print(f"[Orchestrator] Sync failed (non-critical): {e}")
-
-            await notification_manager.send_execution_status(
-                execution.id,
-                execution.status.value,
-                details={"exit_code": execution.exit_code},
-                item_id=execution.item_id
-            )
-
-        # Clean up temporary files asynchronously
-        try:
-            import os
-            import glob
-
-            temp_dir = settings.STORAGE_PATH / "tmp"
-            temp_dir_str = str(temp_dir)
-
-            batch_file = os.path.join(
-                temp_dir_str, f"batch_{execution.id}_targets.txt"
-            )
-            if await asyncio.to_thread(os.path.exists, batch_file):
-                await asyncio.to_thread(os.remove, batch_file)
-                print(f"[Orchestrator] Cleaned up batch file: {batch_file}")
-
-            pattern_str = os.path.join(temp_dir_str, f"exec_{execution.id}_*")
-            matching_files = await asyncio.to_thread(glob.glob, pattern_str)
-            for fpath in matching_files:
+                await db.refresh(execution)
                 try:
-                    await asyncio.to_thread(os.remove, fpath)
-                    print(f"[Orchestrator] Cleaned up temp variable file: {fpath}")
+                    payload = await execution_sync_payload(db, execution)
+                    await sync_service.record_event(
+                        db,
+                        entity_type="executions",
+                        entity_public_id=execution.public_id,
+                        operation="update",
+                        payload=payload,
+                    )
+                    await db.commit()
                 except Exception as e:
-                    print(f"[Orchestrator] Error deleting {fpath}: {e}")
-        except Exception as e:
-            print(f"[Orchestrator] Error during file cleanup: {e}")
+                    print(f"[Orchestrator] Sync record (completed) failed: {e}")
+
+                # SYNC TO PROJECT CHECKLIST (User Request)
+                # Ensure outputs are loaded before sync (execution may be expired after commit).
+                await db.refresh(execution, attribute_names=["outputs"])
+                try:
+                    await self._sync_execution_to_project_item(db, execution, item)
+                except Exception as e:
+                    print(f"[Orchestrator] Sync failed (non-critical): {e}")
+
+                await notification_manager.send_execution_status(
+                    execution.id,
+                    execution.status.value,
+                    details={"exit_code": execution.exit_code},
+                    item_id=execution.item_id
+                )
+
+            finally:
+                # Clean up temp files (inner finally: runs even when
+                # finalize above raises).
+                try:
+                    import os
+                    import glob
+
+                    temp_dir = settings.STORAGE_PATH / "tmp"
+                    temp_dir_str = str(temp_dir)
+
+                    batch_file = os.path.join(
+                        temp_dir_str, f"batch_{execution.id}_targets.txt"
+                    )
+                    if await asyncio.to_thread(os.path.exists, batch_file):
+                        await asyncio.to_thread(os.remove, batch_file)
+                        print(f"[Orchestrator] Cleaned up batch file: {batch_file}")
+
+                    pattern_str = os.path.join(temp_dir_str, f"exec_{execution.id}_*")
+                    matching_files = await asyncio.to_thread(glob.glob, pattern_str)
+                    for fpath in matching_files:
+                        try:
+                            await asyncio.to_thread(os.remove, fpath)
+                            print(f"[Orchestrator] Cleaned up temp variable file: {fpath}")
+                        except Exception as e:
+                            print(f"[Orchestrator] Error deleting {fpath}: {e}")
+                except Exception as e:
+                    print(f"[Orchestrator] Error during file cleanup: {e}")
         
         return execution
 
