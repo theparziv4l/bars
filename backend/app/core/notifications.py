@@ -168,8 +168,10 @@ class NotificationManager:
             if alert_id not in self._alerts:
                 return False
             self._alerts[alert_id].acknowledged = True
+            execution_id = self._alerts[alert_id].execution_id
         # Notify OUTSIDE the lock: notify re-acquires it (non-reentrant).
-        await self.notify("alert_acknowledged", {"id": alert_id})
+        # execution_id lets the WS layer scope delivery by project membership.
+        await self.notify("alert_acknowledged", {"id": alert_id, "execution_id": execution_id})
         return True
     
     async def get_alerts(

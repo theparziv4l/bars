@@ -1,5 +1,5 @@
 """WebSocket handlers for real-time updates."""
-from typing import Dict, Set
+from typing import Dict, Optional, Set
 from fastapi import WebSocket, WebSocketDisconnect
 import asyncio
 import json
@@ -12,10 +12,15 @@ from app.config import settings
 
 class ConnectionManager:
     """Manages WebSocket connections."""
-    
+
     def __init__(self):
         self.active_connections: Dict[str, Set[WebSocket]] = {}
+        self._ws_user: Dict[WebSocket, Optional[int]] = {}
         self._lock = asyncio.Lock()
+
+    def set_user(self, websocket: WebSocket, user_id: Optional[int]) -> None:
+        """Record the authenticated user behind a connection (None in open mode)."""
+        self._ws_user[websocket] = user_id
     
     async def connect(
         self, websocket: WebSocket, channel: str = "default", accept: bool = True
@@ -35,6 +40,8 @@ class ConnectionManager:
                 self.active_connections[channel].discard(websocket)
                 if not self.active_connections[channel]:
                     del self.active_connections[channel]
+            if not any(websocket in conns for conns in self.active_connections.values()):
+                self._ws_user.pop(websocket, None)
 
     async def broadcast(self, message: dict, channel: str = "default", timeout: float = 5.0):
         """Broadcast message to all connections in a channel.
@@ -66,21 +73,94 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 
+async def _execution_project_id(db, execution_id: int):
+    """Project owning an execution (via item -> group), or None if unresolvable."""
+    from sqlalchemy import select
+    from app.models.checklist import ChecklistGroup, ChecklistItem
+    from app.models.execution import Execution
+    return (await db.execute(
+        select(ChecklistGroup.project_id)
+        .join(ChecklistItem, ChecklistItem.group_id == ChecklistGroup.id)
+        .join(Execution, Execution.item_id == ChecklistItem.id)
+        .where(Execution.id == execution_id)
+    )).scalar_one_or_none()
+
+
+async def _event_project_id(db, data: dict):
+    """Best-effort project scope for a notification payload (None = unscoped)."""
+    pid = data.get("project_id")
+    if isinstance(pid, int):
+        return pid
+    eid = data.get("execution_id")
+    if isinstance(eid, int):
+        return await _execution_project_id(db, eid)
+    from sqlalchemy import select
+    fid = data.get("flow_id")
+    if isinstance(fid, int):
+        from app.models.flow import Flow
+        return (await db.execute(
+            select(Flow.project_id).where(Flow.id == fid)
+        )).scalar_one_or_none()
+    fxid = data.get("flow_execution_id")
+    if fxid is not None:
+        from app.models.flow import Flow
+        from app.models.flow_execution import FlowExecution
+        return (await db.execute(
+            select(Flow.project_id)
+            .join(FlowExecution, FlowExecution.flow_id == Flow.id)
+            .where(FlowExecution.id == fxid)
+        )).scalar_one_or_none()
+    return None
+
+
 async def notification_listener(event_type: str, data: dict):
     """Listen for notifications and broadcast to WebSocket clients."""
     message = {"type": event_type, "data": data}
-    
+
     await pubsub_backend.publish("notifications", message)
 
     sent_ws: set[int] = set()
+    # In locked mode the always-open default channel is membership-filtered:
+    # a non-member must not receive other projects' scoped events through it.
+    # Unscoped events (no resolvable project) and open mode keep broadcasting.
+    default_allowed: Optional[set] = None
+    touches_default = not (event_type == "output" and "execution_id" in data)
+    if touches_default and settings.WS_REQUIRE_AUTH:
+        async with manager._lock:
+            default_conns = list(manager.active_connections.get("default", []))
+            wanted_uids = {
+                manager._ws_user.get(ws)
+                for ws in default_conns
+            } - {None}
+        if default_conns:
+            from app.database import async_session_maker
+            async with async_session_maker() as db:
+                pid = await _event_project_id(db, data)
+                if pid is not None and wanted_uids:
+                    from sqlalchemy import select
+                    from app.models.user import ProjectMember
+                    rows = await db.execute(
+                        select(ProjectMember.user_id).where(
+                            ProjectMember.project_id == pid,
+                            ProjectMember.user_id.in_(wanted_uids),
+                            ProjectMember.deleted_at.is_(None),
+                        )
+                    )
+                    default_allowed = set(rows.scalars().all())
+                elif pid is not None:
+                    default_allowed = set()
 
     async def _broadcast_dedup(channel: str) -> None:
         async with manager._lock:
             connections = list(manager.active_connections.get(channel, []))
+            users = {id(ws): manager._ws_user.get(ws) for ws in connections}
         targets = []
         for ws in connections:
             ws_id = id(ws)
             if ws_id in sent_ws:
+                continue
+            if (channel == "default" and default_allowed is not None
+                    and users.get(ws_id) not in default_allowed):
                 continue
             sent_ws.add(ws_id)
             targets.append(ws)
@@ -141,7 +221,6 @@ async def _channel_allowed(channel: str, user) -> bool:
     """Whether an identified user may join a channel."""
     if channel == "default":
         return True
-    from sqlalchemy import select
     from app.database import async_session_maker
     async with async_session_maker() as db:
         if channel.startswith("execution:"):
@@ -149,14 +228,7 @@ async def _channel_allowed(channel: str, user) -> bool:
                 eid = int(channel.split(":", 1)[1])
             except ValueError:
                 return False
-            from app.models.checklist import ChecklistGroup, ChecklistItem
-            from app.models.execution import Execution
-            pid = (await db.execute(
-                select(ChecklistGroup.project_id)
-                .join(ChecklistItem, ChecklistItem.group_id == ChecklistGroup.id)
-                .join(Execution, Execution.item_id == ChecklistItem.id)
-                .where(Execution.id == eid)
-            )).scalar_one_or_none()
+            pid = await _execution_project_id(db, eid)
             if pid is None:
                 return False
             return await _member_of(db, pid, user.id)
@@ -203,6 +275,7 @@ async def handle_websocket(websocket: WebSocket, channel: str = "default"):
             return
 
     await manager.connect(websocket, channel)
+    manager.set_user(websocket, user.id if user is not None else None)
     subscribed_channels: set[str] = {channel}
 
     try:
