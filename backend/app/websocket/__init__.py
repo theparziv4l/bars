@@ -29,21 +29,30 @@ class ConnectionManager:
             self.active_connections[channel].add(websocket)
     
     async def disconnect(self, websocket: WebSocket, channel: str = "default"):
-        """Remove a WebSocket connection."""
+        """Remove a WebSocket connection (prune empty channels)."""
         async with self._lock:
             if channel in self.active_connections:
                 self.active_connections[channel].discard(websocket)
-    
-    async def broadcast(self, message: dict, channel: str = "default"):
-        """Broadcast message to all connections in a channel."""
+                if not self.active_connections[channel]:
+                    del self.active_connections[channel]
+
+    async def broadcast(self, message: dict, channel: str = "default", timeout: float = 5.0):
+        """Broadcast message to all connections in a channel.
+
+        Sends run concurrently with a per-send timeout: one stalled client
+        can neither delay nor block the rest; stalled/failed sends disconnect.
+        """
         async with self._lock:
             connections = list(self.active_connections.get(channel, []))
-        
-        for websocket in connections:
+
+        async def _send(websocket: WebSocket) -> None:
             try:
-                await websocket.send_json(message)
+                await asyncio.wait_for(websocket.send_json(message), timeout)
             except Exception:
                 await self.disconnect(websocket, channel)
+
+        if connections:
+            await asyncio.gather(*(_send(ws) for ws in connections))
     
     async def send_to_execution(self, execution_id: int, message: dict):
         """Send message to execution-specific channel."""
@@ -68,15 +77,22 @@ async def notification_listener(event_type: str, data: dict):
     async def _broadcast_dedup(channel: str) -> None:
         async with manager._lock:
             connections = list(manager.active_connections.get(channel, []))
+        targets = []
         for ws in connections:
             ws_id = id(ws)
             if ws_id in sent_ws:
                 continue
             sent_ws.add(ws_id)
+            targets.append(ws)
+
+        async def _send(ws) -> None:
             try:
-                await ws.send_json(message)
+                await asyncio.wait_for(ws.send_json(message), 5.0)
             except Exception:
                 await manager.disconnect(ws, channel)
+
+        if targets:
+            await asyncio.gather(*(_send(ws) for ws in targets))
 
     if event_type == "output" and "execution_id" in data:
         await _broadcast_dedup(f"execution:{data['execution_id']}")
@@ -125,7 +141,11 @@ async def handle_websocket(websocket: WebSocket, channel: str = "default"):
             # Keep connection alive and handle incoming messages
             try:
                 data = await asyncio.wait_for(websocket.receive_text(), timeout=30)
-                message = json.loads(data)
+                try:
+                    message = json.loads(data)
+                except (json.JSONDecodeError, TypeError):
+                    await websocket.send_json({"type": "error", "detail": "invalid message"})
+                    continue
 
                 # Handle different message types
                 if message.get("type") == "ping":
