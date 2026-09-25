@@ -14,13 +14,7 @@ from app.core.sync import sync_service
 router = APIRouter()
 
 
-async def _get_current_user_optional(db=None):
-    return None
-
-try:
-    from app.api.auth import get_current_user_optional
-except ImportError:
-    get_current_user_optional = _get_current_user_optional
+from app.core.auth import get_current_user_optional
 
 try:
     from app.api.projects import _require_project_member

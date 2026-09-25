@@ -6,9 +6,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, inspect as sa_inspect, text
 from sqlalchemy.orm import selectinload
 
+from app.core.auth import get_current_user_optional
 from app.core.sync import sync_service, service_sync_payload
 from app.database import get_db
 from app.models.host import Host, Service
+from app.models.user import User
 from app.models.project import Project
 from app.models.execution import Execution
 from app.models.file import DiscoveredFile
@@ -142,9 +144,12 @@ async def list_hosts(
     excluded: Optional[bool] = Query(None, description="Filter by scope: true = excluded only, false = in scope only"),
     sort_by: Optional[str] = Query(None, description="Sort column: host, ip_address, os_info, discovered_at, smb_signing, service_count, execution_count, file_count"),
     sort_order: Optional[str] = Query("asc", description="Sort direction: asc or desc"),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     """List hosts for a project."""
+    from app.api.projects import _require_project_member
+    await _require_project_member(db, project_id, current_user)
     query = select(Host).where(
         Host.project_id == project_id,
         Host.deleted_at.is_(None),
@@ -226,9 +231,15 @@ async def list_hosts(
 
 
 @router.post("", response_model=HostResponse, status_code=201)
-async def create_host(data: HostCreate, db: AsyncSession = Depends(get_db)):
+async def create_host(
+    data: HostCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
     """Create a new host."""
     from sqlalchemy.orm.attributes import set_committed_value
+    from app.api.projects import _require_project_member
+    await _require_project_member(db, data.project_id, current_user)
 
     host = Host(**data.model_dump())
     db.add(host)
@@ -248,7 +259,11 @@ async def create_host(data: HostCreate, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/bulk-scope")
-async def bulk_set_scope(data: HostBulkScopeRequest, db: AsyncSession = Depends(get_db)):
+async def bulk_set_scope(
+    data: HostBulkScopeRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
     """Mark hosts in or out of scope in one shot.
 
     Declared before ``/{host_id}`` so the literal path wins over the int path param.
@@ -259,6 +274,9 @@ async def bulk_set_scope(data: HostBulkScopeRequest, db: AsyncSession = Depends(
     hosts = result.scalars().all()
     if not hosts:
         raise HTTPException(status_code=404, detail="No matching hosts")
+    from app.api.projects import _require_project_member
+    for _pid in {h.project_id for h in hosts}:
+        await _require_project_member(db, _pid, current_user)
 
     for host in hosts:
         host.excluded = data.excluded
@@ -277,7 +295,11 @@ async def bulk_set_scope(data: HostBulkScopeRequest, db: AsyncSession = Depends(
 
 
 @router.get("/{host_id}", response_model=HostResponse)
-async def get_host(host_id: int, db: AsyncSession = Depends(get_db)):
+async def get_host(
+    host_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
     """Get host by ID with services."""
     result = await db.execute(
         select(Host).where(Host.id == host_id).options(selectinload(Host.services))
@@ -285,12 +307,19 @@ async def get_host(host_id: int, db: AsyncSession = Depends(get_db)):
     host = result.scalar_one_or_none()
     if not host:
         raise HTTPException(status_code=404, detail="Host not found")
+    from app.api.projects import _require_project_member
+    await _require_project_member(db, host.project_id, current_user)
     counts_map = await _get_host_counts(db, [host_id])
     return _host_to_response(host, counts=counts_map.get(host_id))
 
 
 @router.put("/{host_id}", response_model=HostResponse)
-async def update_host(host_id: int, data: HostUpdate, db: AsyncSession = Depends(get_db)):
+async def update_host(
+    host_id: int,
+    data: HostUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
     """Update a host."""
     result = await db.execute(
         select(Host).where(Host.id == host_id)
@@ -299,6 +328,8 @@ async def update_host(host_id: int, data: HostUpdate, db: AsyncSession = Depends
     host = result.scalar_one_or_none()
     if not host:
         raise HTTPException(status_code=404, detail="Host not found")
+    from app.api.projects import _require_project_member
+    await _require_project_member(db, host.project_id, current_user)
     
     for field, value in data.model_dump(exclude_unset=True).items():
         setattr(host, field, value)
@@ -315,12 +346,18 @@ async def update_host(host_id: int, data: HostUpdate, db: AsyncSession = Depends
 
 
 @router.delete("/{host_id}", status_code=204)
-async def delete_host(host_id: int, db: AsyncSession = Depends(get_db)):
+async def delete_host(
+    host_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
     """Delete a host."""
     result = await db.execute(select(Host).where(Host.id == host_id))
     host = result.scalar_one_or_none()
     if not host:
         raise HTTPException(status_code=404, detail="Host not found")
+    from app.api.projects import _require_project_member
+    await _require_project_member(db, host.project_id, current_user)
     host.deleted_at = host.deleted_at or datetime.utcnow()
     await sync_service.record_event(
         db,
@@ -333,11 +370,19 @@ async def delete_host(host_id: int, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/{host_id}/services", response_model=ServiceResponse, status_code=201)
-async def add_service(host_id: int, data: ServiceCreate, db: AsyncSession = Depends(get_db)):
+async def add_service(
+    host_id: int,
+    data: ServiceCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
     """Add a service to a host."""
     result = await db.execute(select(Host).where(Host.id == host_id))
-    if not result.scalar_one_or_none():
+    host = result.scalar_one_or_none()
+    if not host:
         raise HTTPException(status_code=404, detail="Host not found")
+    from app.api.projects import _require_project_member
+    await _require_project_member(db, host.project_id, current_user)
     
     service = Service(host_id=host_id, **data.model_dump())
     db.add(service)
@@ -360,8 +405,13 @@ async def start_host_script_scan(
     body: HostScriptScanRequest,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     """Run NSE script scan for this host (all discovered services). Execution runs in background; results in host execution history."""
+    _hrow = (await db.execute(select(Host.project_id).where(Host.id == host_id))).scalar_one_or_none()
+    if _hrow is not None:
+        from app.api.projects import _require_project_member
+        await _require_project_member(db, _hrow, current_user)
     try:
         data = await script_scanner.launch_host_script_scan(
             db=db,
@@ -381,7 +431,12 @@ async def start_host_script_scan(
 
 
 @router.get("/{host_id}/timeline")
-async def get_host_timeline(host_id: int, limit: int = 50, db: AsyncSession = Depends(get_db)):
+async def get_host_timeline(
+    host_id: int,
+    limit: int = 50,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
     """Get execution timeline for a host."""
     result = await db.execute(
         select(Host).where(Host.id == host_id).options(selectinload(Host.executions))
@@ -389,6 +444,8 @@ async def get_host_timeline(host_id: int, limit: int = 50, db: AsyncSession = De
     host = result.scalar_one_or_none()
     if not host:
         raise HTTPException(status_code=404, detail="Host not found")
+    from app.api.projects import _require_project_member
+    await _require_project_member(db, host.project_id, current_user)
     
     executions = sorted(host.executions, key=lambda e: e.created_at, reverse=True)[:limit]
     return [{
