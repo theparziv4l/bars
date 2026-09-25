@@ -1128,54 +1128,107 @@ class TaskOrchestrator:
                         execution.status = ExecutionStatus.TIMEOUT
                     else:
                         execution.status = ExecutionStatus.FAILED
-            
+
+                # Terminal state snapshot: savepoint rollbacks below expire
+                # `execution` (it is dirtied inside the blocks), and an expired
+                # read outside awaited IO raises MissingGreenlet — so re-apply
+                # from this snapshot after every guarded failure.
+                _terminal = {
+                    "status": execution.status,
+                    "completed_at": execution.completed_at,
+                    "exit_code": execution.exit_code,
+                    "stdout": execution.stdout,
+                    "stderr": execution.stderr,
+                    "alerts_triggered": execution.alerts_triggered,
+                    "parsed_output": execution.parsed_output,
+                    "public_id": execution.public_id,
+                    "item_id": execution.item_id,
+                }
+
+                def _reaffirm_execution() -> None:
+                    for _k, _v in _terminal.items():
+                        setattr(execution, _k, _v)
+
+                # Enrichment blocks run in savepoints: a failure rolls back ONLY
+                # its own block, then _reaffirm_execution() restores `execution`.
                 parsed = {}
                 if execution.stdout and item.output_regex:
-                    # Use HostRunner for command extraction
-                    async def executor_wrapper(cmd: str, cwd: Optional[str]) -> Dict[str, Any]:
-                        return await host_runner.execute_sync(cmd, cwd=cwd)
+                    try:
+                        async with db.begin_nested():
+                            # Use HostRunner for command extraction
+                            async def executor_wrapper(cmd: str, cwd: Optional[str]) -> Dict[str, Any]:
+                                return await host_runner.execute_sync(cmd, cwd=cwd)
 
-                    parsed = await output_parser.parse_output(
-                        execution.stdout,
-                        item.output_regex,
-                        cwd=cwd,
-                        command_executor=executor_wrapper,
-                    )
-                    execution.parsed_output = output_parser.to_json(parsed)
-                    for key, res in parsed.items():
-                        import json
-                        stored_value = res.value
-                        if isinstance(res.value, (list, dict)):
-                            stored_value = json.dumps(res.value)
-                        else:
-                            stored_value = str(res.value)
-                        
-                        db.add(ExecutionOutput(execution_id=execution.id, key=key, value=stored_value, data_type=res.data_type))
-                
-                    # Variable Injection requires parsed output
-                    await self._process_variable_injection(db, execution, item, parsed)
+                            parsed = await output_parser.parse_output(
+                                execution.stdout,
+                                item.output_regex,
+                                cwd=cwd,
+                                command_executor=executor_wrapper,
+                            )
+                            execution.parsed_output = output_parser.to_json(parsed)
+                            for key, res in parsed.items():
+                                import json
+                                stored_value = res.value
+                                if isinstance(res.value, (list, dict)):
+                                    stored_value = json.dumps(res.value)
+                                else:
+                                    stored_value = str(res.value)
+
+                                db.add(ExecutionOutput(execution_id=execution.id, key=key, value=stored_value, data_type=res.data_type))
+
+                            # Variable Injection requires parsed output
+                            await self._process_variable_injection(db, execution, item, parsed)
+                    except Exception as e:
+                        print(f"[Orchestrator] Output parse/injection failed (non-critical): {e}")
+                        _reaffirm_execution()
 
                 if execution.stdout:
                     # Share/file discovery and asset discovery run regardless of output_regex
-                    await self._process_discovered_files(db, execution, parsed)
-                    await self._process_asset_discovery(db, execution)
+                    try:
+                        async with db.begin_nested():
+                            await self._process_discovered_files(db, execution, parsed)
+                            await self._process_asset_discovery(db, execution)
+                    except Exception as e:
+                        print(f"[Orchestrator] Discovery processing failed (non-critical): {e}")
+                        _reaffirm_execution()
 
                 # Persist alert matches as structured, deduped Findings — survives restart
                 # (unlike the in-memory Alert) and feeds the report. Same txn as the output.
                 if execution.alerts_triggered:
                     try:
-                        from app.core.findings import ingest_execution_findings
-                        await ingest_execution_findings(db, execution, item)
+                        async with db.begin_nested():
+                            from app.core.findings import ingest_execution_findings
+                            await ingest_execution_findings(db, execution, item)
                     except Exception as fe:
                         print(f"[Orchestrator] Finding ingest failed: {fe}")
+                        _reaffirm_execution()
 
                 async with self._lock:
                     self._running_tasks.pop(execution.id, None)
 
                 # Commit changes (output, status) BEFORE notifying listeners
                 # This ensures FlowManager sees the COMPLETED status in its own session
-                await db.commit()
-                await db.refresh(execution)
+                try:
+                    await db.commit()
+                    await db.refresh(execution)
+                except Exception as commit_err:
+                    print(f"[Orchestrator] Finalize commit failed, retrying minimal: {commit_err}")
+                    await db.rollback()
+                    try:
+                        fresh = (await db.execute(
+                            select(Execution).where(Execution.id == execution.id)
+                        )).scalar_one_or_none()
+                        if fresh is not None:
+                            fresh.status = _terminal["status"]
+                            fresh.completed_at = _terminal["completed_at"]
+                            fresh.exit_code = _terminal["exit_code"]
+                            fresh.stdout = _terminal["stdout"]
+                            fresh.stderr = (_terminal["stderr"] or "") + (
+                                "\n[Warning] Finalize partially failed; outputs may be incomplete."
+                            )
+                            await db.commit()
+                    except Exception as retry_err:
+                        print(f"[Orchestrator] Minimal finalize retry failed: {retry_err}")
                 try:
                     payload = await execution_sync_payload(db, execution)
                     await sync_service.record_event(
@@ -1197,12 +1250,15 @@ class TaskOrchestrator:
                 except Exception as e:
                     print(f"[Orchestrator] Sync failed (non-critical): {e}")
 
-                await notification_manager.send_execution_status(
-                    execution.id,
-                    execution.status.value,
-                    details={"exit_code": execution.exit_code},
-                    item_id=execution.item_id
-                )
+                try:
+                    await notification_manager.send_execution_status(
+                        execution.id,
+                        execution.status.value,
+                        details={"exit_code": execution.exit_code},
+                        item_id=execution.item_id
+                    )
+                except Exception as e:
+                    print(f"[Orchestrator] Final notify failed: {e}")
 
             finally:
                 # Clean up temp files (inner finally: runs even when
@@ -1341,12 +1397,14 @@ class TaskOrchestrator:
             # has no project_id.  The cloned execution points at a project
             # item, so the guard clauses will now pass.
             try:
-                await self._process_asset_discovery(db, new_exec)
+                async with db.begin_nested():
+                    await self._process_asset_discovery(db, new_exec)
             except Exception as ad_err:
                 print(f"[Orchestrator] Asset discovery on synced exec failed: {ad_err}")
 
             try:
-                await self._process_discovered_files(db, new_exec, {})
+                async with db.begin_nested():
+                    await self._process_discovered_files(db, new_exec, {})
             except Exception as df_err:
                 print(f"[Orchestrator] Discovered-files on synced exec failed: {df_err}")
 
@@ -1636,7 +1694,10 @@ class TaskOrchestrator:
                     print(f"[Orchestrator] Share discovery notification failed: {e}")
                     
         except Exception as e:
-            print(f"[ShareParser] Error parsing output: {e}") 
+            print(f"[ShareParser] Error parsing output: {e}")
+            # Re-raise: callers run this in a savepoint whose rollback discards
+            # only this block. Swallowing would strand a poisoned session.
+            raise
 
     async def _process_variable_injection(self, db: AsyncSession, execution: Execution, item: ChecklistItem, parsed_results: Dict[str, Any]):
         """Inject parsed outputs into Project Variables based on policy."""
@@ -2073,6 +2134,9 @@ class TaskOrchestrator:
             print(f"[Orchestrator] Service parsing failed: {e}")
             import traceback
             traceback.print_exc()
+            # Re-raise: callers run this in a savepoint whose rollback discards
+            # only this block. Swallowing would strand a poisoned session.
+            raise
 
             
         # 2. Generic IPv4 Discovery

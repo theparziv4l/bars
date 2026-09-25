@@ -5,7 +5,6 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import pytest
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
 from app.database import Base
@@ -37,10 +36,9 @@ async def _run(tmp_path):
          patch("app.core.host_runner.host_runner.execute_and_stream", agen), \
          patch.object(task_orchestrator, "_process_variable_injection", boom):
         async with maker() as db:
-            # C3 pins cleanup only; the raise itself is tamed in C4.
-            with pytest.raises(RuntimeError, match="injection exploded"):
-                await task_orchestrator.execute_item(
-                    db, item_id=item_id, execution_id_override=ex_id)
+            # C4 tames the raise; C3 asserts cleanup happened regardless.
+            await task_orchestrator.execute_item(
+                db, item_id=item_id, execution_id_override=ex_id)
     assert list(tmpdir.iterdir()) == [], f"leftovers: {list(tmpdir.iterdir())}"
     await engine.dispose()
     print("PASS tmp cleanup")
