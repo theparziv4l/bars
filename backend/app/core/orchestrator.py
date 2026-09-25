@@ -290,6 +290,18 @@ class TaskOrchestrator:
                         project_id = flow.project_id
                 except Exception as e:
                     print(f"[Orchestrator] Failed to resolve project_id from flow: {e}")
+            if project_id is None and any(
+                k in variables and not is_unset(variables.get(k))
+                for k in ("target", "targets")
+            ):
+                # Fail closed: without a project the exclusion set is empty and
+                # the ROE guard below would silently let everything through.
+                await self._fail_execution(
+                    execution_id, item_id,
+                    "Cannot determine project scope for target filtering; "
+                    "refusing to run. Re-run from a project checklist or a valid flow.",
+                )
+                return
             excluded = await excluded_targets(db, project_id)
             host_is_excluded = False
             if host_id:
