@@ -126,9 +126,10 @@ async def list_evidence(
     db: AsyncSession = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user_optional),
 ):
-    if project_id is not None:
+    pid = await _resolve_project_id(db, project_id, finding_id)
+    if pid is not None:
         from app.api.projects import _require_project_member
-        await _require_project_member(db, project_id, current_user)
+        await _require_project_member(db, pid, current_user)
     stmt = select(Evidence).where(Evidence.deleted_at.is_(None))
     if finding_id is not None:
         stmt = stmt.where(Evidence.finding_id == finding_id)
