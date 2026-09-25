@@ -82,6 +82,11 @@ class _FKNotReady(Exception):
     clock skew). The ingest loop defers such events for retry instead of dropping them."""
 
 
+# Max passes over a batch for deferred events. FK chains here are at most ~5 deep
+# (file -> execution -> item -> group -> project); one extra pass proves quiescence.
+_MAX_INGEST_PASSES = 6
+
+
 # Apply order for FK dependency: users first, then projects, then project_members, etc.
 _ENTITY_APPLY_ORDER = (
     "users",
@@ -536,60 +541,25 @@ class SyncService:
         # instead of being silently skipped forever.
         min_deferred: Optional[int] = None
 
-        for incoming in sorted_events:
-            event_id = incoming["event_id"]
-            logical_ts = int(incoming["logical_ts"])
-            source_node_id = str(incoming["source_node_id"])
-            entity_type = str(incoming["entity_type"])
-            entity_public_id = str(incoming["entity_public_id"])
-            operation = str(incoming["operation"])
-            payload = incoming.get("payload") or {}
-
-            exists = await db.execute(select(SyncEvent.id).where(SyncEvent.event_id == event_id))
-            if exists.scalar_one_or_none() is not None:
-                result.skipped += 1
-                result.latest_logical_ts = max(result.latest_logical_ts, logical_ts)
-                continue
-
-            latest_result = await db.execute(
-                select(SyncEvent)
-                .where(
-                    SyncEvent.entity_type == entity_type,
-                    SyncEvent.entity_public_id == entity_public_id,
-                )
-                .order_by(SyncEvent.logical_ts.desc(), SyncEvent.source_node_id.desc())
-                .limit(1)
-            )
-            latest = latest_result.scalar_one_or_none()
-            incoming_key = _event_key(logical_ts, source_node_id)
-            latest_key = _event_key(latest.logical_ts, latest.source_node_id) if latest else None
-
-            # Apply FIRST, record only if it wasn't deferred — so a deferred event isn't
-            # marked processed (which would make the dedupe check skip it permanently).
-            deferred = False
-            if latest_key is None or incoming_key > latest_key:
-                try:
-                    await self._apply_event(db, entity_type=entity_type, operation=operation, payload=payload)
-                    result.applied += 1
-                except _FKNotReady as exc:
-                    deferred = True
-                    min_deferred = logical_ts if min_deferred is None else min(min_deferred, logical_ts)
-                    print(f"[Sync] Deferring {entity_type} {entity_public_id} for retry: {exc}")
-            else:
-                result.skipped += 1
-
-            if not deferred:
-                await self.record_event(
-                    db,
-                    entity_type=entity_type,
-                    entity_public_id=entity_public_id,
-                    operation=operation,
-                    payload=payload,
-                    logical_ts=logical_ts,
-                    source_node_id=source_node_id,
-                    event_id=event_id,
-                )
-                result.latest_logical_ts = max(result.latest_logical_ts, logical_ts)
+        # Bounded multi-pass: a child sorted before its parent defers on the first
+        # pass and applies on a later pass once the parent exists. Stops early when
+        # nothing deferred or no progress was made (missing parent isn't in the batch).
+        pending = sorted_events
+        for _ in range(_MAX_INGEST_PASSES):
+            pass_deferred: list[Dict[str, Any]] = []
+            pass_min_deferred: Optional[int] = None
+            for incoming in pending:
+                deferred_ts = await self._ingest_one(db, incoming=incoming, result=result)
+                if deferred_ts is not None:
+                    pass_deferred.append(incoming)
+                    pass_min_deferred = (
+                        deferred_ts if pass_min_deferred is None
+                        else min(pass_min_deferred, deferred_ts)
+                    )
+            min_deferred = pass_min_deferred
+            if not pass_deferred or len(pass_deferred) == len(pending):
+                break
+            pending = pass_deferred
 
         cursor_ts = result.latest_logical_ts
         if min_deferred is not None:
@@ -603,6 +573,69 @@ class SyncService:
             logical_ts=cursor_ts,
         )
         return result
+
+    async def _ingest_one(
+        self,
+        db: AsyncSession,
+        *,
+        incoming: Dict[str, Any],
+        result: IngestResult,
+    ) -> Optional[int]:
+        """Ingest a single event. Returns its logical_ts if deferred, else None."""
+        event_id = incoming["event_id"]
+        logical_ts = int(incoming["logical_ts"])
+        source_node_id = str(incoming["source_node_id"])
+        entity_type = str(incoming["entity_type"])
+        entity_public_id = str(incoming["entity_public_id"])
+        operation = str(incoming["operation"])
+        payload = incoming.get("payload") or {}
+
+        exists = await db.execute(select(SyncEvent.id).where(SyncEvent.event_id == event_id))
+        if exists.scalar_one_or_none() is not None:
+            result.skipped += 1
+            result.latest_logical_ts = max(result.latest_logical_ts, logical_ts)
+            return None
+
+        latest_result = await db.execute(
+            select(SyncEvent)
+            .where(
+                SyncEvent.entity_type == entity_type,
+                SyncEvent.entity_public_id == entity_public_id,
+            )
+            .order_by(SyncEvent.logical_ts.desc(), SyncEvent.source_node_id.desc())
+            .limit(1)
+        )
+        latest = latest_result.scalar_one_or_none()
+        incoming_key = _event_key(logical_ts, source_node_id)
+        latest_key = _event_key(latest.logical_ts, latest.source_node_id) if latest else None
+
+        # Apply FIRST, record only if it wasn't deferred — so a deferred event isn't
+        # marked processed (which would make the dedupe check skip it permanently).
+        deferred = False
+        if latest_key is None or incoming_key > latest_key:
+            try:
+                await self._apply_event(db, entity_type=entity_type, operation=operation, payload=payload)
+                result.applied += 1
+            except _FKNotReady as exc:
+                deferred = True
+                print(f"[Sync] Deferring {entity_type} {entity_public_id} for retry: {exc}")
+        else:
+            result.skipped += 1
+
+        if not deferred:
+            await self.record_event(
+                db,
+                entity_type=entity_type,
+                entity_public_id=entity_public_id,
+                operation=operation,
+                payload=payload,
+                logical_ts=logical_ts,
+                source_node_id=source_node_id,
+                event_id=event_id,
+            )
+            result.latest_logical_ts = max(result.latest_logical_ts, logical_ts)
+            return None
+        return logical_ts
 
     async def _apply_event(
         self,
@@ -734,7 +767,8 @@ class SyncService:
                 select(User).where(User.public_id == payload["created_by_user_public_id"])
             )
             owner = user_result.scalar_one_or_none()
-            project.created_by_user_id = owner.id if owner else None
+            if owner is not None:
+                project.created_by_user_id = owner.id
         project.start_date = _parse_dt(payload.get("start_date"))
         project.end_date = _parse_dt(payload.get("end_date"))
         project.deleted_at = _parse_dt(payload.get("deleted_at"))
@@ -773,7 +807,14 @@ class SyncService:
             user = user_result.scalar_one_or_none()
             user_id = user.id if user else None
         if project_id is None or user_id is None:
-            return
+            if not project_public_id and not user_public_id:
+                return  # no refs at all: unplaceable, retry cannot help
+            missing = []
+            if project_id is None:
+                missing.append(f"project {project_public_id}")
+            if user_id is None:
+                missing.append(f"user {user_public_id}")
+            raise _FKNotReady(f"project_member {public_id}: {', '.join(missing)} not present yet")
 
         result = await db.execute(select(ProjectMember).where(ProjectMember.public_id == public_id))
         member = result.scalar_one_or_none()
@@ -815,10 +856,16 @@ class SyncService:
             )
             project = project_result.scalar_one_or_none()
             project_id = project.id if project else None
+            if project_id is None:
+                raise _FKNotReady(
+                    f"checklist_group {public_id}: project {payload['project_public_id']} not present yet"
+                )
 
         result = await db.execute(select(ChecklistGroup).where(ChecklistGroup.public_id == public_id))
         group = result.scalar_one_or_none()
         if group is None:
+            if project_id is None:
+                return  # no project ref at all: cannot place the row
             group = ChecklistGroup(
                 public_id=public_id,
                 project_id=project_id,
@@ -826,10 +873,11 @@ class SyncService:
             )
             db.add(group)
 
-        group.project_id = project_id
+        if project_id is not None:
+            group.project_id = project_id
         group.name = payload.get("name", group.name)
         group.description = payload.get("description")
-        group.order_index = int(payload.get("order_index", group.order_index))
+        group.order_index = int(payload.get("order_index", group.order_index) or 0)
         group.icon = payload.get("icon")
         group.color = payload.get("color")
         group.collapsed = bool(payload.get("collapsed", group.collapsed))
@@ -850,6 +898,10 @@ class SyncService:
             )
             group = group_result.scalar_one_or_none()
             group_id = group.id if group else None
+            if group_id is None:
+                raise _FKNotReady(
+                    f"checklist_item {public_id}: group {payload['group_public_id']} not present yet"
+                )
         if group_id is None:
             return
 
@@ -877,9 +929,9 @@ class SyncService:
         )
         if payload.get("command_template"):
             item.command_template = payload["command_template"]
-        item.timeout = int(payload.get("timeout", item.timeout))
+        item.timeout = int(payload.get("timeout", item.timeout) or 3600)
         item.enabled = bool(payload.get("enabled", item.enabled))
-        item.order_index = int(payload.get("order_index", item.order_index))
+        item.order_index = int(payload.get("order_index", item.order_index) or 0)
         item.is_trashed = bool(payload.get("is_trashed", item.is_trashed))
         item.deleted_at = _parse_dt(payload.get("deleted_at"))
         item.updated_at = _parse_dt(payload.get("updated_at")) or datetime.utcnow()
@@ -966,6 +1018,10 @@ class SyncService:
             host = host_result.scalar_one_or_none()
             host_id = host.id if host else None
         if project_id is None:
+            if payload.get("project_public_id"):
+                raise _FKNotReady(
+                    f"project_variable {public_id}: project {payload['project_public_id']} not present yet"
+                )
             return
 
         result = await db.execute(select(ProjectVariable).where(ProjectVariable.public_id == public_id))
@@ -994,7 +1050,7 @@ class SyncService:
                 db.add(variable)
 
         variable.project_id = project_id
-        variable.host_id = host_id
+        variable.host_id = host_id or variable.host_id
         variable.key = key
         if "value" in payload:
             variable.value = payload["value"]
@@ -1094,6 +1150,10 @@ class SyncService:
             )
             host = host_result.scalar_one_or_none()
             host_id = host.id if host else None
+            if host_id is None:
+                raise _FKNotReady(
+                    f"service {public_id}: host {payload['host_public_id']} not present yet"
+                )
         if host_id is None:
             return
         result = await db.execute(select(Service).where(Service.public_id == public_id))
@@ -1149,6 +1209,10 @@ class SyncService:
             ex = exec_result.scalar_one_or_none()
             execution_id = ex.id if ex else None
         if host_id is None:
+            if payload.get("host_public_id"):
+                raise _FKNotReady(
+                    f"discovered_file {public_id}: host {payload['host_public_id']} not present yet"
+                )
             return
         result = await db.execute(
             select(DiscoveredFile).where(DiscoveredFile.public_id == public_id)
@@ -1176,7 +1240,7 @@ class SyncService:
             db.add(df)
         else:
             df.host_id = host_id
-            df.execution_id = execution_id
+            df.execution_id = execution_id or df.execution_id
             df.share_name = payload.get("share_name", df.share_name)
             df.path = payload.get("path", df.path)
             df.name = payload.get("name", df.name)
@@ -1214,9 +1278,15 @@ class SyncService:
             )
             project = proj_result.scalar_one_or_none()
             project_id = project.id if project else None
+            if project_id is None:
+                raise _FKNotReady(
+                    f"flow {public_id}: project {payload['project_public_id']} not present yet"
+                )
         result = await db.execute(select(Flow).where(Flow.public_id == public_id))
         flow = result.scalar_one_or_none()
         if flow is None:
+            if project_id is None:
+                return  # no project ref at all: cannot place the row
             flow = Flow(
                 public_id=public_id,
                 project_id=project_id,
@@ -1228,7 +1298,8 @@ class SyncService:
             )
             db.add(flow)
         else:
-            flow.project_id = project_id
+            if project_id is not None:
+                flow.project_id = project_id
             flow.name = payload.get("name", flow.name)
             flow.is_template = bool(payload.get("is_template", flow.is_template))
             _apply_present(flow, payload, ("description", "flow_definition", "tags"))
@@ -1262,6 +1333,13 @@ class SyncService:
             item = item_result.scalar_one_or_none()
             checklist_item_id = item.id if item else None
         if flow_id is None or checklist_item_id is None:
+            missing = []
+            if flow_id is None:
+                missing.append(f"flow {payload.get('flow_public_id')}")
+            if checklist_item_id is None:
+                missing.append(f"item {payload.get('item_public_id')}")
+            if payload.get("flow_public_id") or payload.get("item_public_id"):
+                raise _FKNotReady(f"flow_step {public_id}: {', '.join(missing)} not present yet")
             return
         result = await db.execute(select(FlowStep).where(FlowStep.public_id == public_id))
         step = result.scalar_one_or_none()
@@ -1344,7 +1422,14 @@ class SyncService:
             claimed_by_user_id = c_user.id if c_user else None
 
         if project_id is None or item_id is None:
-            return
+            if not payload.get("project_public_id") and not payload.get("item_public_id"):
+                return  # no refs at all: unplaceable, retry cannot help
+            missing = []
+            if project_id is None:
+                missing.append(f"project {payload.get('project_public_id')}")
+            if item_id is None:
+                missing.append(f"item {payload.get('item_public_id')}")
+            raise _FKNotReady(f"checklist_claim {claim_public_id}: {', '.join(missing)} not present yet")
 
         host_scope_key = payload.get("host_scope_key", "global")
         incoming_version = int(payload.get("version", 1))
