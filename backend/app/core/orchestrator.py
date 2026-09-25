@@ -11,6 +11,7 @@ from pathlib import Path
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, text, inspect as sa_inspect
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import selectinload
 
 from app.config import settings
@@ -165,6 +166,8 @@ class TaskOrchestrator:
         # for one (item, host) scope is atomic per stripe, closing the
         # duplicate race without serializing unrelated scopes.
         self._create_locks = [asyncio.Lock() for _ in range(64)]
+        # Same striping for variable injection upserts (keyed by scope + key).
+        self._var_locks = [asyncio.Lock() for _ in range(64)]
     
     async def create_execution_record(
         self, db: AsyncSession, item_id: int, host_id: Optional[int] = None,
@@ -1742,6 +1745,63 @@ class TaskOrchestrator:
             # only this block. Swallowing would strand a poisoned session.
             raise
 
+    async def _upsert_variable(
+        self, db: AsyncSession, project_id: int, var_key: str,
+        val: Any, target_host_id: Optional[int],
+    ):
+        """Insert-or-update one live variable row; returns (row, operation).
+
+        A concurrent insert for the same scope raises IntegrityError at flush:
+        reselect the winner and apply last-writer-wins instead of duplicating.
+        SQLITE_BUSY (single-writer SQLite vs a concurrent committer) retries
+        with backoff — the reselect then sees the committed winner.
+        """
+        from app.models.variable import ProjectVariable
+
+        async def _reselect():
+            stmt = select(ProjectVariable).where(
+                ProjectVariable.project_id == project_id,
+                ProjectVariable.key == var_key,
+                ProjectVariable.host_id == target_host_id,
+                ProjectVariable.ad_domain_id.is_(None),
+                ProjectVariable.deleted_at.is_(None),
+            )
+            result = await db.execute(stmt)
+            return result.scalars().first()
+
+        last_busy: Optional[Exception] = None
+        for _ in range(6):
+            try:
+                try:
+                    async with db.begin_nested():
+                        row = await _reselect()
+                        operation = "update"
+                        if row is not None:
+                            row.value = val
+                        else:
+                            row = ProjectVariable(
+                                project_id=project_id, key=var_key, value=val,
+                                host_id=target_host_id)
+                            db.add(row)
+                            operation = "create"
+                        await db.flush()
+                except IntegrityError:
+                    async with db.begin_nested():
+                        row = await _reselect()
+                        if row is None:
+                            raise
+                        row.value = val
+                        operation = "update"
+                        await db.flush()
+                return row, operation
+            except OperationalError as e:
+                msg = str(e).lower()
+                if "locked" not in msg and "busy" not in msg:
+                    raise
+                last_busy = e
+                await asyncio.sleep(0.05)
+        raise last_busy  # type: ignore[misc]
+
     async def _process_variable_injection(self, db: AsyncSession, execution: Execution, item: ChecklistItem, parsed_results: Dict[str, Any]):
         """Inject parsed outputs into Project Variables based on policy."""
         policy = item.storage_policy or {}
@@ -1796,49 +1856,27 @@ class TaskOrchestrator:
             # If user wants global, they can't easily specify "start with global" unless we add a flag.
             # For now: If running against a Host, save to that Host.
             
-            stmt = select(ProjectVariable).where(
-                ProjectVariable.project_id == project_id,
-                ProjectVariable.key == var_key,
-                ProjectVariable.host_id == target_host_id
-            )
-            result = await db.execute(stmt)
-            # .first() (not scalar_one_or_none) so pre-existing duplicate rows for the
-            # same (project,key,host) scope don't raise MultipleResultsFound and crash
-            # the finalizer. ponytail: add a unique constraint + dedup migration later.
-            existing = result.scalars().first()
+            # Stripe-serialized per scope+key (single-process airtight); the
+            # savepoint + IntegrityError path below stays as defense-in-depth.
+            stripe = self._var_locks[
+                hash((project_id, target_host_id, var_key)) % len(self._var_locks)]
+            async with stripe:
+                row, operation = await self._upsert_variable(
+                    db, project_id, var_key, val, target_host_id)
 
-            if existing:
-                existing.value = val
-                await db.flush()
-                await db.refresh(existing)
-                try:
-                    payload = await project_variable_sync_payload(db, existing)
-                    await sync_service.record_event(
-                        db,
-                        entity_type="project_variables",
-                        entity_public_id=existing.public_id,
-                        operation="update",
-                        payload=payload,
-                    )
-                except Exception as e:
-                    print(f"[Orchestrator] Sync record (project_variable update) failed: {e}")
-            else:
-                new_var = ProjectVariable(project_id=project_id, key=var_key, value=val, host_id=target_host_id)
-                db.add(new_var)
-                await db.flush()
-                await db.refresh(new_var)
-                try:
-                    payload = await project_variable_sync_payload(db, new_var)
-                    await sync_service.record_event(
-                        db,
-                        entity_type="project_variables",
-                        entity_public_id=new_var.public_id,
-                        operation="create",
-                        payload=payload,
-                    )
-                except Exception as e:
-                    print(f"[Orchestrator] Sync record (project_variable create) failed: {e}")
-                
+            await db.refresh(row)
+            try:
+                payload = await project_variable_sync_payload(db, row)
+                await sync_service.record_event(
+                    db,
+                    entity_type="project_variables",
+                    entity_public_id=row.public_id,
+                    operation=operation,
+                    payload=payload,
+                )
+            except Exception as e:
+                print(f"[Orchestrator] Sync record (project_variable {operation}) failed: {e}")
+
             updates_to_notify.append(var_key)
         
         if updates_to_notify:

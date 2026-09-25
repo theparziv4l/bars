@@ -151,6 +151,19 @@ def _apply_schema_migrations(connection):
                 )
             )
 
+    # Deterministic dedup BEFORE the scoped unique indexes: keep the latest
+    # (updated_at, id) live row per scope, hard-delete shadowed dupes. Every
+    # node computes the same winner, so no sync round-trip is needed.
+    connection.execute(text(
+        "DELETE FROM project_variables WHERE id IN ("
+        " SELECT id FROM ("
+        " SELECT id, ROW_NUMBER() OVER ("
+        " PARTITION BY project_id, key, IFNULL(host_id, -1), IFNULL(ad_domain_id, -1)"
+        " ORDER BY updated_at DESC, id DESC) AS rn"
+        " FROM project_variables WHERE deleted_at IS NULL"
+        " ) WHERE rn > 1)"
+    ))
+
     # Create indexes when missing.
     index_statements = [
         "CREATE UNIQUE INDEX IF NOT EXISTS ux_projects_public_id ON projects(public_id)",
@@ -166,6 +179,16 @@ def _apply_schema_migrations(connection):
         "CREATE UNIQUE INDEX IF NOT EXISTS ux_ad_domains_public_id ON ad_domains(public_id)",
         # Matches Host.excluded index=True; create_all only covers freshly made tables.
         "CREATE INDEX IF NOT EXISTS ix_hosts_excluded ON hosts(excluded)",
+        # Scoped variable uniqueness (mirrors ProjectVariable.__table_args__).
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_vars_global ON "
+        "project_variables(project_id, key) WHERE host_id IS NULL "
+        "AND ad_domain_id IS NULL AND deleted_at IS NULL",
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_vars_host ON "
+        "project_variables(project_id, host_id, key) WHERE host_id IS NOT NULL "
+        "AND deleted_at IS NULL",
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_vars_domain ON "
+        "project_variables(project_id, ad_domain_id, key) "
+        "WHERE ad_domain_id IS NOT NULL AND host_id IS NULL AND deleted_at IS NULL",
     ]
     for stmt in index_statements:
         connection.execute(text(stmt))

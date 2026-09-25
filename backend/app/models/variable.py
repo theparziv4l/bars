@@ -2,7 +2,7 @@
 from datetime import datetime
 import uuid
 from typing import Optional, TYPE_CHECKING, Any, List
-from sqlalchemy import String, Integer, ForeignKey, JSON, DateTime
+from sqlalchemy import String, Integer, ForeignKey, JSON, DateTime, Index, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -21,7 +21,25 @@ class ProjectVariable(Base):
         value: Variable value (JSON serializable)
     """
     __tablename__ = "project_variables"
-    
+    # One live row per scope. Every non-deleted row matches exactly one
+    # predicate (no writer sets both host_id and ad_domain_id).
+    __table_args__ = (
+        Index(
+            "ux_vars_global", "project_id", "key", unique=True,
+            sqlite_where=text(
+                "host_id IS NULL AND ad_domain_id IS NULL AND deleted_at IS NULL"),
+        ),
+        Index(
+            "ux_vars_host", "project_id", "host_id", "key", unique=True,
+            sqlite_where=text("host_id IS NOT NULL AND deleted_at IS NULL"),
+        ),
+        Index(
+            "ux_vars_domain", "project_id", "ad_domain_id", "key", unique=True,
+            sqlite_where=text(
+                "ad_domain_id IS NOT NULL AND host_id IS NULL AND deleted_at IS NULL"),
+        ),
+    )
+
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     public_id: Mapped[str] = mapped_column(
         String(36),
