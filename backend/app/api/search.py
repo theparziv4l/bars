@@ -1,31 +1,38 @@
 """Search API endpoints with global regex search."""
 import re
 from typing import Optional, List
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_
 
 from app.database import get_db
+from app.core.auth import get_current_user_optional
 from app.models.execution import Execution
 from app.models.host import Host
 from app.models.file import DiscoveredFile
 from app.models.checklist import ChecklistItem, ChecklistGroup
+from app.models.user import User
 
 router = APIRouter()
+
+
+def _like_escape(s: str) -> str:
+    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 @router.get("")
 async def global_search(
     project_id: int,
-    query: str,
+    query: str = Query(..., min_length=1, max_length=200),
     is_regex: bool = False,
     search_in: str = "logs,files,hosts",
-    limit: int = 500,
-    db: AsyncSession = Depends(get_db)
+    limit: int = Query(500, ge=1, le=2000),
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     """
     Global search across all project data.
-    
+
     Args:
         project_id: Project to search in
         query: Search query (plain text or regex)
@@ -33,10 +40,15 @@ async def global_search(
         search_in: Comma-separated list of what to search (logs, files, hosts)
         limit: Maximum results
     """
+    from app.api.projects import _require_project_member
+    await _require_project_member(db, project_id, current_user)
     # Accept both a CSV string (query param) and a list (internal callers like
     # /search/logs), so the dedicated log-search endpoint doesn't 500 on .split().
     if isinstance(search_in, str):
         search_in = [s.strip() for s in search_in.split(",") if s.strip()]
+    unknown = set(search_in) - {"logs", "files", "hosts"}
+    if unknown:
+        raise HTTPException(status_code=400, detail=f"Unknown search scope: {sorted(unknown)}")
     results = {"logs": [], "files": [], "hosts": [], "total": 0}
     
     # Get hosts in project for file/host search
@@ -74,9 +86,9 @@ async def global_search(
             else:
                 exec_query = exec_query.where(
                     or_(
-                        Execution.stdout.ilike(f"%{query}%"),
-                        Execution.stderr.ilike(f"%{query}%"),
-                        Execution.command.ilike(f"%{query}%")
+                        Execution.stdout.ilike(f"%{_like_escape(query)}%", escape="\\"),
+                        Execution.stderr.ilike(f"%{_like_escape(query)}%", escape="\\"),
+                        Execution.command.ilike(f"%{_like_escape(query)}%", escape="\\")
                     )
                 ).order_by(Execution.id.desc()).limit(limit)
                 
@@ -131,8 +143,8 @@ async def global_search(
         else:
             file_query = file_query.where(
                 or_(
-                    DiscoveredFile.name.ilike(f"%{query}%"),
-                    DiscoveredFile.path.ilike(f"%{query}%")
+                    DiscoveredFile.name.ilike(f"%{_like_escape(query)}%", escape="\\"),
+                    DiscoveredFile.path.ilike(f"%{_like_escape(query)}%", escape="\\")
                 )
             ).limit(limit)
             file_result = await db.execute(file_query)
@@ -148,10 +160,10 @@ async def global_search(
         if not is_regex:
             host_query = host_query.where(
                 or_(
-                    Host.ip_address.ilike(f"%{query}%"),
-                    Host.hostname.ilike(f"%{query}%"),
-                    Host.fqdn.ilike(f"%{query}%"),
-                    Host.notes.ilike(f"%{query}%")
+                    Host.ip_address.ilike(f"%{_like_escape(query)}%", escape="\\"),
+                    Host.hostname.ilike(f"%{_like_escape(query)}%", escape="\\"),
+                    Host.fqdn.ilike(f"%{_like_escape(query)}%", escape="\\"),
+                    Host.notes.ilike(f"%{_like_escape(query)}%", escape="\\")
                 )
             ).limit(limit)
         else:
@@ -183,15 +195,16 @@ async def global_search(
 @router.get("/logs")
 async def search_logs(
     project_id: int,
-    query: str,
+    query: str = Query(..., min_length=1, max_length=200),
     is_regex: bool = False,
     item_id: Optional[int] = None,
     host_id: Optional[int] = None,
-    limit: int = 50,
-    db: AsyncSession = Depends(get_db)
+    limit: int = Query(50, ge=1, le=2000),
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     """Search specifically in execution logs."""
     return await global_search(
         project_id=project_id, query=query, is_regex=is_regex,
-        search_in=["logs"], limit=limit, db=db
+        search_in=["logs"], limit=limit, db=db, current_user=current_user
     )
