@@ -551,6 +551,9 @@ class SyncService:
         """
         result = IngestResult()
         sorted_events = sorted(list(events), key=_ingest_sort_key)
+        # File IO before any DB write: a slow/hung host agent must never hold the
+        # write txn (WAL single-writer) hostage.
+        await self._mkdir_projects_for_events(sorted_events)
         # Smallest logical_ts of an event we had to DEFER (parent not synced yet). We
         # cap the cursor just below it so deferred events are re-pulled next cycle
         # instead of being silently skipped forever.
@@ -672,6 +675,30 @@ class SyncService:
             )
         result.latest_logical_ts = max(result.latest_logical_ts, logical_ts)
         return None
+
+    async def _mkdir_projects_for_events(self, events: list[Dict[str, Any]]) -> None:
+        """Best-effort mkdir for projects in this batch, once per distinct name.
+
+        Runs BEFORE any DB write. Idempotent, so poison/loser events in the
+        batch only cost an empty dir, never correctness.
+        """
+        names: set[str] = set()
+        for e in events:
+            if not isinstance(e, dict) or e.get("entity_type") != "projects":
+                continue
+            name = (e.get("payload") or {}).get("name")
+            if name:
+                names.add(name)
+        for name in sorted(names):
+            try:
+                from app.core.utils import get_project_path
+                from app.core.host_runner import host_runner
+                path = get_project_path(name)
+                result = await host_runner.execute_sync(f"mkdir -p {shlex.quote(path)}")
+                if result.get("exit_code") != 0:
+                    print(f"[Sync] Failed to create project directory {path}: {result.get('stderr', '')}")
+            except Exception as exc:
+                print(f"[Sync] Error creating project directory for {name}: {exc}")
 
     async def _apply_event(
         self,
@@ -810,19 +837,12 @@ class SyncService:
         project.deleted_at = _parse_dt(payload.get("deleted_at"))
         project.updated_at = _parse_dt(payload.get("updated_at")) or datetime.utcnow()
 
-        # Create project directory on this host (for synced projects from another operator)
-        try:
-            from app.core.utils import get_project_path
-            from app.core.host_runner import host_runner
-            path = get_project_path(project.name)
-            if project.extra_data is None:
-                project.extra_data = {}
-            project.extra_data["project_path"] = path
-            result = await host_runner.execute_sync(f"mkdir -p {shlex.quote(path)}")
-            if result.get("exit_code") != 0:
-                print(f"[Sync] Failed to create project directory {path}: {result.get('stderr', '')}")
-        except Exception as e:
-            print(f"[Sync] Error creating project directory for {project.name}: {e}")
+        # Record the project path (pure). The actual mkdir runs in the ingest
+        # pre-pass, BEFORE the write txn, so a slow host agent never holds it.
+        from app.core.utils import get_project_path
+        if project.extra_data is None:
+            project.extra_data = {}
+        project.extra_data["project_path"] = get_project_path(project.name)
 
     async def _apply_project_member(self, db: AsyncSession, *, payload: Dict[str, Any]) -> None:
         public_id = payload.get("public_id")
