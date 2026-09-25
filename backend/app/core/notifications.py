@@ -49,7 +49,9 @@ class NotificationManager:
     - WebSocket notification broadcasting
     - Alert history tracking
     """
-    
+
+    MAX_ALERTS = 1000
+
     def __init__(self):
         """Initialize notification manager."""
         self._alerts: Dict[str, Alert] = {}
@@ -109,7 +111,10 @@ class NotificationManager:
             )
             
             self._alerts[alert_id] = alert
-        
+            while len(self._alerts) > self.MAX_ALERTS:
+                # FIFO eviction: dicts preserve insertion order.
+                self._alerts.pop(next(iter(self._alerts)))
+
         # Broadcast alert
         await self.notify("alert", alert.to_dict())
         
@@ -153,11 +158,12 @@ class NotificationManager:
     async def acknowledge_alert(self, alert_id: str) -> bool:
         """Mark an alert as acknowledged."""
         async with self._lock:
-            if alert_id in self._alerts:
-                self._alerts[alert_id].acknowledged = True
-                await self.notify("alert_acknowledged", {"id": alert_id})
-                return True
-        return False
+            if alert_id not in self._alerts:
+                return False
+            self._alerts[alert_id].acknowledged = True
+        # Notify OUTSIDE the lock: notify re-acquires it (non-reentrant).
+        await self.notify("alert_acknowledged", {"id": alert_id})
+        return True
     
     async def get_alerts(
         self,
