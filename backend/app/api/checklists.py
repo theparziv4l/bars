@@ -1025,9 +1025,20 @@ def _item_to_response(
 async def export_checklists_json(
     project_id: Optional[int] = None,
     group_id: Optional[int] = None,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     """Export checklists in JSON format."""
+    if project_id:
+        await _require_project_member(db, project_id, current_user)
+    elif group_id:
+        _gpid = (
+            await db.execute(
+                select(ChecklistGroup.project_id).where(ChecklistGroup.id == group_id)
+            )
+        ).scalar_one_or_none()
+        if _gpid is not None:
+            await _require_project_member(db, _gpid, current_user)
     query = select(ChecklistGroup).options(selectinload(ChecklistGroup.items))
     
     if group_id:
