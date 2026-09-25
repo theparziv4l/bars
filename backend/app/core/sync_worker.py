@@ -49,7 +49,11 @@ class SyncWorker:
     async def stop(self) -> None:
         self._stopped.set()
         if self._task:
-            await self._task
+            self._task.cancel()
+            try:
+                await asyncio.wait_for(self._task, timeout=10)
+            except (asyncio.CancelledError, asyncio.TimeoutError):
+                pass
         if self._session and not self._session.closed:
             await self._session.close()
             self._session = None
@@ -116,12 +120,21 @@ class SyncWorker:
 
     async def _run_loop(self) -> None:
         while not self._stopped.is_set():
-            had_peers = await self.run_once()
+            try:
+                had_peers = await self.run_once()
+            except asyncio.CancelledError:
+                break
+            except Exception as exc:
+                print(f"[SyncWorker] Cycle failed, continuing: {exc}")
+                had_peers = False
             interval = (
                 max(1, settings.SYNC_PULL_INTERVAL_SECONDS) if had_peers
                 else _IDLE_INTERVAL
             )
-            await asyncio.sleep(interval)
+            try:
+                await asyncio.sleep(interval)
+            except asyncio.CancelledError:
+                break
 
     async def _sync_peer(self, peer_base_url: str, project_public_id: str | None = None) -> None:
         session = await self._ensure_session()
