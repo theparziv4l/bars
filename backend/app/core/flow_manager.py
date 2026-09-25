@@ -65,6 +65,11 @@ def safe_eval_condition(expr: str) -> bool:
 
     return bool(ev(tree.body))
 
+def _unwrap_output_value(v):
+    """Inner value of a parsed-output wrapper (mirrors orchestrator)."""
+    return v.get("value") if isinstance(v, dict) else v
+
+
 from app.models.flow import Flow, FlowStep
 from app.models.flow_execution import FlowExecution
 from app.models.execution import Execution, ExecutionStatus
@@ -595,7 +600,7 @@ class FlowManager:
                 for child in children:
                     if child.parsed_output:
                         for k, v in child.parsed_output.items():
-                            agg.setdefault(k, []).append(v)
+                            agg.setdefault(k, []).append(_unwrap_output_value(v))
                 if agg:
                     key = exc.flow_step_index if exc.flow_step_index is not None else exc.id
                     execution_outputs[f"step_{key}"] = agg
