@@ -93,14 +93,20 @@ app = FastAPI(
     redirect_slashes=False
 )
 
+def cors_config() -> dict:
+    """CORS options from settings. Credentials are only enabled with explicit
+    origins — a wildcard origin with credentials would leak bearer tokens."""
+    origins = [o.strip() for o in settings.CORS_ALLOW_ORIGINS.split(",") if o.strip()]
+    return {
+        "allow_origins": origins,
+        "allow_credentials": bool(origins),
+        "allow_methods": ["*"],
+        "allow_headers": ["*"],
+    }
+
+
 # CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Configure appropriately for production
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app.add_middleware(CORSMiddleware, **cors_config())
 
 # Include API routes
 app.include_router(api_router, prefix="/api/v1")

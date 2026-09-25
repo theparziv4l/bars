@@ -87,6 +87,8 @@ class Settings(BaseSettings):
     # Shared secret for node-to-node pull/push (X-Sync-Token). Sync endpoints
     # fail closed (503) when SYNC_ENABLED without a token configured.
     SYNC_PEER_TOKEN: str = ""
+    # Comma-separated CORS origins; empty = same-origin only (no CORS).
+    CORS_ALLOW_ORIGINS: str = ""
     # Delete sync events older than this many days (None = keep forever).
     # Only enable when every peer syncs more often than this window.
     SYNC_EVENT_RETENTION_DAYS: int | None = None
