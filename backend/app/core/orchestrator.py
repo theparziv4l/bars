@@ -2245,23 +2245,30 @@ class TaskOrchestrator:
                     # We only alert and notify here.
                     
                     if item.alert_patterns:
-                        alerts = await notification_manager.process_output_chunk(execution.id, text, item.alert_patterns)
+                        try:
+                            alerts = await notification_manager.process_output_chunk(execution.id, text, item.alert_patterns)
+                        except Exception as e:
+                            print(f"[Orchestrator] Alert processing failed: {e}")
+                            alerts = []
                         if alerts:
                             current = execution.alerts_triggered or []
                             current.extend([a.to_dict() for a in alerts])
                             execution.alerts_triggered = current
-                            
+
                 elif stream == "stderr":
                     context.stderr_buffer += text
                 
                 if output_callback:
                     output_callback(text)
                 
-                await notification_manager.notify("output", {
-                    "execution_id": execution.id, 
-                    "stream": stream, 
-                    "text": text
-                })
+                try:
+                    await notification_manager.notify("output", {
+                        "execution_id": execution.id,
+                        "stream": stream,
+                        "text": text
+                    })
+                except Exception as e:
+                    print(f"[Orchestrator] Output notify failed: {e}")
             
             execution.stdout = context.stdout_buffer
             execution.stderr = context.stderr_buffer
