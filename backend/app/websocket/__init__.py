@@ -116,8 +116,55 @@ async def setup_websocket_listener():
     await notification_manager.add_listener(notification_listener)
 
 
+async def _member_of(db, project_id: int, user_id: int) -> bool:
+    """Direct membership check (no HTTP semantics in WS code)."""
+    from sqlalchemy import select
+    from app.models.user import ProjectMember
+    row = await db.execute(
+        select(ProjectMember.id).where(
+            ProjectMember.project_id == project_id,
+            ProjectMember.user_id == user_id,
+            ProjectMember.deleted_at.is_(None),
+        )
+    )
+    return row.scalar_one_or_none() is not None
+
+
+async def _channel_allowed(channel: str, user) -> bool:
+    """Whether an identified user may join a channel."""
+    if channel == "default":
+        return True
+    from sqlalchemy import select
+    from app.database import async_session_maker
+    async with async_session_maker() as db:
+        if channel.startswith("execution:"):
+            try:
+                eid = int(channel.split(":", 1)[1])
+            except ValueError:
+                return False
+            from app.models.checklist import ChecklistGroup, ChecklistItem
+            from app.models.execution import Execution
+            pid = (await db.execute(
+                select(ChecklistGroup.project_id)
+                .join(ChecklistItem, ChecklistItem.group_id == ChecklistGroup.id)
+                .join(Execution, Execution.item_id == ChecklistItem.id)
+                .where(Execution.id == eid)
+            )).scalar_one_or_none()
+            if pid is None:
+                return False
+            return await _member_of(db, pid, user.id)
+        elif channel.startswith("project:"):
+            try:
+                pid = int(channel.split(":", 1)[1])
+            except ValueError:
+                return False
+            return await _member_of(db, pid, user.id)
+        return False
+
+
 async def handle_websocket(websocket: WebSocket, channel: str = "default"):
     """Handle a WebSocket connection."""
+    user = None
     if settings.WS_REQUIRE_AUTH:
         token = websocket.headers.get("Authorization")
         if token and token.lower().startswith("bearer "):
@@ -128,9 +175,24 @@ async def handle_websocket(websocket: WebSocket, channel: str = "default"):
             await websocket.close(code=4401)
             return
         try:
-            decode_access_token(token)
+            payload = decode_access_token(token)
         except Exception:
             await websocket.close(code=4401)
+            return
+        from sqlalchemy import select
+        from app.database import async_session_maker
+        from app.models.user import User
+        async with async_session_maker() as db:
+            user = (await db.execute(
+                select(User).where(User.public_id == payload.get("sub"),
+                                  User.is_active.is_(True))
+            )).scalar_one_or_none()
+        if user is None:
+            await websocket.close(code=4401)
+            return
+        # The initial channel gets the same check as subscribe (no bypass).
+        if not await _channel_allowed(channel, user):
+            await websocket.close(code=4403)
             return
 
     await manager.connect(websocket, channel)
@@ -152,6 +214,9 @@ async def handle_websocket(websocket: WebSocket, channel: str = "default"):
                     await websocket.send_json({"type": "pong"})
                 elif message.get("type") == "subscribe":
                     new_channel = message.get("channel", "default")
+                    if user is not None and not await _channel_allowed(new_channel, user):
+                        await websocket.send_json({"type": "error", "detail": "channel access denied"})
+                        continue
                     await manager.connect(websocket, new_channel, accept=False)
                     subscribed_channels.add(new_channel)
                 elif message.get("type") == "unsubscribe":
