@@ -649,7 +649,7 @@ async def get_file_content(
 @router.get("/search/global")
 async def search_files(
     project_id: int,
-    query: str,
+    query: str = Query(..., min_length=1, max_length=200),
     file_type: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user_optional),
