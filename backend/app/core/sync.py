@@ -643,20 +643,26 @@ class SyncService:
             if latest else None
         )
 
-        # Apply FIRST, record only if it wasn't deferred — so a deferred event isn't
-        # marked processed (which would make the dedupe check skip it permanently).
+        # Apply FIRST, record only if it applied — a deferred event isn't marked
+        # processed (which would make the dedupe check skip it permanently), and
+        # a stale LWW-loser isn't logged either (it would only bloat the table
+        # and amplify re-pushes). Seen-but-stale still advances the cursor.
         deferred = False
+        applied_now = False
         if latest_key is None or incoming_key > latest_key:
             try:
                 await self._apply_event(db, entity_type=entity_type, operation=operation, payload=payload)
                 result.applied += 1
+                applied_now = True
             except _FKNotReady as exc:
                 deferred = True
                 print(f"[Sync] Deferring {entity_type} {entity_public_id} for retry: {exc}")
         else:
             result.skipped += 1
 
-        if not deferred:
+        if deferred:
+            return logical_ts
+        if applied_now:
             await self.record_event(
                 db,
                 entity_type=entity_type,
@@ -667,9 +673,8 @@ class SyncService:
                 source_node_id=source_node_id,
                 event_id=event_id,
             )
-            result.latest_logical_ts = max(result.latest_logical_ts, logical_ts)
-            return None
-        return logical_ts
+        result.latest_logical_ts = max(result.latest_logical_ts, logical_ts)
+        return None
 
     async def _apply_event(
         self,
