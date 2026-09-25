@@ -806,7 +806,7 @@ async def claim_item(
         raise HTTPException(
             status_code=409,
             detail={
-                "reason": "claimed_by_other",
+                "reason": err.reason,
                 "item_id": item_id,
                 "host_id": current.host_id,
                 "claimed_by_user_id": current.claimed_by_user_id,
@@ -883,6 +883,7 @@ async def release_item(
             host_id=data.host_id,
             user=current_user,
             force=False,
+            expected_version=data.expected_version,
         )
     except ProjectAccessError as err:
         raise HTTPException(status_code=403, detail=str(err)) from err
@@ -891,7 +892,7 @@ async def release_item(
         raise HTTPException(
             status_code=409,
             detail={
-                "reason": "claimed_by_other",
+                "reason": err.reason,
                 "item_id": item_id,
                 "host_id": current.host_id,
                 "claimed_by_user_id": current.claimed_by_user_id,

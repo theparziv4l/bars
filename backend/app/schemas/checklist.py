@@ -32,6 +32,10 @@ class ChecklistClaimAction(BaseModel):
         le=86400,
         description="Optional claim lease duration in seconds",
     )
+    expected_version: Optional[int] = Field(
+        None,
+        description="Release only if the claim is still at this version (stale token → 409)",
+    )
 
 
 class ChecklistClaimInfo(BaseModel):

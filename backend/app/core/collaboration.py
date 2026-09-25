@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -19,8 +20,9 @@ from app.core.sync import sync_service, claim_sync_payload
 class ClaimConflictError(Exception):
     """Raised when an item scope is currently claimed by another user."""
 
-    def __init__(self, claim: ChecklistClaim):
+    def __init__(self, claim: ChecklistClaim, reason: str = "claimed_by_other"):
         self.claim = claim
+        self.reason = reason
         super().__init__("Checklist item is claimed by another operator")
 
 
@@ -86,77 +88,101 @@ async def claim_item_scope(
     lease = now + timedelta(seconds=lease_seconds or settings.DEFAULT_CLAIM_LEASE_SECONDS)
     scope_key = scope_key_for_host(host_id)
 
-    claim_result = await db.execute(
-        select(ChecklistClaim)
-        .where(
-            ChecklistClaim.project_id == project_id,
-            ChecklistClaim.item_id == item_id,
-            ChecklistClaim.host_scope_key == scope_key,
-        )
-        .options(selectinload(ChecklistClaim.claimed_by_user))
-    )
-    claim = claim_result.scalar_one_or_none()
+    # A concurrent first-claim for the same scope collides on the unique index:
+    # roll back and reselect so the loser takes the update path (409) instead
+    # of surfacing a 500-class IntegrityError. SQLITE_BUSY (loser's flush vs
+    # the winner's still-open write txn) backs off and retries the same way.
+    import asyncio as _asyncio
 
-    if claim is None:
-        claim = ChecklistClaim(
-            project_id=project_id,
-            item_id=item_id,
-            host_id=host_id,
-            host_scope_key=scope_key,
-            claimed_by_user_id=user.id,
-            claimed_at=now,
-            lease_expires_at=lease,
-            is_active=True,
-            deleted_at=None,
-            version=1,
-        )
-        db.add(claim)
-        await db.flush()
-        await db.refresh(claim, ["claimed_by_user"])
+    # Capture before the loop: a rollback between attempts expires `user`, and
+    # lazy attribute access on it would raise MissingGreenlet on retry.
+    user_id = user.id
+    last_error: Optional[Exception] = None
+    for _attempt in range(4):
         try:
-            payload = await claim_sync_payload(db, claim)
-            await sync_service.record_event(
-                db,
-                entity_type="checklist_claims",
-                entity_public_id=claim.public_id,
-                operation="claim",
-                payload=payload,
+            claim_result = await db.execute(
+                select(ChecklistClaim)
+                .where(
+                    ChecklistClaim.project_id == project_id,
+                    ChecklistClaim.item_id == item_id,
+                    ChecklistClaim.host_scope_key == scope_key,
+                )
+                .options(selectinload(ChecklistClaim.claimed_by_user))
             )
-        except Exception as e:
-            print(f"[Collaboration] Sync record (claim) failed: {e}")
-        return claim
+            claim = claim_result.scalar_one_or_none()
 
-    is_expired = _is_claim_expired(claim, now)
-    already_mine = claim.claimed_by_user_id == user.id
-    is_available = not claim.is_active or is_expired or claim.claimed_by_user_id is None
+            if claim is None:
+                claim = ChecklistClaim(
+                    project_id=project_id,
+                    item_id=item_id,
+                    host_id=host_id,
+                    host_scope_key=scope_key,
+                    claimed_by_user_id=user_id,
+                    claimed_at=now,
+                    lease_expires_at=lease,
+                    is_active=True,
+                    deleted_at=None,
+                    version=1,
+                )
+                db.add(claim)
+                await db.flush()
+                await db.refresh(claim, ["claimed_by_user"])
+                try:
+                    payload = await claim_sync_payload(db, claim)
+                    await sync_service.record_event(
+                        db,
+                        entity_type="checklist_claims",
+                        entity_public_id=claim.public_id,
+                        operation="claim",
+                        payload=payload,
+                    )
+                except Exception as e:
+                    print(f"[Collaboration] Sync record (claim) failed: {e}")
+                return claim
 
-    if not already_mine and not is_available and not force_takeover:
-        raise ClaimConflictError(claim)
+            is_expired = _is_claim_expired(claim, now)
+            already_mine = claim.claimed_by_user_id == user_id
+            is_available = not claim.is_active or is_expired or claim.claimed_by_user_id is None
 
-    if not already_mine:
-        claim.version += 1
+            if not already_mine and not is_available and not force_takeover:
+                raise ClaimConflictError(claim)
 
-    claim.host_id = host_id
-    claim.claimed_by_user_id = user.id
-    claim.claimed_at = now
-    claim.lease_expires_at = lease
-    claim.is_active = True
-    claim.deleted_at = None
-    await db.flush()
-    await db.refresh(claim, ["claimed_by_user"])
-    try:
-        operation = "takeover" if not already_mine else "claim"
-        payload = await claim_sync_payload(db, claim)
-        await sync_service.record_event(
-            db,
-            entity_type="checklist_claims",
-            entity_public_id=claim.public_id,
-            operation=operation,
-            payload=payload,
-        )
-    except Exception as e:
-        print(f"[Collaboration] Sync record (claim update) failed: {e}")
-    return claim
+            if not already_mine:
+                claim.version += 1
+
+            claim.host_id = host_id
+            claim.claimed_by_user_id = user_id
+            claim.claimed_at = now
+            claim.lease_expires_at = lease
+            claim.is_active = True
+            claim.deleted_at = None
+            await db.flush()
+            await db.refresh(claim, ["claimed_by_user"])
+            try:
+                operation = "takeover" if not already_mine else "claim"
+                payload = await claim_sync_payload(db, claim)
+                await sync_service.record_event(
+                    db,
+                    entity_type="checklist_claims",
+                    entity_public_id=claim.public_id,
+                    operation=operation,
+                    payload=payload,
+                )
+            except Exception as e:
+                print(f"[Collaboration] Sync record (claim update) failed: {e}")
+            return claim
+        except IntegrityError as e:
+            last_error = e
+            await db.rollback()
+        except OperationalError as e:
+            msg = str(e).lower()
+            if "locked" not in msg and "busy" not in msg:
+                raise
+            last_error = e
+            await db.rollback()
+            await _asyncio.sleep(0.05)
+    assert last_error is not None
+    raise last_error
 
 
 async def release_item_scope(
@@ -166,6 +192,7 @@ async def release_item_scope(
     host_id: Optional[int],
     user: User,
     force: bool = False,
+    expected_version: Optional[int] = None,
 ) -> Optional[ChecklistClaim]:
     """Release active claim for scope."""
     project_id = await get_item_project_id(db, item_id)
@@ -191,6 +218,9 @@ async def release_item_scope(
     claim = result.scalar_one_or_none()
     if claim is None:
         return None
+
+    if expected_version is not None and claim.version != expected_version:
+        raise ClaimConflictError(claim, reason="version_mismatch")
 
     if claim.claimed_by_user_id not in (None, user.id) and not force:
         raise ClaimConflictError(claim)
