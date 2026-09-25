@@ -45,6 +45,26 @@ async def _reject_excluded_host(db: AsyncSession, host_id: Optional[int]) -> Non
         )
 
 
+async def _project_for_item(db: AsyncSession, item_id: int) -> Optional[int]:
+    """Project owning a checklist item (None when item/group missing)."""
+    row = (await db.execute(
+        select(ChecklistItem).where(ChecklistItem.id == item_id)
+        .options(selectinload(ChecklistItem.group))
+    )).scalar_one_or_none()
+    if row is None or row.group is None:
+        return None
+    return row.group.project_id
+
+
+async def _project_for_execution(db: AsyncSession, execution_id: int) -> Optional[int]:
+    row = (await db.execute(
+        select(Execution).where(Execution.id == execution_id)
+    )).scalar_one_or_none()
+    if row is None:
+        return None
+    return await _project_for_item(db, row.item_id)
+
+
 @router.get("", response_model=ExecutionListResponse)
 async def list_executions(
     project_id: Optional[int] = None,
@@ -53,9 +73,13 @@ async def list_executions(
     status: Optional[str] = None,
     page: int = Query(1, ge=1),
     per_page: int = Query(50, ge=1, le=200),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     """List executions with filters."""
+    if project_id:
+        from app.api.projects import _require_project_member
+        await _require_project_member(db, project_id, current_user)
     query = select(Execution).options(selectinload(Execution.outputs))
     
     if project_id:
@@ -109,6 +133,10 @@ async def start_execution(
 ):
     """Start a new execution (returns immediately, runs in background)."""
     await _reject_excluded_host(db, data.host_id)
+    _start_pid = await _project_for_item(db, data.item_id)
+    if _start_pid is not None:
+        from app.api.projects import _require_project_member
+        await _require_project_member(db, _start_pid, current_user)
 
     if settings.CLAIMS_ENABLED and current_user is not None:
         try:
@@ -200,10 +228,16 @@ async def start_execution(
 @router.post("/bulk")
 async def start_bulk_execution(
     data: BulkExecutionCreate,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     """Execute multiple checklist items."""
     await _reject_excluded_host(db, data.host_id)
+    from app.api.projects import _require_project_member
+    for _iid in dict.fromkeys(data.item_ids):
+        _pid = await _project_for_item(db, _iid)
+        if _pid is not None:
+            await _require_project_member(db, _pid, current_user)
 
     executions = await task_orchestrator.execute_bulk(
         db=db,
@@ -216,13 +250,19 @@ async def start_bulk_execution(
 
 
 @router.get("/running")
-async def get_running_executions():
+async def get_running_executions(
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
     """Get currently running execution IDs."""
     return {"running": await task_orchestrator.get_running_executions()}
 
 
 @router.get("/{execution_id}", response_model=ExecutionResponse)
-async def get_execution(execution_id: int, db: AsyncSession = Depends(get_db)):
+async def get_execution(
+    execution_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
     """Get execution details."""
     result = await db.execute(
         select(Execution).where(Execution.id == execution_id)
@@ -231,12 +271,29 @@ async def get_execution(execution_id: int, db: AsyncSession = Depends(get_db)):
     execution = result.scalar_one_or_none()
     if not execution:
         raise HTTPException(status_code=404, detail="Execution not found")
+    _pid = await _project_for_item(db, execution.item_id)
+    if _pid is not None:
+        from app.api.projects import _require_project_member
+        await _require_project_member(db, _pid, current_user)
     return _execution_to_response(execution)
 
 
 @router.post("/{execution_id}/cancel")
-async def cancel_execution(execution_id: int, db: AsyncSession = Depends(get_db)):
+async def cancel_execution(
+    execution_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
     """Cancel a running execution."""
+    _row = (await db.execute(
+        select(Execution).where(Execution.id == execution_id)
+    )).scalar_one_or_none()
+    if not _row:
+        raise HTTPException(status_code=404, detail="Execution not found")
+    _pid = await _project_for_item(db, _row.item_id)
+    if _pid is not None:
+        from app.api.projects import _require_project_member
+        await _require_project_member(db, _pid, current_user)
     success = await task_orchestrator.cancel_execution(execution_id)
     if not success:
         result = await db.execute(
@@ -261,7 +318,11 @@ async def cancel_execution(execution_id: int, db: AsyncSession = Depends(get_db)
 
 
 @router.post("/{execution_id}/cancel-batch")
-async def cancel_batch_execution(execution_id: int, db: AsyncSession = Depends(get_db)):
+async def cancel_batch_execution(
+    execution_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
     """Cancel a batch parent and all its PENDING/RUNNING children."""
     result = await db.execute(
         select(Execution).where(Execution.id == execution_id)
@@ -269,6 +330,10 @@ async def cancel_batch_execution(execution_id: int, db: AsyncSession = Depends(g
     parent = result.scalar_one_or_none()
     if not parent:
         raise HTTPException(status_code=404, detail="Execution not found")
+    _pid = await _project_for_item(db, parent.item_id)
+    if _pid is not None:
+        from app.api.projects import _require_project_member
+        await _require_project_member(db, _pid, current_user)
 
     # Cancel parent via orchestrator (sets cancelled flag, kills running children in memory)
     await task_orchestrator.cancel_execution(execution_id)
@@ -315,7 +380,11 @@ async def cancel_batch_execution(execution_id: int, db: AsyncSession = Depends(g
 
 
 @router.delete("/{execution_id}", status_code=204)
-async def delete_execution(execution_id: int, db: AsyncSession = Depends(get_db)):
+async def delete_execution(
+    execution_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
     """Delete an execution record."""
     result = await db.execute(
         select(Execution).where(Execution.id == execution_id)
@@ -323,6 +392,10 @@ async def delete_execution(execution_id: int, db: AsyncSession = Depends(get_db)
     execution = result.scalar_one_or_none()
     if not execution:
         raise HTTPException(status_code=404, detail="Execution not found")
+    _pid = await _project_for_item(db, execution.item_id)
+    if _pid is not None:
+        from app.api.projects import _require_project_member
+        await _require_project_member(db, _pid, current_user)
     if execution.status in (ExecutionStatus.RUNNING, ExecutionStatus.PENDING):
         raise HTTPException(status_code=409, detail="Cannot delete a running or pending execution")
     payload = await execution_sync_payload(db, execution)
@@ -342,13 +415,18 @@ async def delete_execution(execution_id: int, db: AsyncSession = Depends(get_db)
 async def get_execution_output(
     execution_id: int,
     stream: str = "stdout",
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     """Get execution output."""
     result = await db.execute(select(Execution).where(Execution.id == execution_id))
     execution = result.scalar_one_or_none()
     if not execution:
         raise HTTPException(status_code=404, detail="Execution not found")
+    _pid = await _project_for_item(db, execution.item_id)
+    if _pid is not None:
+        from app.api.projects import _require_project_member
+        await _require_project_member(db, _pid, current_user)
     
     return {"output": execution.stdout if stream == "stdout" else execution.stderr}
 
