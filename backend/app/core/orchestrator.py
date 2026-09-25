@@ -2416,8 +2416,9 @@ class TaskOrchestrator:
                 raise errors[0]
             return list(results)
     
-    def get_running_executions(self) -> List[int]:
-        return list(self._running_tasks.keys())
+    async def get_running_executions(self) -> List[int]:
+        async with self._lock:
+            return list(self._running_tasks.keys())
 
 
 task_orchestrator = TaskOrchestrator()

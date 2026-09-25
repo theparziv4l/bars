@@ -218,7 +218,7 @@ async def start_bulk_execution(
 @router.get("/running")
 async def get_running_executions():
     """Get currently running execution IDs."""
-    return {"running": task_orchestrator.get_running_executions()}
+    return {"running": await task_orchestrator.get_running_executions()}
 
 
 @router.get("/{execution_id}", response_model=ExecutionResponse)

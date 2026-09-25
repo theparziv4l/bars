@@ -79,5 +79,20 @@ def test_cancel_execution():
     asyncio.run(_run())
 
 
+async def _running_snapshot_run():
+    import inspect
+    from app.core.orchestrator import TaskOrchestrator
+    assert inspect.iscoroutinefunction(TaskOrchestrator.get_running_executions), \
+        "must be async to snapshot under the lock"
+    orch = TaskOrchestrator()
+    orch._running_tasks[7] = TaskContext(execution_id=7)
+    assert await orch.get_running_executions() == [7]
+
+
+def test_get_running_executions_locked():
+    asyncio.run(_running_snapshot_run())
+
+
 if __name__ == "__main__":
     test_cancel_execution()
+    test_get_running_executions_locked()
