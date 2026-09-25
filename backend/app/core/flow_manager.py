@@ -215,13 +215,21 @@ class FlowManager:
         # Inject target variables
         self._inject_targets(base_vars, target, merged_targets)
 
-        # Cancel stale executions for items we're about to run
+        # Cancel stale executions for items we're about to run — but only from
+        # prior runs of THIS flow. Other flows' and manual executions sharing
+        # the item must survive a new flow start.
+        cancelled_stale = []
         for step in initial_steps:
             stale_q = (
                 select(Execution)
                 .where(
                     Execution.item_id == step.checklist_item_id,
                     Execution.status.in_([ExecutionStatus.PENDING, ExecutionStatus.RUNNING]),
+                    Execution.flow_execution_id.in_(
+                        select(FlowExecution.id).where(
+                            FlowExecution.flow_id == flow_id
+                        )
+                    ),
                 )
             )
             if host_id is not None:
@@ -233,7 +241,16 @@ class FlowManager:
                 stale.status = ExecutionStatus.CANCELLED
                 stale.completed_at = datetime.utcnow()
                 stale.stderr = (stale.stderr or "") + "\n[Auto-cancelled] Superseded by new flow execution."
+                cancelled_stale.append(stale)
         await db.flush()
+        if cancelled_stale:
+            from app.core.notifications import notification_manager
+            for stale in cancelled_stale:
+                try:
+                    await notification_manager.send_execution_status(
+                        stale.id, "cancelled")
+                except Exception:
+                    pass
 
         # Create executions for initial steps
         pending_tasks = []
