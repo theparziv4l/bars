@@ -363,6 +363,121 @@ class FlowManager:
             )
         ]
 
+    async def _advance_from_cursor(
+        self,
+        db: AsyncSession,
+        *,
+        flow_execution_id: str,
+        flow: Flow,
+        cursor_index: int,
+        base_vars: Dict[str, Any],
+        execution_outputs: Dict[Any, Any],
+        item_name_to_exe: Dict[str, int],
+        latest_item_name_to_exe: Dict[str, int],
+        flow_exec: Optional[FlowExecution] = None,
+        flow_host_id: Optional[int] = None,
+        flow_targets: Optional[List[str]] = None,
+        flow_target: Optional[str] = None,
+    ):
+        """Schedule stages after cursor_index, skipping all-skipped stages.
+
+        Shared by completion-driven advancement and by resume (whose re-run
+        of the paused step may schedule nothing). One commit per stage; a
+        mid-stage failure rolls back and fails the flow loudly.
+        """
+        while True:
+            result = await db.execute(
+                select(FlowStep)
+                .where(FlowStep.flow_id == flow.id, FlowStep.order_index > cursor_index)
+                .order_by(FlowStep.order_index)
+                .options(selectinload(FlowStep.checklist_item))
+            )
+            all_future_steps = result.scalars().all()
+
+            if not all_future_steps:
+                print("[FlowManager] Flow complete.")
+                await self._finalize_flow_execution(db, flow_exec, "completed")
+                return
+
+            next_index = all_future_steps[0].order_index
+            next_steps = [s for s in all_future_steps if s.order_index == next_index]
+
+            # C3: a concurrent completion event may have already scheduled this stage.
+            existing_next = await db.execute(
+                select(Execution.id).where(
+                    Execution.flow_execution_id == flow_execution_id,
+                    Execution.flow_step_index == next_index,
+                ).limit(1)
+            )
+            if existing_next.scalar_one_or_none() is not None:
+                print(f"[FlowManager] Stage {next_index} already scheduled; skipping (concurrent completion).")
+                return
+
+            print(f"[FlowManager] Scheduling Stage {next_index} ({len(next_steps)} steps)")
+
+            # One commit per stage: a mid-stage failure rolls the whole stage
+            # back and fails the flow loudly instead of leaving a half-
+            # committed stage and a run stuck "running".
+            scheduled = []
+            try:
+                for step in next_steps:
+                    if step.checklist_item is not None and not step.checklist_item.enabled:
+                        print(f"[FlowManager] Skipping step {step.order_index} (item disabled).")
+                        continue
+                    step_vars = await self._resolve_step_variables(
+                        step, base_vars, execution_outputs,
+                        item_name_to_exe, latest_item_name_to_exe,
+                    )
+
+                    if not self._evaluate_condition(
+                        step, base_vars, execution_outputs,
+                        item_name_to_exe, latest_item_name_to_exe,
+                    ):
+                        print(f"[FlowManager] Skipping step {step.order_index} due to condition.")
+                        continue
+
+                    step_host_id, step_target_vars = await self._resolve_step_targets(
+                        db, step, flow_host_id, flow_targets, flow_target, flow.project_id, step_vars,
+                        ad_domain_id=getattr(flow, "ad_domain_id", None),
+                    )
+                    step_vars.update(step_target_vars)
+
+                    execution = await task_orchestrator.create_execution_record(
+                        db=db,
+                        item_id=step.checklist_item_id,
+                        host_id=step_host_id,
+                        variables=step_vars,
+                        flow_execution_id=flow_execution_id,
+                        flow_step_index=step.order_index,
+                    )
+                    scheduled.append((execution, step, step_vars, step_host_id))
+                await db.commit()
+            except Exception as e:
+                await db.rollback()
+                print(f"[FlowManager] Stage {next_index} scheduling failed: {e}")
+                await self._finalize_flow_execution(
+                    db, flow_exec, "failed",
+                    error=f"Stage {next_index} scheduling failed: {e}")
+                return
+
+            if scheduled:
+                for execution, step, step_vars, step_host_id in scheduled:
+                    asyncio.create_task(
+                        task_orchestrator.run_execution_background(
+                            execution.id,
+                            step.checklist_item_id,
+                            step_host_id,
+                            step_vars,
+                            flow_execution_id,
+                            step.order_index,
+                        )
+                    )
+                return
+
+            # Whole stage was condition-skipped — advance to the following stage.
+            print(f"[FlowManager] Stage {next_index} fully skipped; advancing past it.")
+            cursor_index = next_index
+
     async def _schedule_next_steps_locked(self, db: AsyncSession, flow_execution_id: str, last_execution: Execution):
         # Load FlowExecution record
         fe_result = await db.execute(
@@ -516,103 +631,17 @@ class FlowManager:
         # Advance through stages, skipping any stage whose steps are ALL condition-
         # skipped (C2) so the flow can't hang "running" on a stage that creates no
         # executions (and therefore never fires a completion event to advance it).
-        cursor_index = current_index
-        while True:
-            result = await db.execute(
-                select(FlowStep)
-                .where(FlowStep.flow_id == flow_id, FlowStep.order_index > cursor_index)
-                .order_by(FlowStep.order_index)
-                .options(selectinload(FlowStep.checklist_item))
-            )
-            all_future_steps = result.scalars().all()
-
-            if not all_future_steps:
-                print("[FlowManager] Flow complete.")
-                await self._finalize_flow_execution(db, flow_exec, "completed")
-                return
-
-            next_index = all_future_steps[0].order_index
-            next_steps = [s for s in all_future_steps if s.order_index == next_index]
-
-            # C3: a concurrent completion event may have already scheduled this stage.
-            existing_next = await db.execute(
-                select(Execution.id).where(
-                    Execution.flow_execution_id == flow_execution_id,
-                    Execution.flow_step_index == next_index,
-                ).limit(1)
-            )
-            if existing_next.scalar_one_or_none() is not None:
-                print(f"[FlowManager] Stage {next_index} already scheduled; skipping (concurrent completion).")
-                return
-
-            print(f"[FlowManager] Scheduling Stage {next_index} ({len(next_steps)} steps)")
-
-            # One commit per stage: a mid-stage failure rolls the whole stage
-            # back and fails the flow loudly instead of leaving a half-
-            # committed stage and a run stuck "running".
-            scheduled = []
-            try:
-                for step in next_steps:
-                    if step.checklist_item is not None and not step.checklist_item.enabled:
-                        print(f"[FlowManager] Skipping step {step.order_index} (item disabled).")
-                        continue
-                    step_vars = await self._resolve_step_variables(
-                        step, base_vars, execution_outputs,
-                        item_name_to_exe, latest_item_name_to_exe,
-                    )
-
-                    if not self._evaluate_condition(
-                        step, base_vars, execution_outputs,
-                        item_name_to_exe, latest_item_name_to_exe,
-                    ):
-                        print(f"[FlowManager] Skipping step {step.order_index} due to condition.")
-                        continue
-
-                    flow_host_id = flow_exec.host_id if flow_exec else last_execution.host_id
-                    flow_targets = flow_exec.targets if flow_exec else []
-                    flow_target = flow_exec.target if flow_exec else None
-
-                    step_host_id, step_target_vars = await self._resolve_step_targets(
-                        db, step, flow_host_id, flow_targets, flow_target, flow.project_id, step_vars,
-                        ad_domain_id=getattr(flow, "ad_domain_id", None),
-                    )
-                    step_vars.update(step_target_vars)
-
-                    execution = await task_orchestrator.create_execution_record(
-                        db=db,
-                        item_id=step.checklist_item_id,
-                        host_id=step_host_id,
-                        variables=step_vars,
-                        flow_execution_id=flow_execution_id,
-                        flow_step_index=step.order_index,
-                    )
-                    scheduled.append((execution, step, step_vars, step_host_id))
-                await db.commit()
-            except Exception as e:
-                await db.rollback()
-                print(f"[FlowManager] Stage {next_index} scheduling failed: {e}")
-                await self._finalize_flow_execution(
-                    db, flow_exec, "failed",
-                    error=f"Stage {next_index} scheduling failed: {e}")
-                return
-
-            if scheduled:
-                for execution, step, step_vars, step_host_id in scheduled:
-                    asyncio.create_task(
-                        task_orchestrator.run_execution_background(
-                            execution.id,
-                            step.checklist_item_id,
-                            step_host_id,
-                            step_vars,
-                            flow_execution_id,
-                            step.order_index,
-                        )
-                    )
-                return
-
-            # Whole stage was condition-skipped — advance to the following stage.
-            print(f"[FlowManager] Stage {next_index} fully skipped; advancing past it.")
-            cursor_index = next_index
+        await self._advance_from_cursor(
+            db, flow_execution_id=flow_execution_id, flow=flow,
+            cursor_index=current_index, base_vars=base_vars,
+            execution_outputs=execution_outputs,
+            item_name_to_exe=item_name_to_exe,
+            latest_item_name_to_exe=latest_item_name_to_exe,
+            flow_exec=flow_exec,
+            flow_host_id=flow_exec.host_id if flow_exec else last_execution.host_id,
+            flow_targets=flow_exec.targets if flow_exec else [],
+            flow_target=flow_exec.target if flow_exec else None,
+        )
 
     # ------------------------------------------------------------------
     # Variable resolution (mirrors orchestrator Global → Domain → Host)

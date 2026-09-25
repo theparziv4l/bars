@@ -551,6 +551,7 @@ async def resume_flow_execution(
     import asyncio
     from app.core.orchestrator import task_orchestrator
 
+    scheduled_any = False
     for step in steps_to_run:
         if step.checklist_item is not None and not step.checklist_item.enabled:
             continue
@@ -581,6 +582,7 @@ async def resume_flow_execution(
         )
         await db.commit()
 
+        scheduled_any = True
         asyncio.create_task(
             task_orchestrator.run_execution_background(
                 execution.id,
@@ -590,6 +592,21 @@ async def resume_flow_execution(
                 flow_execution_id,
                 step.order_index,
             )
+        )
+
+    if not scheduled_any:
+        # Paused step was entirely skipped (condition/disabled): advance past
+        # it instead of leaving the run hanging "running" with no events.
+        await flow_manager._advance_from_cursor(
+            db, flow_execution_id=flow_execution_id, flow=flow,
+            cursor_index=paused_step, base_vars=base_vars,
+            execution_outputs=execution_outputs,
+            item_name_to_exe=item_name_to_exe,
+            latest_item_name_to_exe=item_name_to_exe,
+            flow_exec=flow_exec,
+            flow_host_id=flow_exec.host_id,
+            flow_targets=flow_exec.targets or [],
+            flow_target=flow_exec.target,
         )
 
     await db.commit()
