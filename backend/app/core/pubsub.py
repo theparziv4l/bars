@@ -26,9 +26,16 @@ class PubSubMessage:
 
 class PubSubBackend:
     def __init__(self) -> None:
-        self._local_queue: asyncio.Queue[PubSubMessage] = asyncio.Queue()
+        self._local_subs: dict[str, set[asyncio.Queue]] = {}
+        self._subs_lock = asyncio.Lock()
         self._redis_dsn: Optional[str] = os.getenv("BARS_REDIS_URL")
         self._redis: Any = None
+
+    def _local_subscriber_count(self, channel: str) -> int:
+        return len(self._local_subs.get(channel, ()))
+
+    def _local_pending(self, channel: str) -> int:
+        return sum(q.qsize() for q in self._local_subs.get(channel, ()))
 
     async def _ensure_redis(self) -> None:
         if not self._redis_dsn or not aioredis:
@@ -38,7 +45,18 @@ class PubSubBackend:
 
     async def publish(self, channel: str, payload: Any) -> None:
         msg = PubSubMessage(channel=channel, payload=payload)
-        await self._local_queue.put(msg)
+        async with self._subs_lock:
+            queues = list(self._local_subs.get(channel, ()))
+        for q in queues:
+            if q.full():
+                try:
+                    q.get_nowait()  # drop oldest, keep newest (bounded backpressure)
+                except asyncio.QueueEmpty:
+                    pass
+            try:
+                q.put_nowait(msg)
+            except asyncio.QueueFull:
+                pass
 
         if self._redis_dsn and aioredis:
             await self._ensure_redis()
@@ -63,10 +81,17 @@ class PubSubBackend:
                     await pubsub.unsubscribe(channel)
                 return
 
-        while True:
-            msg = await self._local_queue.get()
-            if msg.channel == channel:
-                yield msg
+        q: asyncio.Queue = asyncio.Queue(maxsize=1000)
+        async with self._subs_lock:
+            self._local_subs.setdefault(channel, set()).add(q)
+        try:
+            while True:
+                yield await q.get()
+        finally:
+            async with self._subs_lock:
+                self._local_subs.get(channel, set()).discard(q)
+                if not self._local_subs.get(channel):
+                    self._local_subs.pop(channel, None)
 
 
 pubsub_backend = PubSubBackend()
