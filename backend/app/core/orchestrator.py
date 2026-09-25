@@ -471,6 +471,17 @@ class TaskOrchestrator:
                 if not parent_execution:
                     async with self._lock:
                         self._running_tasks.pop(execution_id, None)
+                    # Parent row vanished mid-flight (deleted): notify failed so
+                    # dashboards and flows advance instead of hanging.
+                    try:
+                        await notification_manager.send_execution_status(
+                            execution_id, "failed",
+                            details={"error": "Batch parent record missing",
+                                     "is_batch_parent": True},
+                            item_id=item_id,
+                        )
+                    except Exception as e:
+                        print(f"[Batch] Missing-parent notify failed: {e}")
                     return
 
                 parent_execution.status = ExecutionStatus.RUNNING
