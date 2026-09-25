@@ -111,9 +111,16 @@ async def notification_listener(event_type: str, data: dict):
 
 
 # Register notification listener
+_setup_done = False
+
+
 async def setup_websocket_listener():
-    """Set up the notification listener."""
+    """Set up the notification listener (idempotent across restarts)."""
+    global _setup_done
+    if _setup_done:
+        return
     await notification_manager.add_listener(notification_listener)
+    _setup_done = True
 
 
 async def _member_of(db, project_id: int, user_id: int) -> bool:
