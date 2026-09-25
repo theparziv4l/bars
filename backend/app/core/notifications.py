@@ -75,11 +75,11 @@ class NotificationManager:
             self._listeners.discard(callback)
     
     async def notify(self, event_type: str, data: Any) -> None:
-        """Send notification to all listeners."""
+        """Send notification to all listeners (concurrently, errors isolated)."""
         async with self._lock:
             listeners = list(self._listeners)
-        
-        for listener in listeners:
+
+        async def _invoke(listener: Callable) -> None:
             try:
                 if asyncio.iscoroutinefunction(listener):
                     await listener(event_type, data)
@@ -88,6 +88,9 @@ class NotificationManager:
             except Exception as e:
                 # Log but don't crash on listener errors
                 print(f"Notification listener error: {e}")
+
+        if listeners:
+            await asyncio.gather(*(_invoke(li) for li in listeners))
     
     async def create_alert(
         self,
