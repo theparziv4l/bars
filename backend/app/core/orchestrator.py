@@ -2448,16 +2448,19 @@ class TaskOrchestrator:
             return executions
         else:
             from app.database import async_session_maker
+            from app.config import settings
+            bulk_sem = asyncio.Semaphore(settings.BULK_CONCURRENCY)
 
             async def _execute_with_own_session(item_id: int) -> Execution:
-                async with async_session_maker() as session:
-                    try:
-                        result = await self.execute_item(session, item_id, host_id, variables)
-                        await session.commit()
-                        return result
-                    except Exception:
-                        await session.rollback()
-                        raise
+                async with bulk_sem:
+                    async with async_session_maker() as session:
+                        try:
+                            result = await self.execute_item(session, item_id, host_id, variables)
+                            await session.commit()
+                            return result
+                        except Exception:
+                            await session.rollback()
+                            raise
 
             # Wait for every sibling before surfacing failures: no detached
             # tasks, no never-retrieved exceptions. First error still raises

@@ -63,6 +63,7 @@ class Settings(BaseSettings):
     # Execution
     MAX_CONCURRENT_TASKS: int = 10
     BATCH_CONCURRENCY: int = 5  # parallel children per batch (e.g. 900 targets, 5 at a time)
+    BULK_CONCURRENCY: int = 10  # parallel items per bulk run
     TASK_TIMEOUT: int = 3600  # 1 hour default
     
     # WebSocket
