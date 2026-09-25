@@ -1,4 +1,5 @@
 """FastAPI application entry point."""
+import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
@@ -8,6 +9,13 @@ from app.database import init_db, close_db
 from app.api import api_router
 from app.websocket import handle_websocket, setup_websocket_listener
 from app.core.sync_worker import sync_worker
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+
+logger = logging.getLogger(__name__)
 
 
 async def _cleanup_orphan_executions(_session_maker=None):
@@ -51,9 +59,9 @@ async def _cleanup_orphan_executions(_session_maker=None):
                     payload=payload,
                 )
             except Exception as e:
-                print(f"[Startup] Sync record (orphan sweep) failed for {ex.public_id}: {e}")
+                logger.error(f"[Startup] Sync record (orphan sweep) failed for {ex.public_id}: {e}")
         await db.commit()
-        print(f"[Startup] Cleaned up {len(orphans)} orphan execution(s) from previous run.")
+        logger.info(f"[Startup] Cleaned up {len(orphans)} orphan execution(s) from previous run.")
 
 
 @asynccontextmanager
@@ -70,9 +78,9 @@ async def lifespan(app: FastAPI):
     try:
         result = await host_runner.execute_sync(f'mkdir -p "{settings.PROJECTS_BASE_PATH}"')
         if result["exit_code"] != 0:
-            print(f"Warning: Failed to create Pentests directory on host: {result['stderr']}")
+            logger.warning(f"Warning: Failed to create Pentests directory on host: {result['stderr']}")
     except Exception as e:
-        print(f"Warning: Could not reach host agent to create Pentests directory: {e}")
+        logger.warning(f"Warning: Could not reach host agent to create Pentests directory: {e}")
 
     # Initialize Flow Manager (Event Listeners)
     from app.core.flow_manager import flow_manager

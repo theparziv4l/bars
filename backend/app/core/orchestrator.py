@@ -1,6 +1,7 @@
 """Task orchestrator for async subprocess execution."""
 import asyncio
 import json
+import logging
 import os
 import signal
 import uuid
@@ -35,6 +36,8 @@ from app.models.file import DiscoveredFile
 from app.core.service_parser import service_parser
 from app.core.service_parser import ServiceInfo
 from app.models.host import Host, Service
+
+logger = logging.getLogger(__name__)
 
 # Service names that are generic placeholders; do not overwrite a specific name with these
 GENERIC_SERVICE_NAMES = frozenset({
@@ -242,7 +245,7 @@ class TaskOrchestrator:
         """Mark a pre-created execution FAILED without ever launching a command."""
         from app.database import async_session_maker
 
-        print(f"[Orchestrator] Execution {execution_id} refused: {message}")
+        logger.info(f"[Orchestrator] Execution {execution_id} refused: {message}")
         try:
             async with async_session_maker() as db:
                 result = await db.execute(
@@ -258,7 +261,7 @@ class TaskOrchestrator:
                 execution_id, "failed", details={"error": message}, item_id=item_id
             )
         except Exception as e:
-            print(f"[Orchestrator] Failed to record refusal for {execution_id}: {e}")
+            logger.error(f"[Orchestrator] Failed to record refusal for {execution_id}: {e}")
 
     async def run_execution_background(
         self, execution_id: int, item_id: int, host_id: Optional[int] = None,
@@ -299,7 +302,7 @@ class TaskOrchestrator:
                     if flow:
                         project_id = flow.project_id
                 except Exception as e:
-                    print(f"[Orchestrator] Failed to resolve project_id from flow: {e}")
+                    logger.error(f"[Orchestrator] Failed to resolve project_id from flow: {e}")
             if project_id is None and any(
                 k in variables and not is_unset(variables.get(k))
                 for k in ("target", "targets")
@@ -343,7 +346,7 @@ class TaskOrchestrator:
                 kept = [v for v in before if str(v) not in excluded]
                 if len(kept) == len(before):
                     continue
-                print(
+                logger.info(
                     f"[Orchestrator] Dropped {len(before) - len(kept)} out-of-scope "
                     f"target(s) from '{key}' (item {item_id})"
                 )
@@ -481,7 +484,7 @@ class TaskOrchestrator:
                             item_id=item_id,
                         )
                     except Exception as e:
-                        print(f"[Batch] Missing-parent notify failed: {e}")
+                        logger.error(f"[Batch] Missing-parent notify failed: {e}")
                     return
 
                 parent_execution.status = ExecutionStatus.RUNNING
@@ -509,7 +512,7 @@ class TaskOrchestrator:
                     )
                     await parent_db.commit()
                 except Exception as e:
-                    print(f"[Orchestrator] Sync record (batch running) failed: {e}")
+                    logger.error(f"[Orchestrator] Sync record (batch running) failed: {e}")
                 await notification_manager.send_execution_status(
                     execution_id,
                     "running",
@@ -547,7 +550,7 @@ class TaskOrchestrator:
                             if flow:
                                 project_id = flow.project_id
                         except Exception as e:
-                            print(f"[Batch] Failed to resolve project_id from flow: {e}")
+                            logger.error(f"[Batch] Failed to resolve project_id from flow: {e}")
 
             # ── 2. Execute Targets (parallel, per-child sessions) ───────
             from app.models.host import Host
@@ -586,7 +589,7 @@ class TaskOrchestrator:
                                 if existing_host:
                                     target_host_id = existing_host.id
                                 else:
-                                    print(f"[Batch] Auto-creating host for target {target}")
+                                    logger.info(f"[Batch] Auto-creating host for target {target}")
                                     new_host = Host(
                                         project_id=project_id,
                                         ip_address=target,
@@ -607,7 +610,7 @@ class TaskOrchestrator:
                                             payload=payload,
                                         )
                                     except Exception as e:
-                                        print(f"[Orchestrator] Sync record (batch host) failed: {e}")
+                                        logger.error(f"[Orchestrator] Sync record (batch host) failed: {e}")
 
                                     await notification_manager.send_project_update(
                                         "host_created",
@@ -640,7 +643,7 @@ class TaskOrchestrator:
                                 child_succeeded = True
 
                     except Exception as e:
-                        print(f"[Batch] Child execution failed for {target}: {e}")
+                        logger.error(f"[Batch] Child execution failed for {target}: {e}")
 
                     async with progress_lock:
                         if child_succeeded:
@@ -672,7 +675,7 @@ class TaskOrchestrator:
                 if isinstance(r, BaseException):
                     # _run_single_child catches Exception; anything surfacing
                     # here escaped it — log for visibility.
-                    print(f"[Batch] Child raised {type(r).__name__}: {r}")
+                    logger.info(f"[Batch] Child raised {type(r).__name__}: {r}")
 
             # ── 3. Finalize Parent ──────────────────────────────────────
             async with async_session_maker() as final_db:
@@ -740,7 +743,7 @@ class TaskOrchestrator:
                                 for k, v in aggregated.items()
                             }
                     except Exception as agg_err:
-                        print(f"[Batch] parsed_output aggregation failed: {agg_err}")
+                        logger.error(f"[Batch] parsed_output aggregation failed: {agg_err}")
 
                     await final_db.commit()
                     await final_db.refresh(parent_execution)
@@ -755,7 +758,7 @@ class TaskOrchestrator:
                         )
                         await final_db.commit()
                     except Exception as e:
-                        print(f"[Orchestrator] Sync record (batch finalize) failed: {e}")
+                        logger.error(f"[Orchestrator] Sync record (batch finalize) failed: {e}")
 
                     await notification_manager.send_execution_status(
                         execution_id,
@@ -798,13 +801,13 @@ class TaskOrchestrator:
                         item_id=item_id,
                     )
                 except Exception as inner:
-                    print(f"[Batch] Cancel finalize failed: {inner}")
+                    logger.error(f"[Batch] Cancel finalize failed: {inner}")
 
             await asyncio.shield(_mark_cancelled())
             raise
 
         except Exception as e:
-            print(f"[Batch] Fatal batch execution error: {e}")
+            logger.error(f"[Batch] Fatal batch execution error: {e}")
             try:
                 async with async_session_maker() as err_db:
                     result = await err_db.execute(
@@ -832,7 +835,7 @@ class TaskOrchestrator:
                             )
                             await err_db.commit()
                         except Exception as sync_err:
-                            print(f"[Orchestrator] Sync record (batch error) failed: {sync_err}")
+                            logger.error(f"[Orchestrator] Sync record (batch error) failed: {sync_err}")
 
                     await notification_manager.send_execution_status(
                         execution_id,
@@ -847,7 +850,7 @@ class TaskOrchestrator:
                         item_id=item_id,
                     )
             except Exception as inner_e:
-                print(f"[Batch] Failed to finalize parent after error: {inner_e}")
+                logger.error(f"[Batch] Failed to finalize parent after error: {inner_e}")
 
         finally:
             async with self._lock:
@@ -1118,7 +1121,7 @@ class TaskOrchestrator:
             # Primed on the buffer (not execution.stderr) because _run_subprocess assigns
             # execution.stderr = context.stderr_buffer when the run finishes.
             note = f"Unresolved variables: {', '.join(unresolved)}"
-            print(f"[Orchestrator] {note} (execution {execution.id})")
+            logger.info(f"[Orchestrator] {note} (execution {execution.id})")
             context.stderr_buffer = f"[Warning] {note}\n"
             execution.stderr = context.stderr_buffer
         async with self._lock:
@@ -1145,7 +1148,7 @@ class TaskOrchestrator:
             )
             await db.commit()
         except Exception as e:
-            print(f"[Orchestrator] Sync record (running) failed: {e}")
+            logger.error(f"[Orchestrator] Sync record (running) failed: {e}")
 
         await notification_manager.send_execution_status(
             execution.id,
@@ -1236,7 +1239,7 @@ class TaskOrchestrator:
                             # Variable Injection requires parsed output
                             await self._process_variable_injection(db, execution, item, parsed)
                     except Exception as e:
-                        print(f"[Orchestrator] Output parse/injection failed (non-critical): {e}")
+                        logger.error(f"[Orchestrator] Output parse/injection failed (non-critical): {e}")
                         _reaffirm_execution()
 
                 if execution.stdout:
@@ -1246,7 +1249,7 @@ class TaskOrchestrator:
                             await self._process_discovered_files(db, execution, parsed)
                             await self._process_asset_discovery(db, execution)
                     except Exception as e:
-                        print(f"[Orchestrator] Discovery processing failed (non-critical): {e}")
+                        logger.error(f"[Orchestrator] Discovery processing failed (non-critical): {e}")
                         _reaffirm_execution()
 
                 # Persist alert matches as structured, deduped Findings — survives restart
@@ -1257,7 +1260,7 @@ class TaskOrchestrator:
                             from app.core.findings import ingest_execution_findings
                             await ingest_execution_findings(db, execution, item)
                     except Exception as fe:
-                        print(f"[Orchestrator] Finding ingest failed: {fe}")
+                        logger.error(f"[Orchestrator] Finding ingest failed: {fe}")
                         _reaffirm_execution()
 
                 async with self._lock:
@@ -1269,7 +1272,7 @@ class TaskOrchestrator:
                     await db.commit()
                     await db.refresh(execution)
                 except Exception as commit_err:
-                    print(f"[Orchestrator] Finalize commit failed, retrying minimal: {commit_err}")
+                    logger.error(f"[Orchestrator] Finalize commit failed, retrying minimal: {commit_err}")
                     await db.rollback()
                     try:
                         fresh = (await db.execute(
@@ -1285,7 +1288,7 @@ class TaskOrchestrator:
                             )
                             await db.commit()
                     except Exception as retry_err:
-                        print(f"[Orchestrator] Minimal finalize retry failed: {retry_err}")
+                        logger.error(f"[Orchestrator] Minimal finalize retry failed: {retry_err}")
                 try:
                     payload = await execution_sync_payload(db, execution)
                     await sync_service.record_event(
@@ -1297,7 +1300,7 @@ class TaskOrchestrator:
                     )
                     await db.commit()
                 except Exception as e:
-                    print(f"[Orchestrator] Sync record (completed) failed: {e}")
+                    logger.error(f"[Orchestrator] Sync record (completed) failed: {e}")
 
                 # SYNC TO PROJECT CHECKLIST (User Request)
                 # Ensure outputs are loaded before sync (execution may be expired after commit).
@@ -1305,7 +1308,7 @@ class TaskOrchestrator:
                 try:
                     await self._sync_execution_to_project_item(db, execution, item)
                 except Exception as e:
-                    print(f"[Orchestrator] Sync failed (non-critical): {e}")
+                    logger.error(f"[Orchestrator] Sync failed (non-critical): {e}")
 
                 try:
                     await notification_manager.send_execution_status(
@@ -1315,7 +1318,7 @@ class TaskOrchestrator:
                         item_id=execution.item_id
                     )
                 except Exception as e:
-                    print(f"[Orchestrator] Final notify failed: {e}")
+                    logger.error(f"[Orchestrator] Final notify failed: {e}")
 
             finally:
                 # Clean up temp files (inner finally: runs even when
@@ -1332,18 +1335,18 @@ class TaskOrchestrator:
                     )
                     if await asyncio.to_thread(os.path.exists, batch_file):
                         await asyncio.to_thread(os.remove, batch_file)
-                        print(f"[Orchestrator] Cleaned up batch file: {batch_file}")
+                        logger.info(f"[Orchestrator] Cleaned up batch file: {batch_file}")
 
                     pattern_str = os.path.join(temp_dir_str, f"exec_{execution.id}_*")
                     matching_files = await asyncio.to_thread(glob.glob, pattern_str)
                     for fpath in matching_files:
                         try:
                             await asyncio.to_thread(os.remove, fpath)
-                            print(f"[Orchestrator] Cleaned up temp variable file: {fpath}")
+                            logger.info(f"[Orchestrator] Cleaned up temp variable file: {fpath}")
                         except Exception as e:
-                            print(f"[Orchestrator] Error deleting {fpath}: {e}")
+                            logger.error(f"[Orchestrator] Error deleting {fpath}: {e}")
                 except Exception as e:
-                    print(f"[Orchestrator] Error during file cleanup: {e}")
+                    logger.error(f"[Orchestrator] Error during file cleanup: {e}")
         
         return execution
 
@@ -1373,7 +1376,6 @@ class TaskOrchestrator:
                  target_project_id = host.project_id
         
         if not target_project_id:
-            # print(f"[Orchestrator] Could not identify project_id for sync. exec_id={execution.id}")
             return
 
         # 3. Find Matching Project Checklist Item
@@ -1393,13 +1395,12 @@ class TaskOrchestrator:
         project_item = result.scalar_one_or_none()
         
         if not project_item:
-            # print(f"[Orchestrator] No matching project item found for sync. Project {target_project_id}, Item '{original_item.name}'")
             return
 
         # 4. Clone Execution Record
         # We create a NEW execution record linked to the Project Item
         try:
-            print(f"[Orchestrator] Syncing execution {execution.id} to Project Item {project_item.id}")
+            logger.info(f"[Orchestrator] Syncing execution {execution.id} to Project Item {project_item.id}")
             
             new_exec = Execution(
                 item_id=project_item.id,
@@ -1447,7 +1448,7 @@ class TaskOrchestrator:
                 db.add(new_out)
             
             await db.flush()
-            print(f"[Orchestrator] Synced execution created: {new_exec.id}")
+            logger.info(f"[Orchestrator] Synced execution created: {new_exec.id}")
 
             # Run asset processing on the synced execution.
             # The original execution skipped these because the template item
@@ -1457,13 +1458,13 @@ class TaskOrchestrator:
                 async with db.begin_nested():
                     await self._process_asset_discovery(db, new_exec)
             except Exception as ad_err:
-                print(f"[Orchestrator] Asset discovery on synced exec failed: {ad_err}")
+                logger.error(f"[Orchestrator] Asset discovery on synced exec failed: {ad_err}")
 
             try:
                 async with db.begin_nested():
                     await self._process_discovered_files(db, new_exec, {})
             except Exception as df_err:
-                print(f"[Orchestrator] Discovered-files on synced exec failed: {df_err}")
+                logger.error(f"[Orchestrator] Discovered-files on synced exec failed: {df_err}")
 
             try:
                 if new_exec.stdout and project_item.output_regex:
@@ -1479,7 +1480,7 @@ class TaskOrchestrator:
                         db, new_exec, project_item, synced_parsed
                     )
             except Exception as vi_err:
-                print(f"[Orchestrator] Variable injection on synced exec failed: {vi_err}")
+                logger.error(f"[Orchestrator] Variable injection on synced exec failed: {vi_err}")
 
             await db.commit()
 
@@ -1491,7 +1492,7 @@ class TaskOrchestrator:
             )
 
         except Exception as e:
-            print(f"[Orchestrator] Error syncing execution: {e}")
+            logger.error(f"[Orchestrator] Error syncing execution: {e}")
             # Do not fail the original execution
 
     # Permission hierarchy for "most permissive wins" share update logic
@@ -1615,10 +1616,10 @@ class TaskOrchestrator:
                                 payload=payload,
                             )
                         except Exception as e:
-                            print(f"[Orchestrator] Sync record (discovered_file share) failed: {e}")
+                            logger.error(f"[Orchestrator] Sync record (discovered_file share) failed: {e}")
                 
                 if new_shares_count or updated_shares_count:
-                    print(f"[ShareParser] Discovered {new_shares_count} new shares, updated {updated_shares_count} from execution {execution.id}")
+                    logger.info(f"[ShareParser] Discovered {new_shares_count} new shares, updated {updated_shares_count} from execution {execution.id}")
             
             # 2. SMBMap recursive file listings (with dedup)
             if is_smbmap_recursive:
@@ -1682,10 +1683,10 @@ class TaskOrchestrator:
                                 payload=payload,
                             )
                         except Exception as e:
-                            print(f"[Orchestrator] Sync record (discovered_file) failed: {e}")
+                            logger.error(f"[Orchestrator] Sync record (discovered_file) failed: {e}")
                 
                 if total_new_files:
-                    print(f"[ShareParser] Discovered {total_new_files} files from SMBMap execution {execution.id}")
+                    logger.info(f"[ShareParser] Discovered {total_new_files} files from SMBMap execution {execution.id}")
             
             # 3. File listings from smbclient (non -L), ftp, ls, etc.
             elif is_file_listing and not is_share_discovery:
@@ -1722,10 +1723,10 @@ class TaskOrchestrator:
                             payload=payload,
                         )
                     except Exception as e:
-                        print(f"[Orchestrator] Sync record (discovered_file listing) failed: {e}")
+                        logger.error(f"[Orchestrator] Sync record (discovered_file listing) failed: {e}")
                 
                 if files:
-                    print(f"[ShareParser] Discovered {len(files)} files from execution {execution.id}")
+                    logger.info(f"[ShareParser] Discovered {len(files)} files from execution {execution.id}")
 
             # 4. Send WebSocket notification when shares/files were discovered
             if new_shares_count or updated_shares_count or total_new_files:
@@ -1748,10 +1749,10 @@ class TaskOrchestrator:
                             },
                         )
                 except Exception as e:
-                    print(f"[Orchestrator] Share discovery notification failed: {e}")
+                    logger.error(f"[Orchestrator] Share discovery notification failed: {e}")
                     
         except Exception as e:
-            print(f"[ShareParser] Error parsing output: {e}")
+            logger.error(f"[ShareParser] Error parsing output: {e}")
             # Re-raise: callers run this in a savepoint whose rollback discards
             # only this block. Swallowing would strand a poisoned session.
             raise
@@ -1818,7 +1819,7 @@ class TaskOrchestrator:
         policy = item.storage_policy or {}
         mapping = policy.get("variable_mapping", {})
         
-        print(f"[DEBUG] Processing variable injection for item {item.id}. Mapping: {mapping}")
+        logger.debug(f"[DEBUG] Processing variable injection for item {item.id}. Mapping: {mapping}")
 
         if not item.group or not item.group.project_id:
             return
@@ -1886,7 +1887,7 @@ class TaskOrchestrator:
                     payload=payload,
                 )
             except Exception as e:
-                print(f"[Orchestrator] Sync record (project_variable {operation}) failed: {e}")
+                logger.error(f"[Orchestrator] Sync record (project_variable {operation}) failed: {e}")
 
             updates_to_notify.append(var_key)
         
@@ -1941,7 +1942,7 @@ class TaskOrchestrator:
                         await f.write(content)
                     prepared["targets"] = self._to_host_path(filepath)
                 except Exception as e:
-                    print(f"[Orchestrator] Failed to create batch targets file: {e}")
+                    logger.error(f"[Orchestrator] Failed to create batch targets file: {e}")
 
         for key, value in variables.items():
             if key == "targets": continue # Handled above
@@ -1970,9 +1971,9 @@ class TaskOrchestrator:
                         await f.write(content)
                     
                     prepared[key] = self._to_host_path(filepath)
-                    print(f"[Orchestrator] Created temp variable file: {filepath} -> cmd path: {prepared[key]}")
+                    logger.info(f"[Orchestrator] Created temp variable file: {filepath} -> cmd path: {prepared[key]}")
                 except Exception as e:
-                    print(f"[Orchestrator] Failed to create temp file for {key}: {e}")
+                    logger.error(f"[Orchestrator] Failed to create temp file for {key}: {e}")
                     
             elif param_type == "string":
                 # Handle list joining
@@ -2026,7 +2027,7 @@ class TaskOrchestrator:
             parsed_data = service_parser.parse(execution.command, execution.stdout, default_ip=default_ip)
 
             if parsed_data.hosts or parsed_data.services:
-                print(f"[Orchestrator] Service Parsing Result: Hosts={list(parsed_data.hosts.keys())}, Services={sum(len(v) for v in parsed_data.services.values())}")
+                logger.info(f"[Orchestrator] Service Parsing Result: Hosts={list(parsed_data.hosts.keys())}, Services={sum(len(v) for v in parsed_data.services.values())}")
 
             # Batch-fetch existing hosts and services to avoid N+1 queries
             all_ips = list(parsed_data.hosts.keys())
@@ -2058,7 +2059,7 @@ class TaskOrchestrator:
                     host = hosts_map.get(ip)
 
                 if not host:
-                    print(f"Auto-discovering host from service parser: {ip}")
+                    logger.info(f"Auto-discovering host from service parser: {ip}")
                     host = Host(
                         project_id=project_id,
                         ip_address=ip,
@@ -2078,7 +2079,7 @@ class TaskOrchestrator:
                             payload=payload,
                         )
                     except Exception as e:
-                        print(f"[Orchestrator] Sync record (asset discovery host) failed: {e}")
+                        logger.error(f"[Orchestrator] Sync record (asset discovery host) failed: {e}")
                     await notification_manager.send_project_update(
                         "host_created", project_id, {"ip_address": ip, "id": host.id}
                     )
@@ -2126,7 +2127,7 @@ class TaskOrchestrator:
                             payload=payload,
                         )
                     except Exception as e:
-                        print(f"[Orchestrator] Sync record (asset discovery host update) failed: {e}")
+                        logger.error(f"[Orchestrator] Sync record (asset discovery host update) failed: {e}")
                     await notification_manager.send_project_update(
                         "host_updated", project_id, {"id": host.id}
                     )
@@ -2172,7 +2173,7 @@ class TaskOrchestrator:
                                      payload=payload,
                                  )
                              except Exception as e:
-                                 print(f"[Orchestrator] Sync record (service update) failed: {e}")
+                                 logger.error(f"[Orchestrator] Sync record (service update) failed: {e}")
                     else:
                          # Create
                          extra = {}
@@ -2202,7 +2203,7 @@ class TaskOrchestrator:
                                  payload=payload,
                              )
                          except Exception as e:
-                             print(f"[Orchestrator] Sync record (service create) failed: {e}")
+                             logger.error(f"[Orchestrator] Sync record (service create) failed: {e}")
                          services_map[(host.id, new_svc.port, new_svc.protocol)] = new_svc
 
                 # Auto-tag host from its services (canonical tags for target filtering)
@@ -2223,7 +2224,7 @@ class TaskOrchestrator:
                  await db.commit()
                  
         except Exception as e:
-            print(f"[Orchestrator] Service parsing failed: {e}")
+            logger.error(f"[Orchestrator] Service parsing failed: {e}")
             import traceback
             traceback.print_exc()
             # Re-raise: callers run this in a savepoint whose rollback discards
@@ -2263,7 +2264,7 @@ class TaskOrchestrator:
         new_ips = found_ips - existing_ips
         
         for ip in new_ips:
-            print(f"Auto-discovering host: {ip}")
+            logger.info(f"Auto-discovering host: {ip}")
             new_host = Host(
                 project_id=project_id,
                 ip_address=ip,
@@ -2291,7 +2292,7 @@ class TaskOrchestrator:
                         payload=payload,
                     )
                 except Exception as e:
-                    print(f"[Orchestrator] Sync record (IPv4 discovery host) failed: {e}")
+                    logger.error(f"[Orchestrator] Sync record (IPv4 discovery host) failed: {e}")
                 # Notify frontend (same payload shape as the other host_created emitters)
                 await notification_manager.send_project_update(
                     "host_created",
@@ -2340,7 +2341,7 @@ class TaskOrchestrator:
                         try:
                             alerts = await notification_manager.process_output_chunk(execution.id, text, item.alert_patterns)
                         except Exception as e:
-                            print(f"[Orchestrator] Alert processing failed: {e}")
+                            logger.error(f"[Orchestrator] Alert processing failed: {e}")
                             alerts = []
                         if alerts:
                             current = execution.alerts_triggered or []
@@ -2360,7 +2361,7 @@ class TaskOrchestrator:
                         "text": text
                     })
                 except Exception as e:
-                    print(f"[Orchestrator] Output notify failed: {e}")
+                    logger.error(f"[Orchestrator] Output notify failed: {e}")
             
             execution.stdout = context.stdout_buffer
             execution.stderr = context.stderr_buffer
@@ -2419,7 +2420,7 @@ class TaskOrchestrator:
             if not ok:
                 agent_failed.append(target)
         if agent_failed:
-            print(f"[Orchestrator] Agent-side cancel failed for: {', '.join(agent_failed)}")
+            logger.error(f"[Orchestrator] Agent-side cancel failed for: {', '.join(agent_failed)}")
             try:
                 from app.database import async_session_maker
                 async with async_session_maker() as db:
@@ -2433,7 +2434,7 @@ class TaskOrchestrator:
                         )
                         await db.commit()
             except Exception as e:
-                print(f"[Orchestrator] Failed to record cancel warning: {e}")
+                logger.warning(f"[Orchestrator] Failed to record cancel warning: {e}")
         return True
     
     async def execute_bulk(self, db: AsyncSession, item_ids: List[int], host_id: Optional[int] = None,
