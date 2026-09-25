@@ -31,6 +31,7 @@ class SyncPushResponse(BaseModel):
     applied: int
     skipped: int
     latest_logical_ts: int
+    min_deferred_ts: int | None = None
 
 
 class SyncPullResponse(BaseModel):

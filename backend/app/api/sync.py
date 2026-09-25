@@ -83,6 +83,7 @@ async def push_events(
         applied=result.applied,
         skipped=result.skipped,
         latest_logical_ts=result.latest_logical_ts,
+        min_deferred_ts=result.min_deferred_ts,
     )
 
 

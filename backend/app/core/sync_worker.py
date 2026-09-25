@@ -15,6 +15,17 @@ _IDLE_INTERVAL = 60
 _DB_PEER_CHECK_INTERVAL = 60
 
 
+def _capped_push_cursor(latest: int, min_deferred_ts: int | None) -> int:
+    """Push cursor advance, capped below any event the receiver deferred.
+
+    The receiver reports the smallest logical_ts it had to defer; advancing past
+    it would strand that event (never re-pushed). Old receivers omit the field.
+    """
+    if min_deferred_ts is None:
+        return latest
+    return min(latest, min_deferred_ts - 1)
+
+
 class SyncWorker:
     """Runs best-effort peer synchronization in background."""
 
@@ -188,12 +199,18 @@ class SyncWorker:
                     print(f"[SyncWorker] Push to {peer_base_url} failed: status={response.status} body={body[:200]}")
                 elif response.status == 200:
                     latest = local_events[-1].logical_ts
+                    try:
+                        push_ack = await response.json()
+                        min_deferred = push_ack.get("min_deferred_ts")
+                    except Exception:
+                        min_deferred = None  # old receiver: no deferral report
+                    advance_to = _capped_push_cursor(latest, min_deferred)
                     async with async_session_maker() as db:
                         await sync_service.set_cursor(
                             db,
                             peer_node_id=cursor_key,
                             direction="push",
-                            logical_ts=latest,
+                            logical_ts=advance_to,
                         )
                         await db.commit()
 

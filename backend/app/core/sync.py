@@ -433,6 +433,7 @@ class IngestResult:
     applied: int = 0
     skipped: int = 0
     latest_logical_ts: int = 0
+    min_deferred_ts: Optional[int] = None
 
 
 class SyncService:
@@ -564,6 +565,7 @@ class SyncService:
                 break
             pending = pass_deferred
 
+        result.min_deferred_ts = min_deferred
         cursor_ts = result.latest_logical_ts
         if min_deferred is not None:
             # Don't advance past the earliest deferred event, so it (and everything after)
