@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 import uuid
 from typing import Any, Dict, Iterable, Optional
 
-from sqlalchemy import delete, or_, select
+from sqlalchemy import delete, or_, select, tuple_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -569,6 +569,8 @@ class SyncService:
         # File IO before any DB write: a slow/hung host agent must never hold the
         # write txn (WAL single-writer) hostage.
         await self._mkdir_projects_for_events(sorted_events)
+        # Two SELECTs replace the per-event dedupe + latest lookups below.
+        prefetch = await self._prefetch_batch_state(db, sorted_events)
         # Smallest logical_ts of an event we had to DEFER (parent not synced yet). We
         # cap the cursor just below it so deferred events are re-pulled next cycle
         # instead of being silently skipped forever.
@@ -586,7 +588,9 @@ class SyncService:
                 pass_deferred: list[Dict[str, Any]] = []
                 pass_min_deferred: Optional[int] = None
                 for incoming in pending:
-                    deferred_ts = await self._ingest_one(db, incoming=incoming, result=result)
+                    deferred_ts = await self._ingest_one(
+                        db, incoming=incoming, result=result, prefetch=prefetch
+                    )
                     if deferred_ts is not None:
                         pass_deferred.append(incoming)
                         pass_min_deferred = (
@@ -612,12 +616,50 @@ class SyncService:
         )
         return result
 
+    async def _prefetch_batch_state(
+        self, db: AsyncSession, events: list[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """Load dedupe + latest-entity state for a batch in two SELECTs.
+
+        Callers keep the returned structures fresh as the batch applies (see
+        `_ingest_one`), so later events in the batch compare against records
+        written earlier in the same batch.
+        """
+        ids: list[str] = []
+        pairs: set[tuple[str, str]] = set()
+        for e in events:
+            if not isinstance(e, dict):
+                continue
+            if e.get("event_id"):
+                ids.append(e["event_id"])
+            if e.get("entity_type") and e.get("entity_public_id"):
+                pairs.add((e["entity_type"], e["entity_public_id"]))
+        seen_ids: set[str] = set()
+        if ids:
+            rows = await db.execute(select(SyncEvent.event_id).where(SyncEvent.event_id.in_(ids)))
+            seen_ids = set(rows.scalars().all())
+        latest_by_entity: Dict[tuple[str, str], SyncEvent] = {}
+        if pairs:
+            rows = await db.execute(
+                select(SyncEvent)
+                .where(tuple_(SyncEvent.entity_type, SyncEvent.entity_public_id).in_(pairs))
+                .order_by(
+                    SyncEvent.logical_ts.desc(),
+                    SyncEvent.source_node_id.desc(),
+                    SyncEvent.event_id.desc(),
+                )
+            )
+            for row in rows.scalars().all():
+                latest_by_entity.setdefault((row.entity_type, row.entity_public_id), row)
+        return {"seen_ids": seen_ids, "latest_by_entity": latest_by_entity}
+
     async def _ingest_one(
         self,
         db: AsyncSession,
         *,
         incoming: Dict[str, Any],
         result: IngestResult,
+        prefetch: Optional[Dict[str, Any]] = None,
     ) -> Optional[int]:
         """Ingest a single event. Returns its logical_ts if deferred, else None."""
         try:
@@ -636,26 +678,33 @@ class SyncService:
             return None
         payload = incoming.get("payload") or {}
 
-        exists = await db.execute(select(SyncEvent.id).where(SyncEvent.event_id == event_id))
-        if exists.scalar_one_or_none() is not None:
+        if prefetch is not None:
+            already_seen = event_id in prefetch["seen_ids"]
+        else:
+            exists = await db.execute(select(SyncEvent.id).where(SyncEvent.event_id == event_id))
+            already_seen = exists.scalar_one_or_none() is not None
+        if already_seen:
             result.skipped += 1
             result.latest_logical_ts = max(result.latest_logical_ts, logical_ts)
             return None
 
-        latest_result = await db.execute(
-            select(SyncEvent)
-            .where(
-                SyncEvent.entity_type == entity_type,
-                SyncEvent.entity_public_id == entity_public_id,
+        if prefetch is not None:
+            latest = prefetch["latest_by_entity"].get((entity_type, entity_public_id))
+        else:
+            latest_result = await db.execute(
+                select(SyncEvent)
+                .where(
+                    SyncEvent.entity_type == entity_type,
+                    SyncEvent.entity_public_id == entity_public_id,
+                )
+                .order_by(
+                    SyncEvent.logical_ts.desc(),
+                    SyncEvent.source_node_id.desc(),
+                    SyncEvent.event_id.desc(),
+                )
+                .limit(1)
             )
-            .order_by(
-                SyncEvent.logical_ts.desc(),
-                SyncEvent.source_node_id.desc(),
-                SyncEvent.event_id.desc(),
-            )
-            .limit(1)
-        )
-        latest = latest_result.scalar_one_or_none()
+            latest = latest_result.scalar_one_or_none()
         incoming_key = _event_key(logical_ts, source_node_id, event_id)
         latest_key = (
             _event_key(latest.logical_ts, latest.source_node_id, latest.event_id)
@@ -685,7 +734,7 @@ class SyncService:
                 if deferred:
                     return logical_ts
                 if applied_now:
-                    await self.record_event(
+                    recorded = await self.record_event(
                         db,
                         entity_type=entity_type,
                         entity_public_id=entity_public_id,
@@ -696,6 +745,18 @@ class SyncService:
                         event_id=event_id,
                     )
                     result.applied += 1
+                    if prefetch is not None:
+                        # Keep batch state fresh: later events (other versions
+                        # of this entity, later passes) compare against this row.
+                        prefetch["seen_ids"].add(event_id)
+                        key = (entity_type, entity_public_id)
+                        current = prefetch["latest_by_entity"].get(key)
+                        current_key = (
+                            _event_key(current.logical_ts, current.source_node_id, current.event_id)
+                            if current is not None else None
+                        )
+                        if current_key is None or incoming_key > current_key:
+                            prefetch["latest_by_entity"][key] = recorded
                 result.latest_logical_ts = max(result.latest_logical_ts, logical_ts)
                 return None
         except IntegrityError:
