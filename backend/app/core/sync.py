@@ -51,8 +51,8 @@ def _now_ts() -> int:
     return int(datetime.utcnow().timestamp() * 1_000_000)
 
 
-def _event_key(logical_ts: int, source_node_id: str) -> tuple[int, str]:
-    return logical_ts, source_node_id
+def _event_key(logical_ts: int, source_node_id: str, event_id: str = "") -> tuple[int, str, str]:
+    return logical_ts, source_node_id, event_id
 
 
 def _apply_present(obj, payload: Dict[str, Any], fields: tuple[str, ...]) -> None:
@@ -613,12 +613,19 @@ class SyncService:
                 SyncEvent.entity_type == entity_type,
                 SyncEvent.entity_public_id == entity_public_id,
             )
-            .order_by(SyncEvent.logical_ts.desc(), SyncEvent.source_node_id.desc())
+            .order_by(
+                SyncEvent.logical_ts.desc(),
+                SyncEvent.source_node_id.desc(),
+                SyncEvent.event_id.desc(),
+            )
             .limit(1)
         )
         latest = latest_result.scalar_one_or_none()
-        incoming_key = _event_key(logical_ts, source_node_id)
-        latest_key = _event_key(latest.logical_ts, latest.source_node_id) if latest else None
+        incoming_key = _event_key(logical_ts, source_node_id, event_id)
+        latest_key = (
+            _event_key(latest.logical_ts, latest.source_node_id, latest.event_id)
+            if latest else None
+        )
 
         # Apply FIRST, record only if it wasn't deferred — so a deferred event isn't
         # marked processed (which would make the dedupe check skip it permanently).
