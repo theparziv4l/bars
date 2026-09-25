@@ -10,18 +10,22 @@ from app.websocket import handle_websocket, setup_websocket_listener
 from app.core.sync_worker import sync_worker
 
 
-async def _cleanup_orphan_executions():
-    """Mark any PENDING/RUNNING executions as CANCELLED on startup (stale from previous crash)."""
+async def _cleanup_orphan_executions(_session_maker=None):
+    """Cancel RUNNING executions orphaned by a previous crash on startup.
+
+    PENDING executions are left queued (they never started and can still run).
+    Each swept execution records an `executions/update` sync event so peers
+    converge instead of split-braining on stale RUNNING rows.
+    """
     from datetime import datetime
-    from sqlalchemy import select, func
+    from sqlalchemy import select
     from app.database import async_session_maker
     from app.models.execution import Execution, ExecutionStatus
 
-    async with async_session_maker() as db:
+    maker = _session_maker or async_session_maker
+    async with maker() as db:
         result = await db.execute(
-            select(Execution).where(
-                Execution.status.in_([ExecutionStatus.PENDING, ExecutionStatus.RUNNING])
-            )
+            select(Execution).where(Execution.status == ExecutionStatus.RUNNING)
         )
         orphans = result.scalars().all()
         if not orphans:
@@ -31,8 +35,23 @@ async def _cleanup_orphan_executions():
         for ex in orphans:
             ex.status = ExecutionStatus.CANCELLED
             ex.completed_at = now
+            ex.updated_at = now
             ex.stderr = (ex.stderr or "") + "\nCancelled: application restarted while execution was active."
 
+        await db.commit()
+        for ex in orphans:
+            try:
+                from app.core.sync import execution_sync_payload, sync_service
+                payload = await execution_sync_payload(db, ex)
+                await sync_service.record_event(
+                    db,
+                    entity_type="executions",
+                    entity_public_id=ex.public_id,
+                    operation="update",
+                    payload=payload,
+                )
+            except Exception as e:
+                print(f"[Startup] Sync record (orphan sweep) failed for {ex.public_id}: {e}")
         await db.commit()
         print(f"[Startup] Cleaned up {len(orphans)} orphan execution(s) from previous run.")
 
