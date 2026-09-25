@@ -90,6 +90,14 @@ class FlowManager:
                 self._flow_locks[flow_execution_id] = lock
             return lock
 
+    def _release_flow_lock(self, flow_execution_id: str) -> None:
+        """Evict a run's lock (terminal or paused-forever states must not pin one).
+
+        Safe while held — the holder keeps its ref; `_get_flow_lock` re-creates
+        on demand and late events hit the terminal guard.
+        """
+        self._flow_locks.pop(flow_execution_id, None)
+
     async def initialize(self):
         if self._initialized:
             return
@@ -988,6 +996,7 @@ class FlowManager:
                 "error": error,
             },
         )
+        self._release_flow_lock(flow_exec.id)
 
 
 flow_manager = FlowManager()

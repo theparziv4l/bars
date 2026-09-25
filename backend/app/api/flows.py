@@ -395,45 +395,50 @@ async def stop_flow_execution(
     """Stop all running tasks for a flow execution."""
     from app.models.execution import Execution, ExecutionStatus
     from app.core.orchestrator import task_orchestrator
-    
+    from app.core.flow_manager import flow_manager
+
     result = await db.execute(select(Flow).where(Flow.id == flow_id))
     if not result.scalar_one_or_none():
          raise HTTPException(status_code=404, detail="Flow not found")
 
-    fe_result = await db.execute(
-        select(FlowExecution).where(FlowExecution.id == flow_execution_id)
-    )
-    flow_exec = fe_result.scalar_one_or_none()
-    if not flow_exec or flow_exec.flow_id != flow_id:
-        raise HTTPException(status_code=404, detail="Flow execution not found")
-    if flow_exec.status not in ("pending", "running", "paused"):
-        raise HTTPException(
-            status_code=409,
-            detail=f"Cannot stop flow in '{flow_exec.status}' state",
+    # Serialize with completion-driven advancement: re-check state under lock.
+    lock = await flow_manager._get_flow_lock(flow_execution_id)
+    async with lock:
+        fe_result = await db.execute(
+            select(FlowExecution).where(FlowExecution.id == flow_execution_id)
         )
+        flow_exec = fe_result.scalar_one_or_none()
+        if not flow_exec or flow_exec.flow_id != flow_id:
+            raise HTTPException(status_code=404, detail="Flow execution not found")
+        if flow_exec.status not in ("pending", "running", "paused"):
+            raise HTTPException(
+                status_code=409,
+                detail=f"Cannot stop flow in '{flow_exec.status}' state",
+            )
 
-    result = await db.execute(
-        select(Execution)
-        .where(Execution.flow_execution_id == flow_execution_id)
-        .where(Execution.status.in_([ExecutionStatus.RUNNING, ExecutionStatus.PENDING]))
-    )
-    executions = result.scalars().all()
+        result = await db.execute(
+            select(Execution)
+            .where(Execution.flow_execution_id == flow_execution_id)
+            .where(Execution.status.in_([ExecutionStatus.RUNNING, ExecutionStatus.PENDING]))
+        )
+        executions = result.scalars().all()
 
-    cancelled_count = 0
-    for exc in executions:
-        if exc.status == ExecutionStatus.RUNNING:
-            if await task_orchestrator.cancel_execution(exc.id):
-                cancelled_count += 1
-        exc.status = ExecutionStatus.CANCELLED
-        exc.stderr = "Flow execution stopped by user."
-        exc.completed_at = datetime.utcnow()
+        cancelled_count = 0
+        for exc in executions:
+            if exc.status == ExecutionStatus.RUNNING:
+                if await task_orchestrator.cancel_execution(exc.id):
+                    cancelled_count += 1
+            exc.status = ExecutionStatus.CANCELLED
+            exc.stderr = "Flow execution stopped by user."
+            exc.completed_at = datetime.utcnow()
 
-    # Update FlowExecution record
-    flow_exec.status = "cancelled"
-    flow_exec.completed_at = datetime.utcnow()
+        # Update FlowExecution record
+        flow_exec.status = "cancelled"
+        flow_exec.completed_at = datetime.utcnow()
 
-    await db.commit()
-    
+        await db.commit()
+        flow_manager._release_flow_lock(flow_execution_id)
+
     return {"status": "stopped", "cancelled_count": cancelled_count}
 
 
@@ -446,37 +451,42 @@ async def pause_flow_execution(
     """Pause a running flow execution. Cancels the currently running step immediately."""
     from app.models.execution import Execution, ExecutionStatus
     from app.core.orchestrator import task_orchestrator
+    from app.core.flow_manager import flow_manager
 
-    fe_result = await db.execute(
-        select(FlowExecution).where(FlowExecution.id == flow_execution_id)
-    )
-    flow_exec = fe_result.scalar_one_or_none()
-    if not flow_exec or flow_exec.flow_id != flow_id:
-        raise HTTPException(status_code=404, detail="Flow execution not found")
-    if flow_exec.status != "running":
-        raise HTTPException(status_code=400, detail=f"Cannot pause flow in '{flow_exec.status}' state")
+    # Serialize with completion-driven advancement: re-check state under lock.
+    lock = await flow_manager._get_flow_lock(flow_execution_id)
+    async with lock:
+        fe_result = await db.execute(
+            select(FlowExecution).where(FlowExecution.id == flow_execution_id)
+        )
+        flow_exec = fe_result.scalar_one_or_none()
+        if not flow_exec or flow_exec.flow_id != flow_id:
+            raise HTTPException(status_code=404, detail="Flow execution not found")
+        if flow_exec.status != "running":
+            raise HTTPException(status_code=400, detail=f"Cannot pause flow in '{flow_exec.status}' state")
 
-    result = await db.execute(
-        select(Execution)
-        .where(Execution.flow_execution_id == flow_execution_id)
-        .where(Execution.status.in_([ExecutionStatus.RUNNING, ExecutionStatus.PENDING]))
-        .order_by(Execution.flow_step_index.desc())
-    )
-    active_executions = result.scalars().all()
+        result = await db.execute(
+            select(Execution)
+            .where(Execution.flow_execution_id == flow_execution_id)
+            .where(Execution.status.in_([ExecutionStatus.RUNNING, ExecutionStatus.PENDING]))
+            .order_by(Execution.flow_step_index.desc())
+        )
+        active_executions = result.scalars().all()
 
-    paused_step = None
-    for exc in active_executions:
-        if paused_step is None and exc.flow_step_index is not None:
-            paused_step = exc.flow_step_index
-        if exc.status == ExecutionStatus.RUNNING:
-            await task_orchestrator.cancel_execution(exc.id)
-        exc.status = ExecutionStatus.CANCELLED
-        exc.stderr = (exc.stderr or "") + "\n[Paused] Flow execution paused by user."
-        exc.completed_at = datetime.utcnow()
+        paused_step = None
+        for exc in active_executions:
+            if paused_step is None and exc.flow_step_index is not None:
+                paused_step = exc.flow_step_index
+            if exc.status == ExecutionStatus.RUNNING:
+                await task_orchestrator.cancel_execution(exc.id)
+            exc.status = ExecutionStatus.CANCELLED
+            exc.stderr = (exc.stderr or "") + "\n[Paused] Flow execution paused by user."
+            exc.completed_at = datetime.utcnow()
 
-    flow_exec.status = "paused"
-    flow_exec.paused_at_step = paused_step
-    await db.commit()
+        flow_exec.status = "paused"
+        flow_exec.paused_at_step = paused_step
+        await db.commit()
+        flow_manager._release_flow_lock(flow_execution_id)
 
     return {"status": "paused", "paused_at_step": paused_step}
 
@@ -491,126 +501,129 @@ async def resume_flow_execution(
     from app.core.flow_manager import flow_manager
     from app.models.execution import Execution, ExecutionStatus
 
-    fe_result = await db.execute(
-        select(FlowExecution).where(FlowExecution.id == flow_execution_id)
-    )
-    flow_exec = fe_result.scalar_one_or_none()
-    if not flow_exec or flow_exec.flow_id != flow_id:
-        raise HTTPException(status_code=404, detail="Flow execution not found")
-    if flow_exec.status != "paused":
-        raise HTTPException(status_code=400, detail=f"Cannot resume flow in '{flow_exec.status}' state")
-
-    paused_step = flow_exec.paused_at_step
-    if paused_step is None:
-        raise HTTPException(status_code=400, detail="No paused step recorded")
-
-    flow_result = await db.execute(
-        select(Flow).where(Flow.id == flow_id)
-        .options(selectinload(Flow.steps).selectinload(FlowStep.checklist_item))
-    )
-    flow = flow_result.scalar_one_or_none()
-    if not flow:
-        raise HTTPException(status_code=404, detail="Flow not found")
-
-    steps_to_run = [s for s in flow.steps if s.order_index == paused_step]
-    if not steps_to_run:
-        raise HTTPException(status_code=400, detail="Paused step no longer exists in flow")
-
-    flow_exec.status = "running"
-    flow_exec.paused_at_step = None
-
-    project_vars = await flow_manager._load_project_variables(
-        db, flow.project_id,
-        ad_domain_id=getattr(flow, "ad_domain_id", None),
-        host_id=flow_exec.host_id,
-    )
-
-    base_vars = merge_set_values(dict(project_vars), flow_exec.variables)
-    flow_manager._inject_targets(base_vars, flow_exec.target, flow_exec.targets or [])
-    base_vars["flow_id"] = flow_id
-
-    all_execs_result = await db.execute(
-        select(Execution)
-        .where(Execution.flow_execution_id == flow_execution_id)
-        .options(selectinload(Execution.checklist_item))
-    )
-    all_execs = all_execs_result.scalars().all()
-
-    execution_outputs: dict = {}
-    item_name_to_exe: dict = {}
-    for exc in all_execs:
-        if exc.parsed_output:
-            execution_outputs[f"exec_{exc.id}"] = exc.parsed_output
-            execution_outputs[exc.id] = exc.parsed_output
-            if exc.flow_step_index is not None:
-                execution_outputs[f"step_{exc.flow_step_index}"] = exc.parsed_output
-                execution_outputs[exc.flow_step_index] = exc.parsed_output
-        if exc.checklist_item:
-            item_name_to_exe[exc.checklist_item.name] = exc.id
-
-    import asyncio
-    from app.core.orchestrator import task_orchestrator
-
-    scheduled_any = False
-    for step in steps_to_run:
-        if step.checklist_item is not None and not step.checklist_item.enabled:
-            continue
-        step_vars = await flow_manager._resolve_step_variables(
-            step, base_vars, execution_outputs, item_name_to_exe
+    # Serialize with completion-driven advancement: re-check state under lock.
+    lock = await flow_manager._get_flow_lock(flow_execution_id)
+    async with lock:
+        fe_result = await db.execute(
+            select(FlowExecution).where(FlowExecution.id == flow_execution_id)
         )
-        step_vars["flow_id"] = flow_id
-        if flow.project_id:
-            step_vars["project_id"] = flow.project_id
+        flow_exec = fe_result.scalar_one_or_none()
+        if not flow_exec or flow_exec.flow_id != flow_id:
+            raise HTTPException(status_code=404, detail="Flow execution not found")
+        if flow_exec.status != "paused":
+            raise HTTPException(status_code=400, detail=f"Cannot resume flow in '{flow_exec.status}' state")
 
-        if not flow_manager._evaluate_condition(step, base_vars, execution_outputs, item_name_to_exe):
-            continue
+        paused_step = flow_exec.paused_at_step
+        if paused_step is None:
+            raise HTTPException(status_code=400, detail="No paused step recorded")
 
-        step_host_id, step_target_vars = await flow_manager._resolve_step_targets(
-            db, step, flow_exec.host_id, flow_exec.targets or [],
-            flow_exec.target, flow.project_id, step_vars,
+        flow_result = await db.execute(
+            select(Flow).where(Flow.id == flow_id)
+            .options(selectinload(Flow.steps).selectinload(FlowStep.checklist_item))
+        )
+        flow = flow_result.scalar_one_or_none()
+        if not flow:
+            raise HTTPException(status_code=404, detail="Flow not found")
+
+        steps_to_run = [s for s in flow.steps if s.order_index == paused_step]
+        if not steps_to_run:
+            raise HTTPException(status_code=400, detail="Paused step no longer exists in flow")
+
+        flow_exec.status = "running"
+        flow_exec.paused_at_step = None
+
+        project_vars = await flow_manager._load_project_variables(
+            db, flow.project_id,
             ad_domain_id=getattr(flow, "ad_domain_id", None),
+            host_id=flow_exec.host_id,
         )
-        step_vars.update(step_target_vars)
 
-        execution = await task_orchestrator.create_execution_record(
-            db=db,
-            item_id=step.checklist_item_id,
-            host_id=step_host_id,
-            variables=step_vars,
-            flow_execution_id=flow_execution_id,
-            flow_step_index=step.order_index,
+        base_vars = merge_set_values(dict(project_vars), flow_exec.variables)
+        flow_manager._inject_targets(base_vars, flow_exec.target, flow_exec.targets or [])
+        base_vars["flow_id"] = flow_id
+
+        all_execs_result = await db.execute(
+            select(Execution)
+            .where(Execution.flow_execution_id == flow_execution_id)
+            .options(selectinload(Execution.checklist_item))
         )
-        await db.commit()
+        all_execs = all_execs_result.scalars().all()
 
-        scheduled_any = True
-        asyncio.create_task(
-            task_orchestrator.run_execution_background(
-                execution.id,
-                step.checklist_item_id,
-                step_host_id,
-                step_vars,
-                flow_execution_id,
-                step.order_index,
+        execution_outputs: dict = {}
+        item_name_to_exe: dict = {}
+        for exc in all_execs:
+            if exc.parsed_output:
+                execution_outputs[f"exec_{exc.id}"] = exc.parsed_output
+                execution_outputs[exc.id] = exc.parsed_output
+                if exc.flow_step_index is not None:
+                    execution_outputs[f"step_{exc.flow_step_index}"] = exc.parsed_output
+                    execution_outputs[exc.flow_step_index] = exc.parsed_output
+            if exc.checklist_item:
+                item_name_to_exe[exc.checklist_item.name] = exc.id
+
+        import asyncio
+        from app.core.orchestrator import task_orchestrator
+
+        scheduled_any = False
+        for step in steps_to_run:
+            if step.checklist_item is not None and not step.checklist_item.enabled:
+                continue
+            step_vars = await flow_manager._resolve_step_variables(
+                step, base_vars, execution_outputs, item_name_to_exe
             )
-        )
+            step_vars["flow_id"] = flow_id
+            if flow.project_id:
+                step_vars["project_id"] = flow.project_id
 
-    if not scheduled_any:
-        # Paused step was entirely skipped (condition/disabled): advance past
-        # it instead of leaving the run hanging "running" with no events.
-        await flow_manager._advance_from_cursor(
-            db, flow_execution_id=flow_execution_id, flow=flow,
-            cursor_index=paused_step, base_vars=base_vars,
-            execution_outputs=execution_outputs,
-            item_name_to_exe=item_name_to_exe,
-            latest_item_name_to_exe=item_name_to_exe,
-            flow_exec=flow_exec,
-            flow_host_id=flow_exec.host_id,
-            flow_targets=flow_exec.targets or [],
-            flow_target=flow_exec.target,
-        )
+            if not flow_manager._evaluate_condition(step, base_vars, execution_outputs, item_name_to_exe):
+                continue
 
-    await db.commit()
-    return {"status": "resumed", "resumed_at_step": paused_step}
+            step_host_id, step_target_vars = await flow_manager._resolve_step_targets(
+                db, step, flow_exec.host_id, flow_exec.targets or [],
+                flow_exec.target, flow.project_id, step_vars,
+                ad_domain_id=getattr(flow, "ad_domain_id", None),
+            )
+            step_vars.update(step_target_vars)
+
+            execution = await task_orchestrator.create_execution_record(
+                db=db,
+                item_id=step.checklist_item_id,
+                host_id=step_host_id,
+                variables=step_vars,
+                flow_execution_id=flow_execution_id,
+                flow_step_index=step.order_index,
+            )
+            await db.commit()
+
+            scheduled_any = True
+            asyncio.create_task(
+                task_orchestrator.run_execution_background(
+                    execution.id,
+                    step.checklist_item_id,
+                    step_host_id,
+                    step_vars,
+                    flow_execution_id,
+                    step.order_index,
+                )
+            )
+
+        if not scheduled_any:
+            # Paused step was entirely skipped (condition/disabled): advance past
+            # it instead of leaving the run hanging "running" with no events.
+            await flow_manager._advance_from_cursor(
+                db, flow_execution_id=flow_execution_id, flow=flow,
+                cursor_index=paused_step, base_vars=base_vars,
+                execution_outputs=execution_outputs,
+                item_name_to_exe=item_name_to_exe,
+                latest_item_name_to_exe=item_name_to_exe,
+                flow_exec=flow_exec,
+                flow_host_id=flow_exec.host_id,
+                flow_targets=flow_exec.targets or [],
+                flow_target=flow_exec.target,
+            )
+
+        await db.commit()
+        return {"status": "resumed", "resumed_at_step": paused_step}
 
 
 @router.get("/{flow_id}/status")
