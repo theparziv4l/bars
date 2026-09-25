@@ -9,6 +9,8 @@ from pathlib import Path
 
 from app.database import get_db
 from app.models.file import DiscoveredFile
+from app.models.user import User
+from app.core.auth import get_current_user_optional
 from app.config import settings
 
 router = APIRouter()
@@ -238,16 +240,22 @@ async def list_shares(host_id: int, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/browse-local")
-async def browse_local(path: str = Query("/home/kali")):
+async def browse_local(
+    path: str = Query("/home/kali", max_length=1024),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
     """Browse local filesystem directories for the file picker via host agent."""
+    import base64
     import json
     from app.core.host_runner import host_runner
 
-    # Use host_runner to list directory on the host (not inside Docker)
-    safe_path = path.replace("'", "'\"'\"'")
+    # Use host_runner to list directory on the host (not inside Docker).
+    # Transport the path base64-encoded: the b64 alphabet is shell-safe inside
+    # the double-quoted python -c string, so no metacharacter can break out.
+    path_b64 = base64.b64encode(path.encode("utf-8")).decode("ascii")
     cmd = f'''python3 -c "
-import os, json, sys
-target = os.path.realpath('{safe_path}')
+import os, json, sys, base64
+target = os.path.realpath(base64.b64decode('{path_b64}').decode('utf-8', 'replace'))
 if not os.path.exists(target):
     print(json.dumps({{'error': 'Path not found'}}))
     sys.exit(0)
