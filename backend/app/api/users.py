@@ -56,6 +56,9 @@ async def create_user(
         raise HTTPException(status_code=409, detail="Username already exists")
 
     email = (data.email or f"{username}@local").strip().lower()
+    result = await db.execute(select(User).where(User.email == email))
+    if result.scalar_one_or_none():
+        raise HTTPException(status_code=409, detail="Email already exists")
 
     user = User(
         username=username,
@@ -117,7 +120,13 @@ async def update_user(
         user.role = data.role
 
     if data.email is not None:
-        user.email = data.email.strip().lower()
+        new_email = data.email.strip().lower()
+        result = await db.execute(
+            select(User).where(User.email == new_email, User.id != user_id)
+        )
+        if result.scalar_one_or_none():
+            raise HTTPException(status_code=409, detail="Email already exists")
+        user.email = new_email
 
     await db.flush()
     await db.refresh(user)

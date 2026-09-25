@@ -1,7 +1,9 @@
 """Authentication API endpoints."""
+import time
 from datetime import datetime
+from typing import Dict, List
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,11 +14,33 @@ from app.schemas.auth import ChangePasswordRequest, TokenResponse, UserLogin, Us
 
 router = APIRouter()
 
+_LOGIN_ATTEMPTS: Dict[str, List[float]] = {}
+_LOGIN_WINDOW_SECONDS = 15 * 60
+_LOGIN_MAX_FAILURES = 10
+_LOGIN_TRACKED_KEYS = 10_000
+
+
+def _login_allowed(key: str) -> bool:
+    now = time.monotonic()
+    hits = [t for t in _LOGIN_ATTEMPTS.get(key, []) if now - t < _LOGIN_WINDOW_SECONDS]
+    _LOGIN_ATTEMPTS[key] = hits
+    return len(hits) < _LOGIN_MAX_FAILURES
+
+
+def _record_login_failure(key: str) -> None:
+    _LOGIN_ATTEMPTS.setdefault(key, []).append(time.monotonic())
+    if len(_LOGIN_ATTEMPTS) > _LOGIN_TRACKED_KEYS:
+        _LOGIN_ATTEMPTS.pop(next(iter(_LOGIN_ATTEMPTS)))
+
 
 @router.post("/login", response_model=TokenResponse)
-async def login_user(data: UserLogin, db: AsyncSession = Depends(get_db)):
+async def login_user(data: UserLogin, request: Request, db: AsyncSession = Depends(get_db)):
     """Authenticate operator and return bearer token."""
     username_or_email = data.username.strip()
+    client_key = request.client.host if request.client else "unknown"
+    if not _login_allowed(client_key):
+        raise HTTPException(status_code=429, detail="Too many login attempts",
+                            headers={"Retry-After": str(_LOGIN_WINDOW_SECONDS)})
 
     result = await db.execute(
         select(User).where(
@@ -29,6 +53,7 @@ async def login_user(data: UserLogin, db: AsyncSession = Depends(get_db)):
     )
     user = result.scalar_one_or_none()
     if not user or not verify_password(data.password, user.password_hash):
+        _record_login_failure(client_key)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
     user.last_login_at = datetime.utcnow()

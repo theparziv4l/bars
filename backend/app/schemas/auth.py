@@ -48,7 +48,7 @@ class UserCreateAdmin(BaseModel):
     """Admin-only: create a new user."""
 
     username: str = Field(..., min_length=3, max_length=80)
-    password: str = Field(..., min_length=1, max_length=256)
+    password: str = Field(..., min_length=8, max_length=256)
     role: str = Field(default="operator", pattern=r"^(admin|operator)$")
     email: Optional[str] = Field(default=None, max_length=255)
 
