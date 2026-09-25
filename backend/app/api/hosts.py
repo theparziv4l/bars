@@ -30,6 +30,10 @@ from app.core import script_scanner
 router = APIRouter()
 
 
+def _like_escape(s: str) -> str:
+    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 async def _get_host_counts(db: AsyncSession, host_ids: List[int]) -> Dict[int, dict]:
     """Fetch execution_count and file_count for given host IDs."""
     if not host_ids:
@@ -161,10 +165,10 @@ async def list_hosts(
         query = query.where(Host.status == status)
     if search:
         query = query.where(
-            (Host.ip_address.ilike(f"%{search}%")) |
-            (Host.hostname.ilike(f"%{search}%")) |
-            (Host.fqdn.ilike(f"%{search}%")) |
-            (Host.os_info.ilike(f"%{search}%"))
+            (Host.ip_address.ilike(f"%{_like_escape(search)}%", escape="\\")) |
+            (Host.hostname.ilike(f"%{_like_escape(search)}%", escape="\\")) |
+            (Host.fqdn.ilike(f"%{_like_escape(search)}%", escape="\\")) |
+            (Host.os_info.ilike(f"%{_like_escape(search)}%", escape="\\"))
         )
     if smb_signing:
         if smb_signing == "true":

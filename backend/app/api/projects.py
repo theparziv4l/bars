@@ -22,6 +22,10 @@ from app.core import script_scanner
 
 router = APIRouter()
 
+
+def _like_escape(s: str) -> str:
+    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
 # Host tags endpoint is at GET /{project_id}/host-tags (see below)
 
 
@@ -174,7 +178,7 @@ async def list_projects(
     if status:
         query = query.where(Project.status == ProjectStatus(status))
     if search:
-        query = query.where(Project.name.ilike(f"%{search}%"))
+        query = query.where(Project.name.ilike(f"%{_like_escape(search)}%", escape="\\"))
     if current_user:
         query = query.join(
             ProjectMember,
