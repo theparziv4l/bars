@@ -1,4 +1,5 @@
 """Authentication API endpoints."""
+import asyncio
 import time
 from datetime import datetime
 from typing import Dict, List
@@ -52,7 +53,7 @@ async def login_user(data: UserLogin, request: Request, db: AsyncSession = Depen
         )
     )
     user = result.scalar_one_or_none()
-    if not user or not verify_password(data.password, user.password_hash):
+    if not user or not await asyncio.to_thread(verify_password, data.password, user.password_hash):
         _record_login_failure(client_key)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
@@ -80,10 +81,10 @@ async def change_password(
     db: AsyncSession = Depends(get_db),
 ):
     """Change own password. Clears the must_change_password flag."""
-    if not verify_password(data.current_password, user.password_hash):
+    if not await asyncio.to_thread(verify_password, data.current_password, user.password_hash):
         raise HTTPException(status_code=400, detail="Current password is incorrect")
 
-    user.password_hash = hash_password(data.new_password)
+    user.password_hash = await asyncio.to_thread(hash_password, data.new_password)
     user.must_change_password = False
     await db.flush()
     await db.refresh(user)

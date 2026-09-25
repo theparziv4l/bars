@@ -1,4 +1,5 @@
 """User management API endpoints (admin only)."""
+import asyncio
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -63,7 +64,7 @@ async def create_user(
     user = User(
         username=username,
         email=email,
-        password_hash=hash_password(data.password),
+        password_hash=await asyncio.to_thread(hash_password, data.password),
         role=data.role,
         is_active=True,
         must_change_password=True,
@@ -181,7 +182,7 @@ async def reset_user_password(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    user.password_hash = hash_password(data.new_password)
+    user.password_hash = await asyncio.to_thread(hash_password, data.new_password)
     user.must_change_password = True
     await db.flush()
     await db.refresh(user)
