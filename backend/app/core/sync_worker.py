@@ -173,18 +173,19 @@ class SyncWorker:
                     print(
                         f"[SyncWorker] Pull from {peer_base_url} returned non-JSON: {parse_err}"
                     )
+                    events = []
                 else:
                     events = payload.get("events", [])
-                    source_node_id = payload.get("node_id", peer_base_url)
-                    if events:
-                        async with async_session_maker() as db:
-                            await sync_service.ingest_remote_events(
-                                db,
-                                # write the pull cursor under the SAME key we read it with
-                                peer_node_id=cursor_key,
-                                events=events,
-                            )
-                            await db.commit()
+        # Ingest AFTER the response is drained and closed: no DB session spans HTTP.
+        if events:
+            async with async_session_maker() as db:
+                await sync_service.ingest_remote_events(
+                    db,
+                    # write the pull cursor under the SAME key we read it with
+                    peer_node_id=cursor_key,
+                    events=events,
+                )
+                await db.commit()
 
         # 2) Push local events to peer
         async with async_session_maker() as db:
@@ -195,46 +196,48 @@ class SyncWorker:
                 limit=settings.SYNC_BATCH_SIZE,
                 project_public_id=project_public_id,
             )
-            if not local_events:
-                return
+        if not local_events:
+            return
 
-            request_body: dict[str, Any] = {
-                "source_node_id": settings.NODE_ID,
-                "events": [
-                    {
-                        "event_id": e.event_id,
-                        "entity_type": e.entity_type,
-                        "entity_public_id": e.entity_public_id,
-                        "operation": e.operation,
-                        "payload": e.payload,
-                        "logical_ts": e.logical_ts,
-                        "source_node_id": e.source_node_id,
-                        "created_at": e.created_at.isoformat(),
-                    }
-                    for e in local_events
-                ],
-            }
-            push_url = f"{sync_base}/push"
-            async with session.post(push_url, json=request_body) as response:
-                if response.status != 200:
-                    body = await response.text()
-                    print(f"[SyncWorker] Push to {peer_base_url} failed: status={response.status} body={body[:200]}")
-                elif response.status == 200:
-                    latest = local_events[-1].logical_ts
-                    try:
-                        push_ack = await response.json()
-                        min_deferred = push_ack.get("min_deferred_ts")
-                    except Exception:
-                        min_deferred = None  # old receiver: no deferral report
-                    advance_to = _capped_push_cursor(latest, min_deferred)
-                    async with async_session_maker() as db:
-                        await sync_service.set_cursor(
-                            db,
-                            peer_node_id=cursor_key,
-                            direction="push",
-                            logical_ts=advance_to,
-                        )
-                        await db.commit()
+        request_body: dict[str, Any] = {
+            "source_node_id": settings.NODE_ID,
+            "events": [
+                {
+                    "event_id": e.event_id,
+                    "entity_type": e.entity_type,
+                    "entity_public_id": e.entity_public_id,
+                    "operation": e.operation,
+                    "payload": e.payload,
+                    "logical_ts": e.logical_ts,
+                    "source_node_id": e.source_node_id,
+                    "created_at": e.created_at.isoformat(),
+                }
+                for e in local_events
+            ],
+        }
+        push_url = f"{sync_base}/push"
+        # POST with no DB session open; cursor write gets a fresh session after.
+        async with session.post(push_url, json=request_body) as response:
+            push_status = response.status
+            if push_status != 200:
+                body = await response.text()
+                print(f"[SyncWorker] Push to {peer_base_url} failed: status={push_status} body={body[:200]}")
+            else:
+                latest = local_events[-1].logical_ts
+                try:
+                    push_ack = await response.json()
+                    min_deferred = push_ack.get("min_deferred_ts")
+                except Exception:
+                    min_deferred = None  # old receiver: no deferral report
+                advance_to = _capped_push_cursor(latest, min_deferred)
+                async with async_session_maker() as db:
+                    await sync_service.set_cursor(
+                        db,
+                        peer_node_id=cursor_key,
+                        direction="push",
+                        logical_ts=advance_to,
+                    )
+                    await db.commit()
 
 
 sync_worker = SyncWorker()
