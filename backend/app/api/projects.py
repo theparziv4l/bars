@@ -375,14 +375,19 @@ async def migrate_orphan_projects(
     migrated = []
     skipped = []
 
+    # One batched lookup for all owners (active users only).
+    owner_ids = {pr.created_by_user_id or current_user.id for pr in orphan_projects}
+    user_rows = (await db.execute(
+        select(User.id, User.public_id).where(
+            User.id.in_(owner_ids), User.is_active.is_(True))
+    )).all() if owner_ids else []
+    active_users = {uid: pub for uid, pub in user_rows}
+
     for project in orphan_projects:
         owner_id = project.created_by_user_id or current_user.id
 
-        # Verify user exists and is active
-        user_check = await db.execute(
-            select(User.id).where(User.id == owner_id, User.is_active.is_(True))
-        )
-        if user_check.scalar_one_or_none() is None:
+        owner_public_id = active_users.get(owner_id)
+        if owner_public_id is None:
             skipped.append({"id": project.id, "name": project.name, "reason": f"user {owner_id} not found"})
             continue
 
@@ -390,10 +395,6 @@ async def migrate_orphan_projects(
         db.add(member)
         await db.flush()
         await db.refresh(member)
-
-        # Look up public IDs for sync payload
-        owner_result = await db.execute(select(User.public_id).where(User.id == owner_id))
-        owner_public_id = owner_result.scalar_one_or_none()
 
         await sync_service.record_event(
             db,

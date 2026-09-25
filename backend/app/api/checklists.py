@@ -419,18 +419,20 @@ async def import_checklist(
         .options(selectinload(ChecklistGroup.items))
     )
     templates = result.scalars().all()
-    
+
+    ad_domain = None
+    if ad_domain_id:
+        from app.models.ad_domain import ADDomain
+        domain_result = await db.execute(
+            select(ADDomain).where(ADDomain.id == ad_domain_id)
+        )
+        ad_domain = domain_result.scalar_one_or_none()
+
     imported = []
     for i, tmpl in enumerate(templates):
         group_name = tmpl.name
-        if ad_domain_id:
-            from app.models.ad_domain import ADDomain
-            domain_result = await db.execute(
-                select(ADDomain).where(ADDomain.id == ad_domain_id)
-            )
-            ad_domain = domain_result.scalar_one_or_none()
-            if ad_domain:
-                group_name = f"{tmpl.name} — {ad_domain.name}"
+        if ad_domain:
+            group_name = f"{tmpl.name} — {ad_domain.name}"
 
         new_group = ChecklistGroup(
             project_id=project_id,
@@ -1112,17 +1114,19 @@ async def import_checklists_file(
         current_count = (await db.execute(count_q)).scalar() or 0
         
         imported_count = 0
-        
+
+        ad_domain = None
+        if ad_domain_id and project_id:
+            from app.models.ad_domain import ADDomain
+            domain_result = await db.execute(
+                select(ADDomain).where(ADDomain.id == ad_domain_id)
+            )
+            ad_domain = domain_result.scalar_one_or_none()
+
         for i, group_data in enumerate(data["groups"]):
             group_name = group_data["name"]
-            if ad_domain_id and project_id:
-                from app.models.ad_domain import ADDomain
-                domain_result = await db.execute(
-                    select(ADDomain).where(ADDomain.id == ad_domain_id)
-                )
-                ad_domain = domain_result.scalar_one_or_none()
-                if ad_domain:
-                    group_name = f"{group_data['name']} — {ad_domain.name}"
+            if ad_domain:
+                group_name = f"{group_data['name']} — {ad_domain.name}"
 
             new_group = ChecklistGroup(
                 project_id=project_id,

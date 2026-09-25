@@ -76,7 +76,15 @@ def start(
     console.print(Panel("[bold]Bars[/bold]", subtitle="starting..."))
 
     state = load_state()
-    if state and state.agent_pid and is_pid_alive(state.agent_pid):
+    # "Already running" must not hinge on the agent PID alone. If the agent died or the
+    # state file was lost while the Docker stack stayed up, the old guard fell through to
+    # the port checks below — which then flagged our OWN containers as a conflict and told
+    # the operator to kill them. Running project containers mean "already up" too.
+    agent_alive = bool(state and state.agent_pid and is_pid_alive(state.agent_pid))
+    containers_up = any(
+        str(c.get("State", "")).lower() == "running" for c in compose_ps()
+    )
+    if agent_alive or containers_up:
         console.print("[yellow]Services appear to be already running. Use 'stop' first or 'restart'.[/yellow]")
         raise typer.Exit(1)
 
