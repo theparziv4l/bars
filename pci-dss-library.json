@@ -3,7 +3,7 @@
     "groups": [
       {
         "name": "PCI Segmentation — iface_1",
-        "description": "PCI DSS 11.4.5 (annual, all entities) / 11.4.6 (every 6 months, service providers): enumerate every direction from the segment behind adapter {iface_1} to cde_scope, non_cde_scope and out_of_scope. Expected: CDE <-> out_of_scope fully blocked (any open = 11.4.5 failure); CDE <-> non_cde_scope only approved ports (Req 1.2.5); same-zone and non_cde <-> out_of_scope = enumeration/evidence. Requires root or nmap raw-socket capabilities (-e, -sS, -sU).",
+        "description": "PCI DSS 11.4.5 (annual, all entities) / 11.4.6 (every 6 months, service providers): enumerate every direction from the segment behind adapter {iface_1} to its own target lists iface_1_cde_scope, iface_1_non_cde_scope and iface_1_out_of_scope (what is reachable differs per segment/VLAN). Expected: CDE <-> out_of_scope fully blocked (any open = 11.4.5 failure); CDE <-> non_cde_scope only approved ports (Req 1.2.5); same-zone and non_cde <-> out_of_scope = enumeration/evidence. Requires root or nmap raw-socket capabilities (-e, -sS, -sU).",
         "is_default_import": false,
         "requires_auth": false,
         "speed_profile": "default",
@@ -32,14 +32,14 @@
           {
             "name": "iface_1 -> cde_scope: Host Discovery",
             "description": "Multi-probe discovery (ICMP echo/timestamp, TCP SYN/ACK, UDP) toward CDE (stores/processes/transmits CHD + same-segment systems) via iface_1.",
-            "command_template": "nmap -e {iface_1} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {cde_scope}",
+            "command_template": "nmap -e {iface_1} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_1_cde_scope}",
             "output_regex": {
               "alive_hosts": "Nmap scan report for (\\b(?:(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\b)"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "cde_scope": {
+              "iface_1_cde_scope": {
                 "type": "file"
               }
             },
@@ -74,14 +74,14 @@
           {
             "name": "iface_1 -> cde_scope: Full TCP Port Scan",
             "description": "All 65535 TCP ports toward CDE (stores/processes/transmits CHD + same-segment systems) via iface_1, -Pn so ICMP filtering cannot hide hosts.",
-            "command_template": "nmap -e {iface_1} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {cde_scope}",
+            "command_template": "nmap -e {iface_1} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {iface_1_cde_scope}",
             "output_regex": {
               "open_ports": "^(\\d+)/tcp\\s+open\\s"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "cde_scope": {
+              "iface_1_cde_scope": {
                 "type": "file"
               }
             },
@@ -116,14 +116,14 @@
           {
             "name": "iface_1 -> cde_scope: Top UDP Port Scan",
             "description": "Top 200 UDP ports toward CDE (stores/processes/transmits CHD + same-segment systems) via iface_1. Only 'open' (not open|filtered) is flagged.",
-            "command_template": "nmap -e {iface_1} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {cde_scope}",
+            "command_template": "nmap -e {iface_1} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {iface_1_cde_scope}",
             "output_regex": {
               "open_udp_ports": "^(\\d+)/udp\\s+open\\s"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "cde_scope": {
+              "iface_1_cde_scope": {
                 "type": "file"
               }
             },
@@ -158,14 +158,14 @@
           {
             "name": "iface_1 -> non_cde_scope: Host Discovery",
             "description": "Multi-probe discovery (ICMP echo/timestamp, TCP SYN/ACK, UDP) toward non-CDE in-scope (connected-to / security-impacting) via iface_1.",
-            "command_template": "nmap -e {iface_1} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {non_cde_scope}",
+            "command_template": "nmap -e {iface_1} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_1_non_cde_scope}",
             "output_regex": {
               "alive_hosts": "Nmap scan report for (\\b(?:(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\b)"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "non_cde_scope": {
+              "iface_1_non_cde_scope": {
                 "type": "file"
               }
             },
@@ -200,14 +200,14 @@
           {
             "name": "iface_1 -> non_cde_scope: Full TCP Port Scan",
             "description": "All 65535 TCP ports toward non-CDE in-scope (connected-to / security-impacting) via iface_1, -Pn so ICMP filtering cannot hide hosts.",
-            "command_template": "nmap -e {iface_1} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {non_cde_scope}",
+            "command_template": "nmap -e {iface_1} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {iface_1_non_cde_scope}",
             "output_regex": {
               "open_ports": "^(\\d+)/tcp\\s+open\\s"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "non_cde_scope": {
+              "iface_1_non_cde_scope": {
                 "type": "file"
               }
             },
@@ -242,14 +242,14 @@
           {
             "name": "iface_1 -> non_cde_scope: Top UDP Port Scan",
             "description": "Top 200 UDP ports toward non-CDE in-scope (connected-to / security-impacting) via iface_1. Only 'open' (not open|filtered) is flagged.",
-            "command_template": "nmap -e {iface_1} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {non_cde_scope}",
+            "command_template": "nmap -e {iface_1} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {iface_1_non_cde_scope}",
             "output_regex": {
               "open_udp_ports": "^(\\d+)/udp\\s+open\\s"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "non_cde_scope": {
+              "iface_1_non_cde_scope": {
                 "type": "file"
               }
             },
@@ -284,14 +284,14 @@
           {
             "name": "iface_1 -> out_of_scope: Host Discovery",
             "description": "Multi-probe discovery (ICMP echo/timestamp, TCP SYN/ACK, UDP) toward out-of-scope (no CDE access, no security impact) via iface_1.",
-            "command_template": "nmap -e {iface_1} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {out_of_scope}",
+            "command_template": "nmap -e {iface_1} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_1_out_of_scope}",
             "output_regex": {
               "alive_hosts": "Nmap scan report for (\\b(?:(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\b)"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "out_of_scope": {
+              "iface_1_out_of_scope": {
                 "type": "file"
               }
             },
@@ -326,14 +326,14 @@
           {
             "name": "iface_1 -> out_of_scope: Full TCP Port Scan",
             "description": "All 65535 TCP ports toward out-of-scope (no CDE access, no security impact) via iface_1, -Pn so ICMP filtering cannot hide hosts.",
-            "command_template": "nmap -e {iface_1} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {out_of_scope}",
+            "command_template": "nmap -e {iface_1} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {iface_1_out_of_scope}",
             "output_regex": {
               "open_ports": "^(\\d+)/tcp\\s+open\\s"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "out_of_scope": {
+              "iface_1_out_of_scope": {
                 "type": "file"
               }
             },
@@ -368,14 +368,14 @@
           {
             "name": "iface_1 -> out_of_scope: Top UDP Port Scan",
             "description": "Top 200 UDP ports toward out-of-scope (no CDE access, no security impact) via iface_1. Only 'open' (not open|filtered) is flagged.",
-            "command_template": "nmap -e {iface_1} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {out_of_scope}",
+            "command_template": "nmap -e {iface_1} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {iface_1_out_of_scope}",
             "output_regex": {
               "open_udp_ports": "^(\\d+)/udp\\s+open\\s"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "out_of_scope": {
+              "iface_1_out_of_scope": {
                 "type": "file"
               }
             },
@@ -411,7 +411,7 @@
       },
       {
         "name": "PCI Segmentation — iface_2",
-        "description": "PCI DSS 11.4.5 (annual, all entities) / 11.4.6 (every 6 months, service providers): enumerate every direction from the segment behind adapter {iface_2} to cde_scope, non_cde_scope and out_of_scope. Expected: CDE <-> out_of_scope fully blocked (any open = 11.4.5 failure); CDE <-> non_cde_scope only approved ports (Req 1.2.5); same-zone and non_cde <-> out_of_scope = enumeration/evidence. Requires root or nmap raw-socket capabilities (-e, -sS, -sU).",
+        "description": "PCI DSS 11.4.5 (annual, all entities) / 11.4.6 (every 6 months, service providers): enumerate every direction from the segment behind adapter {iface_2} to its own target lists iface_2_cde_scope, iface_2_non_cde_scope and iface_2_out_of_scope (what is reachable differs per segment/VLAN). Expected: CDE <-> out_of_scope fully blocked (any open = 11.4.5 failure); CDE <-> non_cde_scope only approved ports (Req 1.2.5); same-zone and non_cde <-> out_of_scope = enumeration/evidence. Requires root or nmap raw-socket capabilities (-e, -sS, -sU).",
         "is_default_import": false,
         "requires_auth": false,
         "speed_profile": "default",
@@ -440,14 +440,14 @@
           {
             "name": "iface_2 -> cde_scope: Host Discovery",
             "description": "Multi-probe discovery (ICMP echo/timestamp, TCP SYN/ACK, UDP) toward CDE (stores/processes/transmits CHD + same-segment systems) via iface_2.",
-            "command_template": "nmap -e {iface_2} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {cde_scope}",
+            "command_template": "nmap -e {iface_2} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_2_cde_scope}",
             "output_regex": {
               "alive_hosts": "Nmap scan report for (\\b(?:(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\b)"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "cde_scope": {
+              "iface_2_cde_scope": {
                 "type": "file"
               }
             },
@@ -482,14 +482,14 @@
           {
             "name": "iface_2 -> cde_scope: Full TCP Port Scan",
             "description": "All 65535 TCP ports toward CDE (stores/processes/transmits CHD + same-segment systems) via iface_2, -Pn so ICMP filtering cannot hide hosts.",
-            "command_template": "nmap -e {iface_2} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {cde_scope}",
+            "command_template": "nmap -e {iface_2} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {iface_2_cde_scope}",
             "output_regex": {
               "open_ports": "^(\\d+)/tcp\\s+open\\s"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "cde_scope": {
+              "iface_2_cde_scope": {
                 "type": "file"
               }
             },
@@ -524,14 +524,14 @@
           {
             "name": "iface_2 -> cde_scope: Top UDP Port Scan",
             "description": "Top 200 UDP ports toward CDE (stores/processes/transmits CHD + same-segment systems) via iface_2. Only 'open' (not open|filtered) is flagged.",
-            "command_template": "nmap -e {iface_2} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {cde_scope}",
+            "command_template": "nmap -e {iface_2} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {iface_2_cde_scope}",
             "output_regex": {
               "open_udp_ports": "^(\\d+)/udp\\s+open\\s"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "cde_scope": {
+              "iface_2_cde_scope": {
                 "type": "file"
               }
             },
@@ -566,14 +566,14 @@
           {
             "name": "iface_2 -> non_cde_scope: Host Discovery",
             "description": "Multi-probe discovery (ICMP echo/timestamp, TCP SYN/ACK, UDP) toward non-CDE in-scope (connected-to / security-impacting) via iface_2.",
-            "command_template": "nmap -e {iface_2} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {non_cde_scope}",
+            "command_template": "nmap -e {iface_2} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_2_non_cde_scope}",
             "output_regex": {
               "alive_hosts": "Nmap scan report for (\\b(?:(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\b)"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "non_cde_scope": {
+              "iface_2_non_cde_scope": {
                 "type": "file"
               }
             },
@@ -608,14 +608,14 @@
           {
             "name": "iface_2 -> non_cde_scope: Full TCP Port Scan",
             "description": "All 65535 TCP ports toward non-CDE in-scope (connected-to / security-impacting) via iface_2, -Pn so ICMP filtering cannot hide hosts.",
-            "command_template": "nmap -e {iface_2} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {non_cde_scope}",
+            "command_template": "nmap -e {iface_2} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {iface_2_non_cde_scope}",
             "output_regex": {
               "open_ports": "^(\\d+)/tcp\\s+open\\s"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "non_cde_scope": {
+              "iface_2_non_cde_scope": {
                 "type": "file"
               }
             },
@@ -650,14 +650,14 @@
           {
             "name": "iface_2 -> non_cde_scope: Top UDP Port Scan",
             "description": "Top 200 UDP ports toward non-CDE in-scope (connected-to / security-impacting) via iface_2. Only 'open' (not open|filtered) is flagged.",
-            "command_template": "nmap -e {iface_2} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {non_cde_scope}",
+            "command_template": "nmap -e {iface_2} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {iface_2_non_cde_scope}",
             "output_regex": {
               "open_udp_ports": "^(\\d+)/udp\\s+open\\s"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "non_cde_scope": {
+              "iface_2_non_cde_scope": {
                 "type": "file"
               }
             },
@@ -692,14 +692,14 @@
           {
             "name": "iface_2 -> out_of_scope: Host Discovery",
             "description": "Multi-probe discovery (ICMP echo/timestamp, TCP SYN/ACK, UDP) toward out-of-scope (no CDE access, no security impact) via iface_2.",
-            "command_template": "nmap -e {iface_2} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {out_of_scope}",
+            "command_template": "nmap -e {iface_2} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_2_out_of_scope}",
             "output_regex": {
               "alive_hosts": "Nmap scan report for (\\b(?:(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\b)"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "out_of_scope": {
+              "iface_2_out_of_scope": {
                 "type": "file"
               }
             },
@@ -734,14 +734,14 @@
           {
             "name": "iface_2 -> out_of_scope: Full TCP Port Scan",
             "description": "All 65535 TCP ports toward out-of-scope (no CDE access, no security impact) via iface_2, -Pn so ICMP filtering cannot hide hosts.",
-            "command_template": "nmap -e {iface_2} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {out_of_scope}",
+            "command_template": "nmap -e {iface_2} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {iface_2_out_of_scope}",
             "output_regex": {
               "open_ports": "^(\\d+)/tcp\\s+open\\s"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "out_of_scope": {
+              "iface_2_out_of_scope": {
                 "type": "file"
               }
             },
@@ -776,14 +776,14 @@
           {
             "name": "iface_2 -> out_of_scope: Top UDP Port Scan",
             "description": "Top 200 UDP ports toward out-of-scope (no CDE access, no security impact) via iface_2. Only 'open' (not open|filtered) is flagged.",
-            "command_template": "nmap -e {iface_2} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {out_of_scope}",
+            "command_template": "nmap -e {iface_2} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {iface_2_out_of_scope}",
             "output_regex": {
               "open_udp_ports": "^(\\d+)/udp\\s+open\\s"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "out_of_scope": {
+              "iface_2_out_of_scope": {
                 "type": "file"
               }
             },
@@ -819,7 +819,7 @@
       },
       {
         "name": "PCI Segmentation — iface_3",
-        "description": "PCI DSS 11.4.5 (annual, all entities) / 11.4.6 (every 6 months, service providers): enumerate every direction from the segment behind adapter {iface_3} to cde_scope, non_cde_scope and out_of_scope. Expected: CDE <-> out_of_scope fully blocked (any open = 11.4.5 failure); CDE <-> non_cde_scope only approved ports (Req 1.2.5); same-zone and non_cde <-> out_of_scope = enumeration/evidence. Requires root or nmap raw-socket capabilities (-e, -sS, -sU).",
+        "description": "PCI DSS 11.4.5 (annual, all entities) / 11.4.6 (every 6 months, service providers): enumerate every direction from the segment behind adapter {iface_3} to its own target lists iface_3_cde_scope, iface_3_non_cde_scope and iface_3_out_of_scope (what is reachable differs per segment/VLAN). Expected: CDE <-> out_of_scope fully blocked (any open = 11.4.5 failure); CDE <-> non_cde_scope only approved ports (Req 1.2.5); same-zone and non_cde <-> out_of_scope = enumeration/evidence. Requires root or nmap raw-socket capabilities (-e, -sS, -sU).",
         "is_default_import": false,
         "requires_auth": false,
         "speed_profile": "default",
@@ -848,14 +848,14 @@
           {
             "name": "iface_3 -> cde_scope: Host Discovery",
             "description": "Multi-probe discovery (ICMP echo/timestamp, TCP SYN/ACK, UDP) toward CDE (stores/processes/transmits CHD + same-segment systems) via iface_3.",
-            "command_template": "nmap -e {iface_3} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {cde_scope}",
+            "command_template": "nmap -e {iface_3} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_3_cde_scope}",
             "output_regex": {
               "alive_hosts": "Nmap scan report for (\\b(?:(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\b)"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "cde_scope": {
+              "iface_3_cde_scope": {
                 "type": "file"
               }
             },
@@ -890,14 +890,14 @@
           {
             "name": "iface_3 -> cde_scope: Full TCP Port Scan",
             "description": "All 65535 TCP ports toward CDE (stores/processes/transmits CHD + same-segment systems) via iface_3, -Pn so ICMP filtering cannot hide hosts.",
-            "command_template": "nmap -e {iface_3} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {cde_scope}",
+            "command_template": "nmap -e {iface_3} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {iface_3_cde_scope}",
             "output_regex": {
               "open_ports": "^(\\d+)/tcp\\s+open\\s"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "cde_scope": {
+              "iface_3_cde_scope": {
                 "type": "file"
               }
             },
@@ -932,14 +932,14 @@
           {
             "name": "iface_3 -> cde_scope: Top UDP Port Scan",
             "description": "Top 200 UDP ports toward CDE (stores/processes/transmits CHD + same-segment systems) via iface_3. Only 'open' (not open|filtered) is flagged.",
-            "command_template": "nmap -e {iface_3} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {cde_scope}",
+            "command_template": "nmap -e {iface_3} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {iface_3_cde_scope}",
             "output_regex": {
               "open_udp_ports": "^(\\d+)/udp\\s+open\\s"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "cde_scope": {
+              "iface_3_cde_scope": {
                 "type": "file"
               }
             },
@@ -974,14 +974,14 @@
           {
             "name": "iface_3 -> non_cde_scope: Host Discovery",
             "description": "Multi-probe discovery (ICMP echo/timestamp, TCP SYN/ACK, UDP) toward non-CDE in-scope (connected-to / security-impacting) via iface_3.",
-            "command_template": "nmap -e {iface_3} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {non_cde_scope}",
+            "command_template": "nmap -e {iface_3} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_3_non_cde_scope}",
             "output_regex": {
               "alive_hosts": "Nmap scan report for (\\b(?:(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\b)"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "non_cde_scope": {
+              "iface_3_non_cde_scope": {
                 "type": "file"
               }
             },
@@ -1016,14 +1016,14 @@
           {
             "name": "iface_3 -> non_cde_scope: Full TCP Port Scan",
             "description": "All 65535 TCP ports toward non-CDE in-scope (connected-to / security-impacting) via iface_3, -Pn so ICMP filtering cannot hide hosts.",
-            "command_template": "nmap -e {iface_3} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {non_cde_scope}",
+            "command_template": "nmap -e {iface_3} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {iface_3_non_cde_scope}",
             "output_regex": {
               "open_ports": "^(\\d+)/tcp\\s+open\\s"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "non_cde_scope": {
+              "iface_3_non_cde_scope": {
                 "type": "file"
               }
             },
@@ -1058,14 +1058,14 @@
           {
             "name": "iface_3 -> non_cde_scope: Top UDP Port Scan",
             "description": "Top 200 UDP ports toward non-CDE in-scope (connected-to / security-impacting) via iface_3. Only 'open' (not open|filtered) is flagged.",
-            "command_template": "nmap -e {iface_3} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {non_cde_scope}",
+            "command_template": "nmap -e {iface_3} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {iface_3_non_cde_scope}",
             "output_regex": {
               "open_udp_ports": "^(\\d+)/udp\\s+open\\s"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "non_cde_scope": {
+              "iface_3_non_cde_scope": {
                 "type": "file"
               }
             },
@@ -1100,14 +1100,14 @@
           {
             "name": "iface_3 -> out_of_scope: Host Discovery",
             "description": "Multi-probe discovery (ICMP echo/timestamp, TCP SYN/ACK, UDP) toward out-of-scope (no CDE access, no security impact) via iface_3.",
-            "command_template": "nmap -e {iface_3} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {out_of_scope}",
+            "command_template": "nmap -e {iface_3} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_3_out_of_scope}",
             "output_regex": {
               "alive_hosts": "Nmap scan report for (\\b(?:(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\b)"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "out_of_scope": {
+              "iface_3_out_of_scope": {
                 "type": "file"
               }
             },
@@ -1142,14 +1142,14 @@
           {
             "name": "iface_3 -> out_of_scope: Full TCP Port Scan",
             "description": "All 65535 TCP ports toward out-of-scope (no CDE access, no security impact) via iface_3, -Pn so ICMP filtering cannot hide hosts.",
-            "command_template": "nmap -e {iface_3} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {out_of_scope}",
+            "command_template": "nmap -e {iface_3} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {iface_3_out_of_scope}",
             "output_regex": {
               "open_ports": "^(\\d+)/tcp\\s+open\\s"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "out_of_scope": {
+              "iface_3_out_of_scope": {
                 "type": "file"
               }
             },
@@ -1184,14 +1184,14 @@
           {
             "name": "iface_3 -> out_of_scope: Top UDP Port Scan",
             "description": "Top 200 UDP ports toward out-of-scope (no CDE access, no security impact) via iface_3. Only 'open' (not open|filtered) is flagged.",
-            "command_template": "nmap -e {iface_3} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {out_of_scope}",
+            "command_template": "nmap -e {iface_3} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {iface_3_out_of_scope}",
             "output_regex": {
               "open_udp_ports": "^(\\d+)/udp\\s+open\\s"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "out_of_scope": {
+              "iface_3_out_of_scope": {
                 "type": "file"
               }
             },
@@ -1227,7 +1227,7 @@
       },
       {
         "name": "PCI Segmentation — iface_4",
-        "description": "PCI DSS 11.4.5 (annual, all entities) / 11.4.6 (every 6 months, service providers): enumerate every direction from the segment behind adapter {iface_4} to cde_scope, non_cde_scope and out_of_scope. Expected: CDE <-> out_of_scope fully blocked (any open = 11.4.5 failure); CDE <-> non_cde_scope only approved ports (Req 1.2.5); same-zone and non_cde <-> out_of_scope = enumeration/evidence. Requires root or nmap raw-socket capabilities (-e, -sS, -sU).",
+        "description": "PCI DSS 11.4.5 (annual, all entities) / 11.4.6 (every 6 months, service providers): enumerate every direction from the segment behind adapter {iface_4} to its own target lists iface_4_cde_scope, iface_4_non_cde_scope and iface_4_out_of_scope (what is reachable differs per segment/VLAN). Expected: CDE <-> out_of_scope fully blocked (any open = 11.4.5 failure); CDE <-> non_cde_scope only approved ports (Req 1.2.5); same-zone and non_cde <-> out_of_scope = enumeration/evidence. Requires root or nmap raw-socket capabilities (-e, -sS, -sU).",
         "is_default_import": false,
         "requires_auth": false,
         "speed_profile": "default",
@@ -1256,14 +1256,14 @@
           {
             "name": "iface_4 -> cde_scope: Host Discovery",
             "description": "Multi-probe discovery (ICMP echo/timestamp, TCP SYN/ACK, UDP) toward CDE (stores/processes/transmits CHD + same-segment systems) via iface_4.",
-            "command_template": "nmap -e {iface_4} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {cde_scope}",
+            "command_template": "nmap -e {iface_4} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_4_cde_scope}",
             "output_regex": {
               "alive_hosts": "Nmap scan report for (\\b(?:(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\b)"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "cde_scope": {
+              "iface_4_cde_scope": {
                 "type": "file"
               }
             },
@@ -1298,14 +1298,14 @@
           {
             "name": "iface_4 -> cde_scope: Full TCP Port Scan",
             "description": "All 65535 TCP ports toward CDE (stores/processes/transmits CHD + same-segment systems) via iface_4, -Pn so ICMP filtering cannot hide hosts.",
-            "command_template": "nmap -e {iface_4} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {cde_scope}",
+            "command_template": "nmap -e {iface_4} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {iface_4_cde_scope}",
             "output_regex": {
               "open_ports": "^(\\d+)/tcp\\s+open\\s"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "cde_scope": {
+              "iface_4_cde_scope": {
                 "type": "file"
               }
             },
@@ -1340,14 +1340,14 @@
           {
             "name": "iface_4 -> cde_scope: Top UDP Port Scan",
             "description": "Top 200 UDP ports toward CDE (stores/processes/transmits CHD + same-segment systems) via iface_4. Only 'open' (not open|filtered) is flagged.",
-            "command_template": "nmap -e {iface_4} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {cde_scope}",
+            "command_template": "nmap -e {iface_4} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {iface_4_cde_scope}",
             "output_regex": {
               "open_udp_ports": "^(\\d+)/udp\\s+open\\s"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "cde_scope": {
+              "iface_4_cde_scope": {
                 "type": "file"
               }
             },
@@ -1382,14 +1382,14 @@
           {
             "name": "iface_4 -> non_cde_scope: Host Discovery",
             "description": "Multi-probe discovery (ICMP echo/timestamp, TCP SYN/ACK, UDP) toward non-CDE in-scope (connected-to / security-impacting) via iface_4.",
-            "command_template": "nmap -e {iface_4} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {non_cde_scope}",
+            "command_template": "nmap -e {iface_4} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_4_non_cde_scope}",
             "output_regex": {
               "alive_hosts": "Nmap scan report for (\\b(?:(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\b)"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "non_cde_scope": {
+              "iface_4_non_cde_scope": {
                 "type": "file"
               }
             },
@@ -1424,14 +1424,14 @@
           {
             "name": "iface_4 -> non_cde_scope: Full TCP Port Scan",
             "description": "All 65535 TCP ports toward non-CDE in-scope (connected-to / security-impacting) via iface_4, -Pn so ICMP filtering cannot hide hosts.",
-            "command_template": "nmap -e {iface_4} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {non_cde_scope}",
+            "command_template": "nmap -e {iface_4} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {iface_4_non_cde_scope}",
             "output_regex": {
               "open_ports": "^(\\d+)/tcp\\s+open\\s"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "non_cde_scope": {
+              "iface_4_non_cde_scope": {
                 "type": "file"
               }
             },
@@ -1466,14 +1466,14 @@
           {
             "name": "iface_4 -> non_cde_scope: Top UDP Port Scan",
             "description": "Top 200 UDP ports toward non-CDE in-scope (connected-to / security-impacting) via iface_4. Only 'open' (not open|filtered) is flagged.",
-            "command_template": "nmap -e {iface_4} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {non_cde_scope}",
+            "command_template": "nmap -e {iface_4} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {iface_4_non_cde_scope}",
             "output_regex": {
               "open_udp_ports": "^(\\d+)/udp\\s+open\\s"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "non_cde_scope": {
+              "iface_4_non_cde_scope": {
                 "type": "file"
               }
             },
@@ -1508,14 +1508,14 @@
           {
             "name": "iface_4 -> out_of_scope: Host Discovery",
             "description": "Multi-probe discovery (ICMP echo/timestamp, TCP SYN/ACK, UDP) toward out-of-scope (no CDE access, no security impact) via iface_4.",
-            "command_template": "nmap -e {iface_4} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {out_of_scope}",
+            "command_template": "nmap -e {iface_4} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_4_out_of_scope}",
             "output_regex": {
               "alive_hosts": "Nmap scan report for (\\b(?:(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\b)"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "out_of_scope": {
+              "iface_4_out_of_scope": {
                 "type": "file"
               }
             },
@@ -1550,14 +1550,14 @@
           {
             "name": "iface_4 -> out_of_scope: Full TCP Port Scan",
             "description": "All 65535 TCP ports toward out-of-scope (no CDE access, no security impact) via iface_4, -Pn so ICMP filtering cannot hide hosts.",
-            "command_template": "nmap -e {iface_4} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {out_of_scope}",
+            "command_template": "nmap -e {iface_4} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {iface_4_out_of_scope}",
             "output_regex": {
               "open_ports": "^(\\d+)/tcp\\s+open\\s"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "out_of_scope": {
+              "iface_4_out_of_scope": {
                 "type": "file"
               }
             },
@@ -1592,14 +1592,14 @@
           {
             "name": "iface_4 -> out_of_scope: Top UDP Port Scan",
             "description": "Top 200 UDP ports toward out-of-scope (no CDE access, no security impact) via iface_4. Only 'open' (not open|filtered) is flagged.",
-            "command_template": "nmap -e {iface_4} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {out_of_scope}",
+            "command_template": "nmap -e {iface_4} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {iface_4_out_of_scope}",
             "output_regex": {
               "open_udp_ports": "^(\\d+)/udp\\s+open\\s"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "out_of_scope": {
+              "iface_4_out_of_scope": {
                 "type": "file"
               }
             },
@@ -1635,7 +1635,7 @@
       },
       {
         "name": "PCI Segmentation — iface_5",
-        "description": "PCI DSS 11.4.5 (annual, all entities) / 11.4.6 (every 6 months, service providers): enumerate every direction from the segment behind adapter {iface_5} to cde_scope, non_cde_scope and out_of_scope. Expected: CDE <-> out_of_scope fully blocked (any open = 11.4.5 failure); CDE <-> non_cde_scope only approved ports (Req 1.2.5); same-zone and non_cde <-> out_of_scope = enumeration/evidence. Requires root or nmap raw-socket capabilities (-e, -sS, -sU).",
+        "description": "PCI DSS 11.4.5 (annual, all entities) / 11.4.6 (every 6 months, service providers): enumerate every direction from the segment behind adapter {iface_5} to its own target lists iface_5_cde_scope, iface_5_non_cde_scope and iface_5_out_of_scope (what is reachable differs per segment/VLAN). Expected: CDE <-> out_of_scope fully blocked (any open = 11.4.5 failure); CDE <-> non_cde_scope only approved ports (Req 1.2.5); same-zone and non_cde <-> out_of_scope = enumeration/evidence. Requires root or nmap raw-socket capabilities (-e, -sS, -sU).",
         "is_default_import": false,
         "requires_auth": false,
         "speed_profile": "default",
@@ -1664,14 +1664,14 @@
           {
             "name": "iface_5 -> cde_scope: Host Discovery",
             "description": "Multi-probe discovery (ICMP echo/timestamp, TCP SYN/ACK, UDP) toward CDE (stores/processes/transmits CHD + same-segment systems) via iface_5.",
-            "command_template": "nmap -e {iface_5} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {cde_scope}",
+            "command_template": "nmap -e {iface_5} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_5_cde_scope}",
             "output_regex": {
               "alive_hosts": "Nmap scan report for (\\b(?:(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\b)"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "cde_scope": {
+              "iface_5_cde_scope": {
                 "type": "file"
               }
             },
@@ -1706,14 +1706,14 @@
           {
             "name": "iface_5 -> cde_scope: Full TCP Port Scan",
             "description": "All 65535 TCP ports toward CDE (stores/processes/transmits CHD + same-segment systems) via iface_5, -Pn so ICMP filtering cannot hide hosts.",
-            "command_template": "nmap -e {iface_5} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {cde_scope}",
+            "command_template": "nmap -e {iface_5} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {iface_5_cde_scope}",
             "output_regex": {
               "open_ports": "^(\\d+)/tcp\\s+open\\s"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "cde_scope": {
+              "iface_5_cde_scope": {
                 "type": "file"
               }
             },
@@ -1748,14 +1748,14 @@
           {
             "name": "iface_5 -> cde_scope: Top UDP Port Scan",
             "description": "Top 200 UDP ports toward CDE (stores/processes/transmits CHD + same-segment systems) via iface_5. Only 'open' (not open|filtered) is flagged.",
-            "command_template": "nmap -e {iface_5} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {cde_scope}",
+            "command_template": "nmap -e {iface_5} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {iface_5_cde_scope}",
             "output_regex": {
               "open_udp_ports": "^(\\d+)/udp\\s+open\\s"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "cde_scope": {
+              "iface_5_cde_scope": {
                 "type": "file"
               }
             },
@@ -1790,14 +1790,14 @@
           {
             "name": "iface_5 -> non_cde_scope: Host Discovery",
             "description": "Multi-probe discovery (ICMP echo/timestamp, TCP SYN/ACK, UDP) toward non-CDE in-scope (connected-to / security-impacting) via iface_5.",
-            "command_template": "nmap -e {iface_5} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {non_cde_scope}",
+            "command_template": "nmap -e {iface_5} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_5_non_cde_scope}",
             "output_regex": {
               "alive_hosts": "Nmap scan report for (\\b(?:(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\b)"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "non_cde_scope": {
+              "iface_5_non_cde_scope": {
                 "type": "file"
               }
             },
@@ -1832,14 +1832,14 @@
           {
             "name": "iface_5 -> non_cde_scope: Full TCP Port Scan",
             "description": "All 65535 TCP ports toward non-CDE in-scope (connected-to / security-impacting) via iface_5, -Pn so ICMP filtering cannot hide hosts.",
-            "command_template": "nmap -e {iface_5} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {non_cde_scope}",
+            "command_template": "nmap -e {iface_5} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {iface_5_non_cde_scope}",
             "output_regex": {
               "open_ports": "^(\\d+)/tcp\\s+open\\s"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "non_cde_scope": {
+              "iface_5_non_cde_scope": {
                 "type": "file"
               }
             },
@@ -1874,14 +1874,14 @@
           {
             "name": "iface_5 -> non_cde_scope: Top UDP Port Scan",
             "description": "Top 200 UDP ports toward non-CDE in-scope (connected-to / security-impacting) via iface_5. Only 'open' (not open|filtered) is flagged.",
-            "command_template": "nmap -e {iface_5} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {non_cde_scope}",
+            "command_template": "nmap -e {iface_5} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {iface_5_non_cde_scope}",
             "output_regex": {
               "open_udp_ports": "^(\\d+)/udp\\s+open\\s"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "non_cde_scope": {
+              "iface_5_non_cde_scope": {
                 "type": "file"
               }
             },
@@ -1916,14 +1916,14 @@
           {
             "name": "iface_5 -> out_of_scope: Host Discovery",
             "description": "Multi-probe discovery (ICMP echo/timestamp, TCP SYN/ACK, UDP) toward out-of-scope (no CDE access, no security impact) via iface_5.",
-            "command_template": "nmap -e {iface_5} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {out_of_scope}",
+            "command_template": "nmap -e {iface_5} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_5_out_of_scope}",
             "output_regex": {
               "alive_hosts": "Nmap scan report for (\\b(?:(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\b)"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "out_of_scope": {
+              "iface_5_out_of_scope": {
                 "type": "file"
               }
             },
@@ -1958,14 +1958,14 @@
           {
             "name": "iface_5 -> out_of_scope: Full TCP Port Scan",
             "description": "All 65535 TCP ports toward out-of-scope (no CDE access, no security impact) via iface_5, -Pn so ICMP filtering cannot hide hosts.",
-            "command_template": "nmap -e {iface_5} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {out_of_scope}",
+            "command_template": "nmap -e {iface_5} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {iface_5_out_of_scope}",
             "output_regex": {
               "open_ports": "^(\\d+)/tcp\\s+open\\s"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "out_of_scope": {
+              "iface_5_out_of_scope": {
                 "type": "file"
               }
             },
@@ -2000,14 +2000,14 @@
           {
             "name": "iface_5 -> out_of_scope: Top UDP Port Scan",
             "description": "Top 200 UDP ports toward out-of-scope (no CDE access, no security impact) via iface_5. Only 'open' (not open|filtered) is flagged.",
-            "command_template": "nmap -e {iface_5} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {out_of_scope}",
+            "command_template": "nmap -e {iface_5} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {iface_5_out_of_scope}",
             "output_regex": {
               "open_udp_ports": "^(\\d+)/udp\\s+open\\s"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "out_of_scope": {
+              "iface_5_out_of_scope": {
                 "type": "file"
               }
             },
@@ -2043,7 +2043,7 @@
       },
       {
         "name": "PCI Segmentation — iface_6",
-        "description": "PCI DSS 11.4.5 (annual, all entities) / 11.4.6 (every 6 months, service providers): enumerate every direction from the segment behind adapter {iface_6} to cde_scope, non_cde_scope and out_of_scope. Expected: CDE <-> out_of_scope fully blocked (any open = 11.4.5 failure); CDE <-> non_cde_scope only approved ports (Req 1.2.5); same-zone and non_cde <-> out_of_scope = enumeration/evidence. Requires root or nmap raw-socket capabilities (-e, -sS, -sU).",
+        "description": "PCI DSS 11.4.5 (annual, all entities) / 11.4.6 (every 6 months, service providers): enumerate every direction from the segment behind adapter {iface_6} to its own target lists iface_6_cde_scope, iface_6_non_cde_scope and iface_6_out_of_scope (what is reachable differs per segment/VLAN). Expected: CDE <-> out_of_scope fully blocked (any open = 11.4.5 failure); CDE <-> non_cde_scope only approved ports (Req 1.2.5); same-zone and non_cde <-> out_of_scope = enumeration/evidence. Requires root or nmap raw-socket capabilities (-e, -sS, -sU).",
         "is_default_import": false,
         "requires_auth": false,
         "speed_profile": "default",
@@ -2072,14 +2072,14 @@
           {
             "name": "iface_6 -> cde_scope: Host Discovery",
             "description": "Multi-probe discovery (ICMP echo/timestamp, TCP SYN/ACK, UDP) toward CDE (stores/processes/transmits CHD + same-segment systems) via iface_6.",
-            "command_template": "nmap -e {iface_6} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {cde_scope}",
+            "command_template": "nmap -e {iface_6} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_6_cde_scope}",
             "output_regex": {
               "alive_hosts": "Nmap scan report for (\\b(?:(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\b)"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "cde_scope": {
+              "iface_6_cde_scope": {
                 "type": "file"
               }
             },
@@ -2114,14 +2114,14 @@
           {
             "name": "iface_6 -> cde_scope: Full TCP Port Scan",
             "description": "All 65535 TCP ports toward CDE (stores/processes/transmits CHD + same-segment systems) via iface_6, -Pn so ICMP filtering cannot hide hosts.",
-            "command_template": "nmap -e {iface_6} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {cde_scope}",
+            "command_template": "nmap -e {iface_6} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {iface_6_cde_scope}",
             "output_regex": {
               "open_ports": "^(\\d+)/tcp\\s+open\\s"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "cde_scope": {
+              "iface_6_cde_scope": {
                 "type": "file"
               }
             },
@@ -2156,14 +2156,14 @@
           {
             "name": "iface_6 -> cde_scope: Top UDP Port Scan",
             "description": "Top 200 UDP ports toward CDE (stores/processes/transmits CHD + same-segment systems) via iface_6. Only 'open' (not open|filtered) is flagged.",
-            "command_template": "nmap -e {iface_6} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {cde_scope}",
+            "command_template": "nmap -e {iface_6} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {iface_6_cde_scope}",
             "output_regex": {
               "open_udp_ports": "^(\\d+)/udp\\s+open\\s"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "cde_scope": {
+              "iface_6_cde_scope": {
                 "type": "file"
               }
             },
@@ -2198,14 +2198,14 @@
           {
             "name": "iface_6 -> non_cde_scope: Host Discovery",
             "description": "Multi-probe discovery (ICMP echo/timestamp, TCP SYN/ACK, UDP) toward non-CDE in-scope (connected-to / security-impacting) via iface_6.",
-            "command_template": "nmap -e {iface_6} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {non_cde_scope}",
+            "command_template": "nmap -e {iface_6} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_6_non_cde_scope}",
             "output_regex": {
               "alive_hosts": "Nmap scan report for (\\b(?:(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\b)"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "non_cde_scope": {
+              "iface_6_non_cde_scope": {
                 "type": "file"
               }
             },
@@ -2240,14 +2240,14 @@
           {
             "name": "iface_6 -> non_cde_scope: Full TCP Port Scan",
             "description": "All 65535 TCP ports toward non-CDE in-scope (connected-to / security-impacting) via iface_6, -Pn so ICMP filtering cannot hide hosts.",
-            "command_template": "nmap -e {iface_6} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {non_cde_scope}",
+            "command_template": "nmap -e {iface_6} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {iface_6_non_cde_scope}",
             "output_regex": {
               "open_ports": "^(\\d+)/tcp\\s+open\\s"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "non_cde_scope": {
+              "iface_6_non_cde_scope": {
                 "type": "file"
               }
             },
@@ -2282,14 +2282,14 @@
           {
             "name": "iface_6 -> non_cde_scope: Top UDP Port Scan",
             "description": "Top 200 UDP ports toward non-CDE in-scope (connected-to / security-impacting) via iface_6. Only 'open' (not open|filtered) is flagged.",
-            "command_template": "nmap -e {iface_6} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {non_cde_scope}",
+            "command_template": "nmap -e {iface_6} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {iface_6_non_cde_scope}",
             "output_regex": {
               "open_udp_ports": "^(\\d+)/udp\\s+open\\s"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "non_cde_scope": {
+              "iface_6_non_cde_scope": {
                 "type": "file"
               }
             },
@@ -2324,14 +2324,14 @@
           {
             "name": "iface_6 -> out_of_scope: Host Discovery",
             "description": "Multi-probe discovery (ICMP echo/timestamp, TCP SYN/ACK, UDP) toward out-of-scope (no CDE access, no security impact) via iface_6.",
-            "command_template": "nmap -e {iface_6} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {out_of_scope}",
+            "command_template": "nmap -e {iface_6} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_6_out_of_scope}",
             "output_regex": {
               "alive_hosts": "Nmap scan report for (\\b(?:(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\b)"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "out_of_scope": {
+              "iface_6_out_of_scope": {
                 "type": "file"
               }
             },
@@ -2366,14 +2366,14 @@
           {
             "name": "iface_6 -> out_of_scope: Full TCP Port Scan",
             "description": "All 65535 TCP ports toward out-of-scope (no CDE access, no security impact) via iface_6, -Pn so ICMP filtering cannot hide hosts.",
-            "command_template": "nmap -e {iface_6} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {out_of_scope}",
+            "command_template": "nmap -e {iface_6} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {iface_6_out_of_scope}",
             "output_regex": {
               "open_ports": "^(\\d+)/tcp\\s+open\\s"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "out_of_scope": {
+              "iface_6_out_of_scope": {
                 "type": "file"
               }
             },
@@ -2408,14 +2408,14 @@
           {
             "name": "iface_6 -> out_of_scope: Top UDP Port Scan",
             "description": "Top 200 UDP ports toward out-of-scope (no CDE access, no security impact) via iface_6. Only 'open' (not open|filtered) is flagged.",
-            "command_template": "nmap -e {iface_6} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {out_of_scope}",
+            "command_template": "nmap -e {iface_6} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {iface_6_out_of_scope}",
             "output_regex": {
               "open_udp_ports": "^(\\d+)/udp\\s+open\\s"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "out_of_scope": {
+              "iface_6_out_of_scope": {
                 "type": "file"
               }
             },
@@ -2451,7 +2451,7 @@
       },
       {
         "name": "PCI Segmentation — iface_7",
-        "description": "PCI DSS 11.4.5 (annual, all entities) / 11.4.6 (every 6 months, service providers): enumerate every direction from the segment behind adapter {iface_7} to cde_scope, non_cde_scope and out_of_scope. Expected: CDE <-> out_of_scope fully blocked (any open = 11.4.5 failure); CDE <-> non_cde_scope only approved ports (Req 1.2.5); same-zone and non_cde <-> out_of_scope = enumeration/evidence. Requires root or nmap raw-socket capabilities (-e, -sS, -sU).",
+        "description": "PCI DSS 11.4.5 (annual, all entities) / 11.4.6 (every 6 months, service providers): enumerate every direction from the segment behind adapter {iface_7} to its own target lists iface_7_cde_scope, iface_7_non_cde_scope and iface_7_out_of_scope (what is reachable differs per segment/VLAN). Expected: CDE <-> out_of_scope fully blocked (any open = 11.4.5 failure); CDE <-> non_cde_scope only approved ports (Req 1.2.5); same-zone and non_cde <-> out_of_scope = enumeration/evidence. Requires root or nmap raw-socket capabilities (-e, -sS, -sU).",
         "is_default_import": false,
         "requires_auth": false,
         "speed_profile": "default",
@@ -2480,14 +2480,14 @@
           {
             "name": "iface_7 -> cde_scope: Host Discovery",
             "description": "Multi-probe discovery (ICMP echo/timestamp, TCP SYN/ACK, UDP) toward CDE (stores/processes/transmits CHD + same-segment systems) via iface_7.",
-            "command_template": "nmap -e {iface_7} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {cde_scope}",
+            "command_template": "nmap -e {iface_7} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_7_cde_scope}",
             "output_regex": {
               "alive_hosts": "Nmap scan report for (\\b(?:(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\b)"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "cde_scope": {
+              "iface_7_cde_scope": {
                 "type": "file"
               }
             },
@@ -2522,14 +2522,14 @@
           {
             "name": "iface_7 -> cde_scope: Full TCP Port Scan",
             "description": "All 65535 TCP ports toward CDE (stores/processes/transmits CHD + same-segment systems) via iface_7, -Pn so ICMP filtering cannot hide hosts.",
-            "command_template": "nmap -e {iface_7} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {cde_scope}",
+            "command_template": "nmap -e {iface_7} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {iface_7_cde_scope}",
             "output_regex": {
               "open_ports": "^(\\d+)/tcp\\s+open\\s"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "cde_scope": {
+              "iface_7_cde_scope": {
                 "type": "file"
               }
             },
@@ -2564,14 +2564,14 @@
           {
             "name": "iface_7 -> cde_scope: Top UDP Port Scan",
             "description": "Top 200 UDP ports toward CDE (stores/processes/transmits CHD + same-segment systems) via iface_7. Only 'open' (not open|filtered) is flagged.",
-            "command_template": "nmap -e {iface_7} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {cde_scope}",
+            "command_template": "nmap -e {iface_7} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {iface_7_cde_scope}",
             "output_regex": {
               "open_udp_ports": "^(\\d+)/udp\\s+open\\s"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "cde_scope": {
+              "iface_7_cde_scope": {
                 "type": "file"
               }
             },
@@ -2606,14 +2606,14 @@
           {
             "name": "iface_7 -> non_cde_scope: Host Discovery",
             "description": "Multi-probe discovery (ICMP echo/timestamp, TCP SYN/ACK, UDP) toward non-CDE in-scope (connected-to / security-impacting) via iface_7.",
-            "command_template": "nmap -e {iface_7} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {non_cde_scope}",
+            "command_template": "nmap -e {iface_7} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_7_non_cde_scope}",
             "output_regex": {
               "alive_hosts": "Nmap scan report for (\\b(?:(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\b)"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "non_cde_scope": {
+              "iface_7_non_cde_scope": {
                 "type": "file"
               }
             },
@@ -2648,14 +2648,14 @@
           {
             "name": "iface_7 -> non_cde_scope: Full TCP Port Scan",
             "description": "All 65535 TCP ports toward non-CDE in-scope (connected-to / security-impacting) via iface_7, -Pn so ICMP filtering cannot hide hosts.",
-            "command_template": "nmap -e {iface_7} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {non_cde_scope}",
+            "command_template": "nmap -e {iface_7} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {iface_7_non_cde_scope}",
             "output_regex": {
               "open_ports": "^(\\d+)/tcp\\s+open\\s"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "non_cde_scope": {
+              "iface_7_non_cde_scope": {
                 "type": "file"
               }
             },
@@ -2690,14 +2690,14 @@
           {
             "name": "iface_7 -> non_cde_scope: Top UDP Port Scan",
             "description": "Top 200 UDP ports toward non-CDE in-scope (connected-to / security-impacting) via iface_7. Only 'open' (not open|filtered) is flagged.",
-            "command_template": "nmap -e {iface_7} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {non_cde_scope}",
+            "command_template": "nmap -e {iface_7} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {iface_7_non_cde_scope}",
             "output_regex": {
               "open_udp_ports": "^(\\d+)/udp\\s+open\\s"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "non_cde_scope": {
+              "iface_7_non_cde_scope": {
                 "type": "file"
               }
             },
@@ -2732,14 +2732,14 @@
           {
             "name": "iface_7 -> out_of_scope: Host Discovery",
             "description": "Multi-probe discovery (ICMP echo/timestamp, TCP SYN/ACK, UDP) toward out-of-scope (no CDE access, no security impact) via iface_7.",
-            "command_template": "nmap -e {iface_7} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {out_of_scope}",
+            "command_template": "nmap -e {iface_7} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_7_out_of_scope}",
             "output_regex": {
               "alive_hosts": "Nmap scan report for (\\b(?:(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\b)"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "out_of_scope": {
+              "iface_7_out_of_scope": {
                 "type": "file"
               }
             },
@@ -2774,14 +2774,14 @@
           {
             "name": "iface_7 -> out_of_scope: Full TCP Port Scan",
             "description": "All 65535 TCP ports toward out-of-scope (no CDE access, no security impact) via iface_7, -Pn so ICMP filtering cannot hide hosts.",
-            "command_template": "nmap -e {iface_7} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {out_of_scope}",
+            "command_template": "nmap -e {iface_7} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {iface_7_out_of_scope}",
             "output_regex": {
               "open_ports": "^(\\d+)/tcp\\s+open\\s"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "out_of_scope": {
+              "iface_7_out_of_scope": {
                 "type": "file"
               }
             },
@@ -2816,14 +2816,14 @@
           {
             "name": "iface_7 -> out_of_scope: Top UDP Port Scan",
             "description": "Top 200 UDP ports toward out-of-scope (no CDE access, no security impact) via iface_7. Only 'open' (not open|filtered) is flagged.",
-            "command_template": "nmap -e {iface_7} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {out_of_scope}",
+            "command_template": "nmap -e {iface_7} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {iface_7_out_of_scope}",
             "output_regex": {
               "open_udp_ports": "^(\\d+)/udp\\s+open\\s"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "out_of_scope": {
+              "iface_7_out_of_scope": {
                 "type": "file"
               }
             },
@@ -2859,7 +2859,7 @@
       },
       {
         "name": "PCI Segmentation — iface_8",
-        "description": "PCI DSS 11.4.5 (annual, all entities) / 11.4.6 (every 6 months, service providers): enumerate every direction from the segment behind adapter {iface_8} to cde_scope, non_cde_scope and out_of_scope. Expected: CDE <-> out_of_scope fully blocked (any open = 11.4.5 failure); CDE <-> non_cde_scope only approved ports (Req 1.2.5); same-zone and non_cde <-> out_of_scope = enumeration/evidence. Requires root or nmap raw-socket capabilities (-e, -sS, -sU).",
+        "description": "PCI DSS 11.4.5 (annual, all entities) / 11.4.6 (every 6 months, service providers): enumerate every direction from the segment behind adapter {iface_8} to its own target lists iface_8_cde_scope, iface_8_non_cde_scope and iface_8_out_of_scope (what is reachable differs per segment/VLAN). Expected: CDE <-> out_of_scope fully blocked (any open = 11.4.5 failure); CDE <-> non_cde_scope only approved ports (Req 1.2.5); same-zone and non_cde <-> out_of_scope = enumeration/evidence. Requires root or nmap raw-socket capabilities (-e, -sS, -sU).",
         "is_default_import": false,
         "requires_auth": false,
         "speed_profile": "default",
@@ -2888,14 +2888,14 @@
           {
             "name": "iface_8 -> cde_scope: Host Discovery",
             "description": "Multi-probe discovery (ICMP echo/timestamp, TCP SYN/ACK, UDP) toward CDE (stores/processes/transmits CHD + same-segment systems) via iface_8.",
-            "command_template": "nmap -e {iface_8} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {cde_scope}",
+            "command_template": "nmap -e {iface_8} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_8_cde_scope}",
             "output_regex": {
               "alive_hosts": "Nmap scan report for (\\b(?:(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\b)"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "cde_scope": {
+              "iface_8_cde_scope": {
                 "type": "file"
               }
             },
@@ -2930,14 +2930,14 @@
           {
             "name": "iface_8 -> cde_scope: Full TCP Port Scan",
             "description": "All 65535 TCP ports toward CDE (stores/processes/transmits CHD + same-segment systems) via iface_8, -Pn so ICMP filtering cannot hide hosts.",
-            "command_template": "nmap -e {iface_8} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {cde_scope}",
+            "command_template": "nmap -e {iface_8} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {iface_8_cde_scope}",
             "output_regex": {
               "open_ports": "^(\\d+)/tcp\\s+open\\s"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "cde_scope": {
+              "iface_8_cde_scope": {
                 "type": "file"
               }
             },
@@ -2972,14 +2972,14 @@
           {
             "name": "iface_8 -> cde_scope: Top UDP Port Scan",
             "description": "Top 200 UDP ports toward CDE (stores/processes/transmits CHD + same-segment systems) via iface_8. Only 'open' (not open|filtered) is flagged.",
-            "command_template": "nmap -e {iface_8} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {cde_scope}",
+            "command_template": "nmap -e {iface_8} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {iface_8_cde_scope}",
             "output_regex": {
               "open_udp_ports": "^(\\d+)/udp\\s+open\\s"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "cde_scope": {
+              "iface_8_cde_scope": {
                 "type": "file"
               }
             },
@@ -3014,14 +3014,14 @@
           {
             "name": "iface_8 -> non_cde_scope: Host Discovery",
             "description": "Multi-probe discovery (ICMP echo/timestamp, TCP SYN/ACK, UDP) toward non-CDE in-scope (connected-to / security-impacting) via iface_8.",
-            "command_template": "nmap -e {iface_8} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {non_cde_scope}",
+            "command_template": "nmap -e {iface_8} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_8_non_cde_scope}",
             "output_regex": {
               "alive_hosts": "Nmap scan report for (\\b(?:(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\b)"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "non_cde_scope": {
+              "iface_8_non_cde_scope": {
                 "type": "file"
               }
             },
@@ -3056,14 +3056,14 @@
           {
             "name": "iface_8 -> non_cde_scope: Full TCP Port Scan",
             "description": "All 65535 TCP ports toward non-CDE in-scope (connected-to / security-impacting) via iface_8, -Pn so ICMP filtering cannot hide hosts.",
-            "command_template": "nmap -e {iface_8} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {non_cde_scope}",
+            "command_template": "nmap -e {iface_8} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {iface_8_non_cde_scope}",
             "output_regex": {
               "open_ports": "^(\\d+)/tcp\\s+open\\s"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "non_cde_scope": {
+              "iface_8_non_cde_scope": {
                 "type": "file"
               }
             },
@@ -3098,14 +3098,14 @@
           {
             "name": "iface_8 -> non_cde_scope: Top UDP Port Scan",
             "description": "Top 200 UDP ports toward non-CDE in-scope (connected-to / security-impacting) via iface_8. Only 'open' (not open|filtered) is flagged.",
-            "command_template": "nmap -e {iface_8} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {non_cde_scope}",
+            "command_template": "nmap -e {iface_8} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {iface_8_non_cde_scope}",
             "output_regex": {
               "open_udp_ports": "^(\\d+)/udp\\s+open\\s"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "non_cde_scope": {
+              "iface_8_non_cde_scope": {
                 "type": "file"
               }
             },
@@ -3140,14 +3140,14 @@
           {
             "name": "iface_8 -> out_of_scope: Host Discovery",
             "description": "Multi-probe discovery (ICMP echo/timestamp, TCP SYN/ACK, UDP) toward out-of-scope (no CDE access, no security impact) via iface_8.",
-            "command_template": "nmap -e {iface_8} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {out_of_scope}",
+            "command_template": "nmap -e {iface_8} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_8_out_of_scope}",
             "output_regex": {
               "alive_hosts": "Nmap scan report for (\\b(?:(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\b)"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "out_of_scope": {
+              "iface_8_out_of_scope": {
                 "type": "file"
               }
             },
@@ -3182,14 +3182,14 @@
           {
             "name": "iface_8 -> out_of_scope: Full TCP Port Scan",
             "description": "All 65535 TCP ports toward out-of-scope (no CDE access, no security impact) via iface_8, -Pn so ICMP filtering cannot hide hosts.",
-            "command_template": "nmap -e {iface_8} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {out_of_scope}",
+            "command_template": "nmap -e {iface_8} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {iface_8_out_of_scope}",
             "output_regex": {
               "open_ports": "^(\\d+)/tcp\\s+open\\s"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "out_of_scope": {
+              "iface_8_out_of_scope": {
                 "type": "file"
               }
             },
@@ -3224,14 +3224,14 @@
           {
             "name": "iface_8 -> out_of_scope: Top UDP Port Scan",
             "description": "Top 200 UDP ports toward out-of-scope (no CDE access, no security impact) via iface_8. Only 'open' (not open|filtered) is flagged.",
-            "command_template": "nmap -e {iface_8} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {out_of_scope}",
+            "command_template": "nmap -e {iface_8} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {iface_8_out_of_scope}",
             "output_regex": {
               "open_udp_ports": "^(\\d+)/udp\\s+open\\s"
             },
             "input_definitions": {},
             "storage_policy": {},
             "parameter_schema": {
-              "out_of_scope": {
+              "iface_8_out_of_scope": {
                 "type": "file"
               }
             },
@@ -3786,6 +3786,174 @@
         "value": "eth7",
         "var_type": "string",
         "description": "PCI segmentation test adapter #8 (one adapter per source segment/VLAN)",
+        "is_default_import": false
+      },
+      {
+        "key": "iface_1_cde_scope",
+        "value": "",
+        "var_type": "file",
+        "description": "Targets for adapter iface_1 -> CDE (stores/processes/transmits CHD + same-segment systems) (one IP/CIDR per line)",
+        "is_default_import": false
+      },
+      {
+        "key": "iface_1_non_cde_scope",
+        "value": "",
+        "var_type": "file",
+        "description": "Targets for adapter iface_1 -> non-CDE in-scope (connected-to / security-impacting) (one IP/CIDR per line)",
+        "is_default_import": false
+      },
+      {
+        "key": "iface_1_out_of_scope",
+        "value": "",
+        "var_type": "file",
+        "description": "Targets for adapter iface_1 -> out-of-scope (no CDE access, no security impact) (one IP/CIDR per line)",
+        "is_default_import": false
+      },
+      {
+        "key": "iface_2_cde_scope",
+        "value": "",
+        "var_type": "file",
+        "description": "Targets for adapter iface_2 -> CDE (stores/processes/transmits CHD + same-segment systems) (one IP/CIDR per line)",
+        "is_default_import": false
+      },
+      {
+        "key": "iface_2_non_cde_scope",
+        "value": "",
+        "var_type": "file",
+        "description": "Targets for adapter iface_2 -> non-CDE in-scope (connected-to / security-impacting) (one IP/CIDR per line)",
+        "is_default_import": false
+      },
+      {
+        "key": "iface_2_out_of_scope",
+        "value": "",
+        "var_type": "file",
+        "description": "Targets for adapter iface_2 -> out-of-scope (no CDE access, no security impact) (one IP/CIDR per line)",
+        "is_default_import": false
+      },
+      {
+        "key": "iface_3_cde_scope",
+        "value": "",
+        "var_type": "file",
+        "description": "Targets for adapter iface_3 -> CDE (stores/processes/transmits CHD + same-segment systems) (one IP/CIDR per line)",
+        "is_default_import": false
+      },
+      {
+        "key": "iface_3_non_cde_scope",
+        "value": "",
+        "var_type": "file",
+        "description": "Targets for adapter iface_3 -> non-CDE in-scope (connected-to / security-impacting) (one IP/CIDR per line)",
+        "is_default_import": false
+      },
+      {
+        "key": "iface_3_out_of_scope",
+        "value": "",
+        "var_type": "file",
+        "description": "Targets for adapter iface_3 -> out-of-scope (no CDE access, no security impact) (one IP/CIDR per line)",
+        "is_default_import": false
+      },
+      {
+        "key": "iface_4_cde_scope",
+        "value": "",
+        "var_type": "file",
+        "description": "Targets for adapter iface_4 -> CDE (stores/processes/transmits CHD + same-segment systems) (one IP/CIDR per line)",
+        "is_default_import": false
+      },
+      {
+        "key": "iface_4_non_cde_scope",
+        "value": "",
+        "var_type": "file",
+        "description": "Targets for adapter iface_4 -> non-CDE in-scope (connected-to / security-impacting) (one IP/CIDR per line)",
+        "is_default_import": false
+      },
+      {
+        "key": "iface_4_out_of_scope",
+        "value": "",
+        "var_type": "file",
+        "description": "Targets for adapter iface_4 -> out-of-scope (no CDE access, no security impact) (one IP/CIDR per line)",
+        "is_default_import": false
+      },
+      {
+        "key": "iface_5_cde_scope",
+        "value": "",
+        "var_type": "file",
+        "description": "Targets for adapter iface_5 -> CDE (stores/processes/transmits CHD + same-segment systems) (one IP/CIDR per line)",
+        "is_default_import": false
+      },
+      {
+        "key": "iface_5_non_cde_scope",
+        "value": "",
+        "var_type": "file",
+        "description": "Targets for adapter iface_5 -> non-CDE in-scope (connected-to / security-impacting) (one IP/CIDR per line)",
+        "is_default_import": false
+      },
+      {
+        "key": "iface_5_out_of_scope",
+        "value": "",
+        "var_type": "file",
+        "description": "Targets for adapter iface_5 -> out-of-scope (no CDE access, no security impact) (one IP/CIDR per line)",
+        "is_default_import": false
+      },
+      {
+        "key": "iface_6_cde_scope",
+        "value": "",
+        "var_type": "file",
+        "description": "Targets for adapter iface_6 -> CDE (stores/processes/transmits CHD + same-segment systems) (one IP/CIDR per line)",
+        "is_default_import": false
+      },
+      {
+        "key": "iface_6_non_cde_scope",
+        "value": "",
+        "var_type": "file",
+        "description": "Targets for adapter iface_6 -> non-CDE in-scope (connected-to / security-impacting) (one IP/CIDR per line)",
+        "is_default_import": false
+      },
+      {
+        "key": "iface_6_out_of_scope",
+        "value": "",
+        "var_type": "file",
+        "description": "Targets for adapter iface_6 -> out-of-scope (no CDE access, no security impact) (one IP/CIDR per line)",
+        "is_default_import": false
+      },
+      {
+        "key": "iface_7_cde_scope",
+        "value": "",
+        "var_type": "file",
+        "description": "Targets for adapter iface_7 -> CDE (stores/processes/transmits CHD + same-segment systems) (one IP/CIDR per line)",
+        "is_default_import": false
+      },
+      {
+        "key": "iface_7_non_cde_scope",
+        "value": "",
+        "var_type": "file",
+        "description": "Targets for adapter iface_7 -> non-CDE in-scope (connected-to / security-impacting) (one IP/CIDR per line)",
+        "is_default_import": false
+      },
+      {
+        "key": "iface_7_out_of_scope",
+        "value": "",
+        "var_type": "file",
+        "description": "Targets for adapter iface_7 -> out-of-scope (no CDE access, no security impact) (one IP/CIDR per line)",
+        "is_default_import": false
+      },
+      {
+        "key": "iface_8_cde_scope",
+        "value": "",
+        "var_type": "file",
+        "description": "Targets for adapter iface_8 -> CDE (stores/processes/transmits CHD + same-segment systems) (one IP/CIDR per line)",
+        "is_default_import": false
+      },
+      {
+        "key": "iface_8_non_cde_scope",
+        "value": "",
+        "var_type": "file",
+        "description": "Targets for adapter iface_8 -> non-CDE in-scope (connected-to / security-impacting) (one IP/CIDR per line)",
+        "is_default_import": false
+      },
+      {
+        "key": "iface_8_out_of_scope",
+        "value": "",
+        "var_type": "file",
+        "description": "Targets for adapter iface_8 -> out-of-scope (no CDE access, no security impact) (one IP/CIDR per line)",
         "is_default_import": false
       },
       {
