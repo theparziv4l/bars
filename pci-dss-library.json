@@ -32,7 +32,7 @@
           {
             "name": "iface_1 -> cde_scope: Host Discovery",
             "description": "Multi-probe discovery (ICMP echo/timestamp, TCP SYN/ACK, UDP) toward CDE (stores/processes/transmits CHD + same-segment systems) via iface_1.",
-            "command_template": "nmap -e {iface_1} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_1_cde_scope}",
+            "command_template": "nmap -T {speed} -e {iface_1} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_1_cde_scope}",
             "output_regex": {
               "alive_hosts": "Nmap scan report for (\\b(?:(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\b)"
             },
@@ -74,7 +74,7 @@
           {
             "name": "iface_1 -> cde_scope: Full TCP Port Scan",
             "description": "All 65535 TCP ports toward CDE (stores/processes/transmits CHD + same-segment systems) via iface_1, -Pn so ICMP filtering cannot hide hosts.",
-            "command_template": "nmap -e {iface_1} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {iface_1_cde_scope}",
+            "command_template": "nmap -T {speed} -e {iface_1} -n -Pn -sS -p- --reason --open -iL {iface_1_cde_scope}",
             "output_regex": {
               "open_ports": "^(\\d+)/tcp\\s+open\\s"
             },
@@ -116,7 +116,7 @@
           {
             "name": "iface_1 -> cde_scope: Top UDP Port Scan",
             "description": "Top 200 UDP ports toward CDE (stores/processes/transmits CHD + same-segment systems) via iface_1. Only 'open' (not open|filtered) is flagged.",
-            "command_template": "nmap -e {iface_1} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {iface_1_cde_scope}",
+            "command_template": "nmap -T {speed} -e {iface_1} -n -Pn -sU --top-ports 200 --reason -iL {iface_1_cde_scope}",
             "output_regex": {
               "open_udp_ports": "^(\\d+)/udp\\s+open\\s"
             },
@@ -158,7 +158,7 @@
           {
             "name": "iface_1 -> non_cde_scope: Host Discovery",
             "description": "Multi-probe discovery (ICMP echo/timestamp, TCP SYN/ACK, UDP) toward non-CDE in-scope (connected-to / security-impacting) via iface_1.",
-            "command_template": "nmap -e {iface_1} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_1_non_cde_scope}",
+            "command_template": "nmap -T {speed} -e {iface_1} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_1_non_cde_scope}",
             "output_regex": {
               "alive_hosts": "Nmap scan report for (\\b(?:(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\b)"
             },
@@ -200,7 +200,7 @@
           {
             "name": "iface_1 -> non_cde_scope: Full TCP Port Scan",
             "description": "All 65535 TCP ports toward non-CDE in-scope (connected-to / security-impacting) via iface_1, -Pn so ICMP filtering cannot hide hosts.",
-            "command_template": "nmap -e {iface_1} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {iface_1_non_cde_scope}",
+            "command_template": "nmap -T {speed} -e {iface_1} -n -Pn -sS -p- --reason --open -iL {iface_1_non_cde_scope}",
             "output_regex": {
               "open_ports": "^(\\d+)/tcp\\s+open\\s"
             },
@@ -242,7 +242,7 @@
           {
             "name": "iface_1 -> non_cde_scope: Top UDP Port Scan",
             "description": "Top 200 UDP ports toward non-CDE in-scope (connected-to / security-impacting) via iface_1. Only 'open' (not open|filtered) is flagged.",
-            "command_template": "nmap -e {iface_1} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {iface_1_non_cde_scope}",
+            "command_template": "nmap -T {speed} -e {iface_1} -n -Pn -sU --top-ports 200 --reason -iL {iface_1_non_cde_scope}",
             "output_regex": {
               "open_udp_ports": "^(\\d+)/udp\\s+open\\s"
             },
@@ -284,7 +284,7 @@
           {
             "name": "iface_1 -> out_of_scope: Host Discovery",
             "description": "Multi-probe discovery (ICMP echo/timestamp, TCP SYN/ACK, UDP) toward out-of-scope (no CDE access, no security impact) via iface_1.",
-            "command_template": "nmap -e {iface_1} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_1_out_of_scope}",
+            "command_template": "nmap -T {speed} -e {iface_1} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_1_out_of_scope}",
             "output_regex": {
               "alive_hosts": "Nmap scan report for (\\b(?:(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\b)"
             },
@@ -326,7 +326,7 @@
           {
             "name": "iface_1 -> out_of_scope: Full TCP Port Scan",
             "description": "All 65535 TCP ports toward out-of-scope (no CDE access, no security impact) via iface_1, -Pn so ICMP filtering cannot hide hosts.",
-            "command_template": "nmap -e {iface_1} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {iface_1_out_of_scope}",
+            "command_template": "nmap -T {speed} -e {iface_1} -n -Pn -sS -p- --reason --open -iL {iface_1_out_of_scope}",
             "output_regex": {
               "open_ports": "^(\\d+)/tcp\\s+open\\s"
             },
@@ -368,7 +368,7 @@
           {
             "name": "iface_1 -> out_of_scope: Top UDP Port Scan",
             "description": "Top 200 UDP ports toward out-of-scope (no CDE access, no security impact) via iface_1. Only 'open' (not open|filtered) is flagged.",
-            "command_template": "nmap -e {iface_1} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {iface_1_out_of_scope}",
+            "command_template": "nmap -T {speed} -e {iface_1} -n -Pn -sU --top-ports 200 --reason -iL {iface_1_out_of_scope}",
             "output_regex": {
               "open_udp_ports": "^(\\d+)/udp\\s+open\\s"
             },
@@ -440,7 +440,7 @@
           {
             "name": "iface_2 -> cde_scope: Host Discovery",
             "description": "Multi-probe discovery (ICMP echo/timestamp, TCP SYN/ACK, UDP) toward CDE (stores/processes/transmits CHD + same-segment systems) via iface_2.",
-            "command_template": "nmap -e {iface_2} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_2_cde_scope}",
+            "command_template": "nmap -T {speed} -e {iface_2} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_2_cde_scope}",
             "output_regex": {
               "alive_hosts": "Nmap scan report for (\\b(?:(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\b)"
             },
@@ -482,7 +482,7 @@
           {
             "name": "iface_2 -> cde_scope: Full TCP Port Scan",
             "description": "All 65535 TCP ports toward CDE (stores/processes/transmits CHD + same-segment systems) via iface_2, -Pn so ICMP filtering cannot hide hosts.",
-            "command_template": "nmap -e {iface_2} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {iface_2_cde_scope}",
+            "command_template": "nmap -T {speed} -e {iface_2} -n -Pn -sS -p- --reason --open -iL {iface_2_cde_scope}",
             "output_regex": {
               "open_ports": "^(\\d+)/tcp\\s+open\\s"
             },
@@ -524,7 +524,7 @@
           {
             "name": "iface_2 -> cde_scope: Top UDP Port Scan",
             "description": "Top 200 UDP ports toward CDE (stores/processes/transmits CHD + same-segment systems) via iface_2. Only 'open' (not open|filtered) is flagged.",
-            "command_template": "nmap -e {iface_2} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {iface_2_cde_scope}",
+            "command_template": "nmap -T {speed} -e {iface_2} -n -Pn -sU --top-ports 200 --reason -iL {iface_2_cde_scope}",
             "output_regex": {
               "open_udp_ports": "^(\\d+)/udp\\s+open\\s"
             },
@@ -566,7 +566,7 @@
           {
             "name": "iface_2 -> non_cde_scope: Host Discovery",
             "description": "Multi-probe discovery (ICMP echo/timestamp, TCP SYN/ACK, UDP) toward non-CDE in-scope (connected-to / security-impacting) via iface_2.",
-            "command_template": "nmap -e {iface_2} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_2_non_cde_scope}",
+            "command_template": "nmap -T {speed} -e {iface_2} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_2_non_cde_scope}",
             "output_regex": {
               "alive_hosts": "Nmap scan report for (\\b(?:(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\b)"
             },
@@ -608,7 +608,7 @@
           {
             "name": "iface_2 -> non_cde_scope: Full TCP Port Scan",
             "description": "All 65535 TCP ports toward non-CDE in-scope (connected-to / security-impacting) via iface_2, -Pn so ICMP filtering cannot hide hosts.",
-            "command_template": "nmap -e {iface_2} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {iface_2_non_cde_scope}",
+            "command_template": "nmap -T {speed} -e {iface_2} -n -Pn -sS -p- --reason --open -iL {iface_2_non_cde_scope}",
             "output_regex": {
               "open_ports": "^(\\d+)/tcp\\s+open\\s"
             },
@@ -650,7 +650,7 @@
           {
             "name": "iface_2 -> non_cde_scope: Top UDP Port Scan",
             "description": "Top 200 UDP ports toward non-CDE in-scope (connected-to / security-impacting) via iface_2. Only 'open' (not open|filtered) is flagged.",
-            "command_template": "nmap -e {iface_2} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {iface_2_non_cde_scope}",
+            "command_template": "nmap -T {speed} -e {iface_2} -n -Pn -sU --top-ports 200 --reason -iL {iface_2_non_cde_scope}",
             "output_regex": {
               "open_udp_ports": "^(\\d+)/udp\\s+open\\s"
             },
@@ -692,7 +692,7 @@
           {
             "name": "iface_2 -> out_of_scope: Host Discovery",
             "description": "Multi-probe discovery (ICMP echo/timestamp, TCP SYN/ACK, UDP) toward out-of-scope (no CDE access, no security impact) via iface_2.",
-            "command_template": "nmap -e {iface_2} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_2_out_of_scope}",
+            "command_template": "nmap -T {speed} -e {iface_2} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_2_out_of_scope}",
             "output_regex": {
               "alive_hosts": "Nmap scan report for (\\b(?:(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\b)"
             },
@@ -734,7 +734,7 @@
           {
             "name": "iface_2 -> out_of_scope: Full TCP Port Scan",
             "description": "All 65535 TCP ports toward out-of-scope (no CDE access, no security impact) via iface_2, -Pn so ICMP filtering cannot hide hosts.",
-            "command_template": "nmap -e {iface_2} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {iface_2_out_of_scope}",
+            "command_template": "nmap -T {speed} -e {iface_2} -n -Pn -sS -p- --reason --open -iL {iface_2_out_of_scope}",
             "output_regex": {
               "open_ports": "^(\\d+)/tcp\\s+open\\s"
             },
@@ -776,7 +776,7 @@
           {
             "name": "iface_2 -> out_of_scope: Top UDP Port Scan",
             "description": "Top 200 UDP ports toward out-of-scope (no CDE access, no security impact) via iface_2. Only 'open' (not open|filtered) is flagged.",
-            "command_template": "nmap -e {iface_2} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {iface_2_out_of_scope}",
+            "command_template": "nmap -T {speed} -e {iface_2} -n -Pn -sU --top-ports 200 --reason -iL {iface_2_out_of_scope}",
             "output_regex": {
               "open_udp_ports": "^(\\d+)/udp\\s+open\\s"
             },
@@ -848,7 +848,7 @@
           {
             "name": "iface_3 -> cde_scope: Host Discovery",
             "description": "Multi-probe discovery (ICMP echo/timestamp, TCP SYN/ACK, UDP) toward CDE (stores/processes/transmits CHD + same-segment systems) via iface_3.",
-            "command_template": "nmap -e {iface_3} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_3_cde_scope}",
+            "command_template": "nmap -T {speed} -e {iface_3} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_3_cde_scope}",
             "output_regex": {
               "alive_hosts": "Nmap scan report for (\\b(?:(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\b)"
             },
@@ -890,7 +890,7 @@
           {
             "name": "iface_3 -> cde_scope: Full TCP Port Scan",
             "description": "All 65535 TCP ports toward CDE (stores/processes/transmits CHD + same-segment systems) via iface_3, -Pn so ICMP filtering cannot hide hosts.",
-            "command_template": "nmap -e {iface_3} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {iface_3_cde_scope}",
+            "command_template": "nmap -T {speed} -e {iface_3} -n -Pn -sS -p- --reason --open -iL {iface_3_cde_scope}",
             "output_regex": {
               "open_ports": "^(\\d+)/tcp\\s+open\\s"
             },
@@ -932,7 +932,7 @@
           {
             "name": "iface_3 -> cde_scope: Top UDP Port Scan",
             "description": "Top 200 UDP ports toward CDE (stores/processes/transmits CHD + same-segment systems) via iface_3. Only 'open' (not open|filtered) is flagged.",
-            "command_template": "nmap -e {iface_3} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {iface_3_cde_scope}",
+            "command_template": "nmap -T {speed} -e {iface_3} -n -Pn -sU --top-ports 200 --reason -iL {iface_3_cde_scope}",
             "output_regex": {
               "open_udp_ports": "^(\\d+)/udp\\s+open\\s"
             },
@@ -974,7 +974,7 @@
           {
             "name": "iface_3 -> non_cde_scope: Host Discovery",
             "description": "Multi-probe discovery (ICMP echo/timestamp, TCP SYN/ACK, UDP) toward non-CDE in-scope (connected-to / security-impacting) via iface_3.",
-            "command_template": "nmap -e {iface_3} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_3_non_cde_scope}",
+            "command_template": "nmap -T {speed} -e {iface_3} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_3_non_cde_scope}",
             "output_regex": {
               "alive_hosts": "Nmap scan report for (\\b(?:(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\b)"
             },
@@ -1016,7 +1016,7 @@
           {
             "name": "iface_3 -> non_cde_scope: Full TCP Port Scan",
             "description": "All 65535 TCP ports toward non-CDE in-scope (connected-to / security-impacting) via iface_3, -Pn so ICMP filtering cannot hide hosts.",
-            "command_template": "nmap -e {iface_3} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {iface_3_non_cde_scope}",
+            "command_template": "nmap -T {speed} -e {iface_3} -n -Pn -sS -p- --reason --open -iL {iface_3_non_cde_scope}",
             "output_regex": {
               "open_ports": "^(\\d+)/tcp\\s+open\\s"
             },
@@ -1058,7 +1058,7 @@
           {
             "name": "iface_3 -> non_cde_scope: Top UDP Port Scan",
             "description": "Top 200 UDP ports toward non-CDE in-scope (connected-to / security-impacting) via iface_3. Only 'open' (not open|filtered) is flagged.",
-            "command_template": "nmap -e {iface_3} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {iface_3_non_cde_scope}",
+            "command_template": "nmap -T {speed} -e {iface_3} -n -Pn -sU --top-ports 200 --reason -iL {iface_3_non_cde_scope}",
             "output_regex": {
               "open_udp_ports": "^(\\d+)/udp\\s+open\\s"
             },
@@ -1100,7 +1100,7 @@
           {
             "name": "iface_3 -> out_of_scope: Host Discovery",
             "description": "Multi-probe discovery (ICMP echo/timestamp, TCP SYN/ACK, UDP) toward out-of-scope (no CDE access, no security impact) via iface_3.",
-            "command_template": "nmap -e {iface_3} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_3_out_of_scope}",
+            "command_template": "nmap -T {speed} -e {iface_3} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_3_out_of_scope}",
             "output_regex": {
               "alive_hosts": "Nmap scan report for (\\b(?:(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\b)"
             },
@@ -1142,7 +1142,7 @@
           {
             "name": "iface_3 -> out_of_scope: Full TCP Port Scan",
             "description": "All 65535 TCP ports toward out-of-scope (no CDE access, no security impact) via iface_3, -Pn so ICMP filtering cannot hide hosts.",
-            "command_template": "nmap -e {iface_3} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {iface_3_out_of_scope}",
+            "command_template": "nmap -T {speed} -e {iface_3} -n -Pn -sS -p- --reason --open -iL {iface_3_out_of_scope}",
             "output_regex": {
               "open_ports": "^(\\d+)/tcp\\s+open\\s"
             },
@@ -1184,7 +1184,7 @@
           {
             "name": "iface_3 -> out_of_scope: Top UDP Port Scan",
             "description": "Top 200 UDP ports toward out-of-scope (no CDE access, no security impact) via iface_3. Only 'open' (not open|filtered) is flagged.",
-            "command_template": "nmap -e {iface_3} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {iface_3_out_of_scope}",
+            "command_template": "nmap -T {speed} -e {iface_3} -n -Pn -sU --top-ports 200 --reason -iL {iface_3_out_of_scope}",
             "output_regex": {
               "open_udp_ports": "^(\\d+)/udp\\s+open\\s"
             },
@@ -1256,7 +1256,7 @@
           {
             "name": "iface_4 -> cde_scope: Host Discovery",
             "description": "Multi-probe discovery (ICMP echo/timestamp, TCP SYN/ACK, UDP) toward CDE (stores/processes/transmits CHD + same-segment systems) via iface_4.",
-            "command_template": "nmap -e {iface_4} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_4_cde_scope}",
+            "command_template": "nmap -T {speed} -e {iface_4} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_4_cde_scope}",
             "output_regex": {
               "alive_hosts": "Nmap scan report for (\\b(?:(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\b)"
             },
@@ -1298,7 +1298,7 @@
           {
             "name": "iface_4 -> cde_scope: Full TCP Port Scan",
             "description": "All 65535 TCP ports toward CDE (stores/processes/transmits CHD + same-segment systems) via iface_4, -Pn so ICMP filtering cannot hide hosts.",
-            "command_template": "nmap -e {iface_4} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {iface_4_cde_scope}",
+            "command_template": "nmap -T {speed} -e {iface_4} -n -Pn -sS -p- --reason --open -iL {iface_4_cde_scope}",
             "output_regex": {
               "open_ports": "^(\\d+)/tcp\\s+open\\s"
             },
@@ -1340,7 +1340,7 @@
           {
             "name": "iface_4 -> cde_scope: Top UDP Port Scan",
             "description": "Top 200 UDP ports toward CDE (stores/processes/transmits CHD + same-segment systems) via iface_4. Only 'open' (not open|filtered) is flagged.",
-            "command_template": "nmap -e {iface_4} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {iface_4_cde_scope}",
+            "command_template": "nmap -T {speed} -e {iface_4} -n -Pn -sU --top-ports 200 --reason -iL {iface_4_cde_scope}",
             "output_regex": {
               "open_udp_ports": "^(\\d+)/udp\\s+open\\s"
             },
@@ -1382,7 +1382,7 @@
           {
             "name": "iface_4 -> non_cde_scope: Host Discovery",
             "description": "Multi-probe discovery (ICMP echo/timestamp, TCP SYN/ACK, UDP) toward non-CDE in-scope (connected-to / security-impacting) via iface_4.",
-            "command_template": "nmap -e {iface_4} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_4_non_cde_scope}",
+            "command_template": "nmap -T {speed} -e {iface_4} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_4_non_cde_scope}",
             "output_regex": {
               "alive_hosts": "Nmap scan report for (\\b(?:(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\b)"
             },
@@ -1424,7 +1424,7 @@
           {
             "name": "iface_4 -> non_cde_scope: Full TCP Port Scan",
             "description": "All 65535 TCP ports toward non-CDE in-scope (connected-to / security-impacting) via iface_4, -Pn so ICMP filtering cannot hide hosts.",
-            "command_template": "nmap -e {iface_4} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {iface_4_non_cde_scope}",
+            "command_template": "nmap -T {speed} -e {iface_4} -n -Pn -sS -p- --reason --open -iL {iface_4_non_cde_scope}",
             "output_regex": {
               "open_ports": "^(\\d+)/tcp\\s+open\\s"
             },
@@ -1466,7 +1466,7 @@
           {
             "name": "iface_4 -> non_cde_scope: Top UDP Port Scan",
             "description": "Top 200 UDP ports toward non-CDE in-scope (connected-to / security-impacting) via iface_4. Only 'open' (not open|filtered) is flagged.",
-            "command_template": "nmap -e {iface_4} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {iface_4_non_cde_scope}",
+            "command_template": "nmap -T {speed} -e {iface_4} -n -Pn -sU --top-ports 200 --reason -iL {iface_4_non_cde_scope}",
             "output_regex": {
               "open_udp_ports": "^(\\d+)/udp\\s+open\\s"
             },
@@ -1508,7 +1508,7 @@
           {
             "name": "iface_4 -> out_of_scope: Host Discovery",
             "description": "Multi-probe discovery (ICMP echo/timestamp, TCP SYN/ACK, UDP) toward out-of-scope (no CDE access, no security impact) via iface_4.",
-            "command_template": "nmap -e {iface_4} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_4_out_of_scope}",
+            "command_template": "nmap -T {speed} -e {iface_4} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_4_out_of_scope}",
             "output_regex": {
               "alive_hosts": "Nmap scan report for (\\b(?:(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\b)"
             },
@@ -1550,7 +1550,7 @@
           {
             "name": "iface_4 -> out_of_scope: Full TCP Port Scan",
             "description": "All 65535 TCP ports toward out-of-scope (no CDE access, no security impact) via iface_4, -Pn so ICMP filtering cannot hide hosts.",
-            "command_template": "nmap -e {iface_4} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {iface_4_out_of_scope}",
+            "command_template": "nmap -T {speed} -e {iface_4} -n -Pn -sS -p- --reason --open -iL {iface_4_out_of_scope}",
             "output_regex": {
               "open_ports": "^(\\d+)/tcp\\s+open\\s"
             },
@@ -1592,7 +1592,7 @@
           {
             "name": "iface_4 -> out_of_scope: Top UDP Port Scan",
             "description": "Top 200 UDP ports toward out-of-scope (no CDE access, no security impact) via iface_4. Only 'open' (not open|filtered) is flagged.",
-            "command_template": "nmap -e {iface_4} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {iface_4_out_of_scope}",
+            "command_template": "nmap -T {speed} -e {iface_4} -n -Pn -sU --top-ports 200 --reason -iL {iface_4_out_of_scope}",
             "output_regex": {
               "open_udp_ports": "^(\\d+)/udp\\s+open\\s"
             },
@@ -1664,7 +1664,7 @@
           {
             "name": "iface_5 -> cde_scope: Host Discovery",
             "description": "Multi-probe discovery (ICMP echo/timestamp, TCP SYN/ACK, UDP) toward CDE (stores/processes/transmits CHD + same-segment systems) via iface_5.",
-            "command_template": "nmap -e {iface_5} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_5_cde_scope}",
+            "command_template": "nmap -T {speed} -e {iface_5} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_5_cde_scope}",
             "output_regex": {
               "alive_hosts": "Nmap scan report for (\\b(?:(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\b)"
             },
@@ -1706,7 +1706,7 @@
           {
             "name": "iface_5 -> cde_scope: Full TCP Port Scan",
             "description": "All 65535 TCP ports toward CDE (stores/processes/transmits CHD + same-segment systems) via iface_5, -Pn so ICMP filtering cannot hide hosts.",
-            "command_template": "nmap -e {iface_5} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {iface_5_cde_scope}",
+            "command_template": "nmap -T {speed} -e {iface_5} -n -Pn -sS -p- --reason --open -iL {iface_5_cde_scope}",
             "output_regex": {
               "open_ports": "^(\\d+)/tcp\\s+open\\s"
             },
@@ -1748,7 +1748,7 @@
           {
             "name": "iface_5 -> cde_scope: Top UDP Port Scan",
             "description": "Top 200 UDP ports toward CDE (stores/processes/transmits CHD + same-segment systems) via iface_5. Only 'open' (not open|filtered) is flagged.",
-            "command_template": "nmap -e {iface_5} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {iface_5_cde_scope}",
+            "command_template": "nmap -T {speed} -e {iface_5} -n -Pn -sU --top-ports 200 --reason -iL {iface_5_cde_scope}",
             "output_regex": {
               "open_udp_ports": "^(\\d+)/udp\\s+open\\s"
             },
@@ -1790,7 +1790,7 @@
           {
             "name": "iface_5 -> non_cde_scope: Host Discovery",
             "description": "Multi-probe discovery (ICMP echo/timestamp, TCP SYN/ACK, UDP) toward non-CDE in-scope (connected-to / security-impacting) via iface_5.",
-            "command_template": "nmap -e {iface_5} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_5_non_cde_scope}",
+            "command_template": "nmap -T {speed} -e {iface_5} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_5_non_cde_scope}",
             "output_regex": {
               "alive_hosts": "Nmap scan report for (\\b(?:(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\b)"
             },
@@ -1832,7 +1832,7 @@
           {
             "name": "iface_5 -> non_cde_scope: Full TCP Port Scan",
             "description": "All 65535 TCP ports toward non-CDE in-scope (connected-to / security-impacting) via iface_5, -Pn so ICMP filtering cannot hide hosts.",
-            "command_template": "nmap -e {iface_5} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {iface_5_non_cde_scope}",
+            "command_template": "nmap -T {speed} -e {iface_5} -n -Pn -sS -p- --reason --open -iL {iface_5_non_cde_scope}",
             "output_regex": {
               "open_ports": "^(\\d+)/tcp\\s+open\\s"
             },
@@ -1874,7 +1874,7 @@
           {
             "name": "iface_5 -> non_cde_scope: Top UDP Port Scan",
             "description": "Top 200 UDP ports toward non-CDE in-scope (connected-to / security-impacting) via iface_5. Only 'open' (not open|filtered) is flagged.",
-            "command_template": "nmap -e {iface_5} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {iface_5_non_cde_scope}",
+            "command_template": "nmap -T {speed} -e {iface_5} -n -Pn -sU --top-ports 200 --reason -iL {iface_5_non_cde_scope}",
             "output_regex": {
               "open_udp_ports": "^(\\d+)/udp\\s+open\\s"
             },
@@ -1916,7 +1916,7 @@
           {
             "name": "iface_5 -> out_of_scope: Host Discovery",
             "description": "Multi-probe discovery (ICMP echo/timestamp, TCP SYN/ACK, UDP) toward out-of-scope (no CDE access, no security impact) via iface_5.",
-            "command_template": "nmap -e {iface_5} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_5_out_of_scope}",
+            "command_template": "nmap -T {speed} -e {iface_5} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_5_out_of_scope}",
             "output_regex": {
               "alive_hosts": "Nmap scan report for (\\b(?:(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\b)"
             },
@@ -1958,7 +1958,7 @@
           {
             "name": "iface_5 -> out_of_scope: Full TCP Port Scan",
             "description": "All 65535 TCP ports toward out-of-scope (no CDE access, no security impact) via iface_5, -Pn so ICMP filtering cannot hide hosts.",
-            "command_template": "nmap -e {iface_5} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {iface_5_out_of_scope}",
+            "command_template": "nmap -T {speed} -e {iface_5} -n -Pn -sS -p- --reason --open -iL {iface_5_out_of_scope}",
             "output_regex": {
               "open_ports": "^(\\d+)/tcp\\s+open\\s"
             },
@@ -2000,7 +2000,7 @@
           {
             "name": "iface_5 -> out_of_scope: Top UDP Port Scan",
             "description": "Top 200 UDP ports toward out-of-scope (no CDE access, no security impact) via iface_5. Only 'open' (not open|filtered) is flagged.",
-            "command_template": "nmap -e {iface_5} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {iface_5_out_of_scope}",
+            "command_template": "nmap -T {speed} -e {iface_5} -n -Pn -sU --top-ports 200 --reason -iL {iface_5_out_of_scope}",
             "output_regex": {
               "open_udp_ports": "^(\\d+)/udp\\s+open\\s"
             },
@@ -2072,7 +2072,7 @@
           {
             "name": "iface_6 -> cde_scope: Host Discovery",
             "description": "Multi-probe discovery (ICMP echo/timestamp, TCP SYN/ACK, UDP) toward CDE (stores/processes/transmits CHD + same-segment systems) via iface_6.",
-            "command_template": "nmap -e {iface_6} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_6_cde_scope}",
+            "command_template": "nmap -T {speed} -e {iface_6} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_6_cde_scope}",
             "output_regex": {
               "alive_hosts": "Nmap scan report for (\\b(?:(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\b)"
             },
@@ -2114,7 +2114,7 @@
           {
             "name": "iface_6 -> cde_scope: Full TCP Port Scan",
             "description": "All 65535 TCP ports toward CDE (stores/processes/transmits CHD + same-segment systems) via iface_6, -Pn so ICMP filtering cannot hide hosts.",
-            "command_template": "nmap -e {iface_6} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {iface_6_cde_scope}",
+            "command_template": "nmap -T {speed} -e {iface_6} -n -Pn -sS -p- --reason --open -iL {iface_6_cde_scope}",
             "output_regex": {
               "open_ports": "^(\\d+)/tcp\\s+open\\s"
             },
@@ -2156,7 +2156,7 @@
           {
             "name": "iface_6 -> cde_scope: Top UDP Port Scan",
             "description": "Top 200 UDP ports toward CDE (stores/processes/transmits CHD + same-segment systems) via iface_6. Only 'open' (not open|filtered) is flagged.",
-            "command_template": "nmap -e {iface_6} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {iface_6_cde_scope}",
+            "command_template": "nmap -T {speed} -e {iface_6} -n -Pn -sU --top-ports 200 --reason -iL {iface_6_cde_scope}",
             "output_regex": {
               "open_udp_ports": "^(\\d+)/udp\\s+open\\s"
             },
@@ -2198,7 +2198,7 @@
           {
             "name": "iface_6 -> non_cde_scope: Host Discovery",
             "description": "Multi-probe discovery (ICMP echo/timestamp, TCP SYN/ACK, UDP) toward non-CDE in-scope (connected-to / security-impacting) via iface_6.",
-            "command_template": "nmap -e {iface_6} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_6_non_cde_scope}",
+            "command_template": "nmap -T {speed} -e {iface_6} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_6_non_cde_scope}",
             "output_regex": {
               "alive_hosts": "Nmap scan report for (\\b(?:(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\b)"
             },
@@ -2240,7 +2240,7 @@
           {
             "name": "iface_6 -> non_cde_scope: Full TCP Port Scan",
             "description": "All 65535 TCP ports toward non-CDE in-scope (connected-to / security-impacting) via iface_6, -Pn so ICMP filtering cannot hide hosts.",
-            "command_template": "nmap -e {iface_6} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {iface_6_non_cde_scope}",
+            "command_template": "nmap -T {speed} -e {iface_6} -n -Pn -sS -p- --reason --open -iL {iface_6_non_cde_scope}",
             "output_regex": {
               "open_ports": "^(\\d+)/tcp\\s+open\\s"
             },
@@ -2282,7 +2282,7 @@
           {
             "name": "iface_6 -> non_cde_scope: Top UDP Port Scan",
             "description": "Top 200 UDP ports toward non-CDE in-scope (connected-to / security-impacting) via iface_6. Only 'open' (not open|filtered) is flagged.",
-            "command_template": "nmap -e {iface_6} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {iface_6_non_cde_scope}",
+            "command_template": "nmap -T {speed} -e {iface_6} -n -Pn -sU --top-ports 200 --reason -iL {iface_6_non_cde_scope}",
             "output_regex": {
               "open_udp_ports": "^(\\d+)/udp\\s+open\\s"
             },
@@ -2324,7 +2324,7 @@
           {
             "name": "iface_6 -> out_of_scope: Host Discovery",
             "description": "Multi-probe discovery (ICMP echo/timestamp, TCP SYN/ACK, UDP) toward out-of-scope (no CDE access, no security impact) via iface_6.",
-            "command_template": "nmap -e {iface_6} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_6_out_of_scope}",
+            "command_template": "nmap -T {speed} -e {iface_6} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_6_out_of_scope}",
             "output_regex": {
               "alive_hosts": "Nmap scan report for (\\b(?:(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\b)"
             },
@@ -2366,7 +2366,7 @@
           {
             "name": "iface_6 -> out_of_scope: Full TCP Port Scan",
             "description": "All 65535 TCP ports toward out-of-scope (no CDE access, no security impact) via iface_6, -Pn so ICMP filtering cannot hide hosts.",
-            "command_template": "nmap -e {iface_6} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {iface_6_out_of_scope}",
+            "command_template": "nmap -T {speed} -e {iface_6} -n -Pn -sS -p- --reason --open -iL {iface_6_out_of_scope}",
             "output_regex": {
               "open_ports": "^(\\d+)/tcp\\s+open\\s"
             },
@@ -2408,7 +2408,7 @@
           {
             "name": "iface_6 -> out_of_scope: Top UDP Port Scan",
             "description": "Top 200 UDP ports toward out-of-scope (no CDE access, no security impact) via iface_6. Only 'open' (not open|filtered) is flagged.",
-            "command_template": "nmap -e {iface_6} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {iface_6_out_of_scope}",
+            "command_template": "nmap -T {speed} -e {iface_6} -n -Pn -sU --top-ports 200 --reason -iL {iface_6_out_of_scope}",
             "output_regex": {
               "open_udp_ports": "^(\\d+)/udp\\s+open\\s"
             },
@@ -2480,7 +2480,7 @@
           {
             "name": "iface_7 -> cde_scope: Host Discovery",
             "description": "Multi-probe discovery (ICMP echo/timestamp, TCP SYN/ACK, UDP) toward CDE (stores/processes/transmits CHD + same-segment systems) via iface_7.",
-            "command_template": "nmap -e {iface_7} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_7_cde_scope}",
+            "command_template": "nmap -T {speed} -e {iface_7} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_7_cde_scope}",
             "output_regex": {
               "alive_hosts": "Nmap scan report for (\\b(?:(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\b)"
             },
@@ -2522,7 +2522,7 @@
           {
             "name": "iface_7 -> cde_scope: Full TCP Port Scan",
             "description": "All 65535 TCP ports toward CDE (stores/processes/transmits CHD + same-segment systems) via iface_7, -Pn so ICMP filtering cannot hide hosts.",
-            "command_template": "nmap -e {iface_7} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {iface_7_cde_scope}",
+            "command_template": "nmap -T {speed} -e {iface_7} -n -Pn -sS -p- --reason --open -iL {iface_7_cde_scope}",
             "output_regex": {
               "open_ports": "^(\\d+)/tcp\\s+open\\s"
             },
@@ -2564,7 +2564,7 @@
           {
             "name": "iface_7 -> cde_scope: Top UDP Port Scan",
             "description": "Top 200 UDP ports toward CDE (stores/processes/transmits CHD + same-segment systems) via iface_7. Only 'open' (not open|filtered) is flagged.",
-            "command_template": "nmap -e {iface_7} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {iface_7_cde_scope}",
+            "command_template": "nmap -T {speed} -e {iface_7} -n -Pn -sU --top-ports 200 --reason -iL {iface_7_cde_scope}",
             "output_regex": {
               "open_udp_ports": "^(\\d+)/udp\\s+open\\s"
             },
@@ -2606,7 +2606,7 @@
           {
             "name": "iface_7 -> non_cde_scope: Host Discovery",
             "description": "Multi-probe discovery (ICMP echo/timestamp, TCP SYN/ACK, UDP) toward non-CDE in-scope (connected-to / security-impacting) via iface_7.",
-            "command_template": "nmap -e {iface_7} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_7_non_cde_scope}",
+            "command_template": "nmap -T {speed} -e {iface_7} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_7_non_cde_scope}",
             "output_regex": {
               "alive_hosts": "Nmap scan report for (\\b(?:(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\b)"
             },
@@ -2648,7 +2648,7 @@
           {
             "name": "iface_7 -> non_cde_scope: Full TCP Port Scan",
             "description": "All 65535 TCP ports toward non-CDE in-scope (connected-to / security-impacting) via iface_7, -Pn so ICMP filtering cannot hide hosts.",
-            "command_template": "nmap -e {iface_7} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {iface_7_non_cde_scope}",
+            "command_template": "nmap -T {speed} -e {iface_7} -n -Pn -sS -p- --reason --open -iL {iface_7_non_cde_scope}",
             "output_regex": {
               "open_ports": "^(\\d+)/tcp\\s+open\\s"
             },
@@ -2690,7 +2690,7 @@
           {
             "name": "iface_7 -> non_cde_scope: Top UDP Port Scan",
             "description": "Top 200 UDP ports toward non-CDE in-scope (connected-to / security-impacting) via iface_7. Only 'open' (not open|filtered) is flagged.",
-            "command_template": "nmap -e {iface_7} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {iface_7_non_cde_scope}",
+            "command_template": "nmap -T {speed} -e {iface_7} -n -Pn -sU --top-ports 200 --reason -iL {iface_7_non_cde_scope}",
             "output_regex": {
               "open_udp_ports": "^(\\d+)/udp\\s+open\\s"
             },
@@ -2732,7 +2732,7 @@
           {
             "name": "iface_7 -> out_of_scope: Host Discovery",
             "description": "Multi-probe discovery (ICMP echo/timestamp, TCP SYN/ACK, UDP) toward out-of-scope (no CDE access, no security impact) via iface_7.",
-            "command_template": "nmap -e {iface_7} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_7_out_of_scope}",
+            "command_template": "nmap -T {speed} -e {iface_7} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_7_out_of_scope}",
             "output_regex": {
               "alive_hosts": "Nmap scan report for (\\b(?:(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\b)"
             },
@@ -2774,7 +2774,7 @@
           {
             "name": "iface_7 -> out_of_scope: Full TCP Port Scan",
             "description": "All 65535 TCP ports toward out-of-scope (no CDE access, no security impact) via iface_7, -Pn so ICMP filtering cannot hide hosts.",
-            "command_template": "nmap -e {iface_7} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {iface_7_out_of_scope}",
+            "command_template": "nmap -T {speed} -e {iface_7} -n -Pn -sS -p- --reason --open -iL {iface_7_out_of_scope}",
             "output_regex": {
               "open_ports": "^(\\d+)/tcp\\s+open\\s"
             },
@@ -2816,7 +2816,7 @@
           {
             "name": "iface_7 -> out_of_scope: Top UDP Port Scan",
             "description": "Top 200 UDP ports toward out-of-scope (no CDE access, no security impact) via iface_7. Only 'open' (not open|filtered) is flagged.",
-            "command_template": "nmap -e {iface_7} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {iface_7_out_of_scope}",
+            "command_template": "nmap -T {speed} -e {iface_7} -n -Pn -sU --top-ports 200 --reason -iL {iface_7_out_of_scope}",
             "output_regex": {
               "open_udp_ports": "^(\\d+)/udp\\s+open\\s"
             },
@@ -2888,7 +2888,7 @@
           {
             "name": "iface_8 -> cde_scope: Host Discovery",
             "description": "Multi-probe discovery (ICMP echo/timestamp, TCP SYN/ACK, UDP) toward CDE (stores/processes/transmits CHD + same-segment systems) via iface_8.",
-            "command_template": "nmap -e {iface_8} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_8_cde_scope}",
+            "command_template": "nmap -T {speed} -e {iface_8} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_8_cde_scope}",
             "output_regex": {
               "alive_hosts": "Nmap scan report for (\\b(?:(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\b)"
             },
@@ -2930,7 +2930,7 @@
           {
             "name": "iface_8 -> cde_scope: Full TCP Port Scan",
             "description": "All 65535 TCP ports toward CDE (stores/processes/transmits CHD + same-segment systems) via iface_8, -Pn so ICMP filtering cannot hide hosts.",
-            "command_template": "nmap -e {iface_8} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {iface_8_cde_scope}",
+            "command_template": "nmap -T {speed} -e {iface_8} -n -Pn -sS -p- --reason --open -iL {iface_8_cde_scope}",
             "output_regex": {
               "open_ports": "^(\\d+)/tcp\\s+open\\s"
             },
@@ -2972,7 +2972,7 @@
           {
             "name": "iface_8 -> cde_scope: Top UDP Port Scan",
             "description": "Top 200 UDP ports toward CDE (stores/processes/transmits CHD + same-segment systems) via iface_8. Only 'open' (not open|filtered) is flagged.",
-            "command_template": "nmap -e {iface_8} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {iface_8_cde_scope}",
+            "command_template": "nmap -T {speed} -e {iface_8} -n -Pn -sU --top-ports 200 --reason -iL {iface_8_cde_scope}",
             "output_regex": {
               "open_udp_ports": "^(\\d+)/udp\\s+open\\s"
             },
@@ -3014,7 +3014,7 @@
           {
             "name": "iface_8 -> non_cde_scope: Host Discovery",
             "description": "Multi-probe discovery (ICMP echo/timestamp, TCP SYN/ACK, UDP) toward non-CDE in-scope (connected-to / security-impacting) via iface_8.",
-            "command_template": "nmap -e {iface_8} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_8_non_cde_scope}",
+            "command_template": "nmap -T {speed} -e {iface_8} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_8_non_cde_scope}",
             "output_regex": {
               "alive_hosts": "Nmap scan report for (\\b(?:(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\b)"
             },
@@ -3056,7 +3056,7 @@
           {
             "name": "iface_8 -> non_cde_scope: Full TCP Port Scan",
             "description": "All 65535 TCP ports toward non-CDE in-scope (connected-to / security-impacting) via iface_8, -Pn so ICMP filtering cannot hide hosts.",
-            "command_template": "nmap -e {iface_8} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {iface_8_non_cde_scope}",
+            "command_template": "nmap -T {speed} -e {iface_8} -n -Pn -sS -p- --reason --open -iL {iface_8_non_cde_scope}",
             "output_regex": {
               "open_ports": "^(\\d+)/tcp\\s+open\\s"
             },
@@ -3098,7 +3098,7 @@
           {
             "name": "iface_8 -> non_cde_scope: Top UDP Port Scan",
             "description": "Top 200 UDP ports toward non-CDE in-scope (connected-to / security-impacting) via iface_8. Only 'open' (not open|filtered) is flagged.",
-            "command_template": "nmap -e {iface_8} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {iface_8_non_cde_scope}",
+            "command_template": "nmap -T {speed} -e {iface_8} -n -Pn -sU --top-ports 200 --reason -iL {iface_8_non_cde_scope}",
             "output_regex": {
               "open_udp_ports": "^(\\d+)/udp\\s+open\\s"
             },
@@ -3140,7 +3140,7 @@
           {
             "name": "iface_8 -> out_of_scope: Host Discovery",
             "description": "Multi-probe discovery (ICMP echo/timestamp, TCP SYN/ACK, UDP) toward out-of-scope (no CDE access, no security impact) via iface_8.",
-            "command_template": "nmap -e {iface_8} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_8_out_of_scope}",
+            "command_template": "nmap -T {speed} -e {iface_8} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {iface_8_out_of_scope}",
             "output_regex": {
               "alive_hosts": "Nmap scan report for (\\b(?:(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\b)"
             },
@@ -3182,7 +3182,7 @@
           {
             "name": "iface_8 -> out_of_scope: Full TCP Port Scan",
             "description": "All 65535 TCP ports toward out-of-scope (no CDE access, no security impact) via iface_8, -Pn so ICMP filtering cannot hide hosts.",
-            "command_template": "nmap -e {iface_8} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {iface_8_out_of_scope}",
+            "command_template": "nmap -T {speed} -e {iface_8} -n -Pn -sS -p- --reason --open -iL {iface_8_out_of_scope}",
             "output_regex": {
               "open_ports": "^(\\d+)/tcp\\s+open\\s"
             },
@@ -3224,7 +3224,7 @@
           {
             "name": "iface_8 -> out_of_scope: Top UDP Port Scan",
             "description": "Top 200 UDP ports toward out-of-scope (no CDE access, no security impact) via iface_8. Only 'open' (not open|filtered) is flagged.",
-            "command_template": "nmap -e {iface_8} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {iface_8_out_of_scope}",
+            "command_template": "nmap -T {speed} -e {iface_8} -n -Pn -sU --top-ports 200 --reason -iL {iface_8_out_of_scope}",
             "output_regex": {
               "open_udp_ports": "^(\\d+)/udp\\s+open\\s"
             },
@@ -3275,7 +3275,7 @@
           {
             "name": "CDE Service Inventory (Req 1.2.5)",
             "description": "Full TCP port + version inventory. Compare with the approved ports/services/protocols list.",
-            "command_template": "nmap -n -Pn -sS -sV --version-light -p- --min-rate 500 --open -iL {cde_scope}",
+            "command_template": "nmap -T {speed} -n -Pn -sS -sV --version-light -p- --open -iL {cde_scope}",
             "output_regex": {
               "open_ports": "^(\\d+)/tcp\\s+open\\s"
             },
@@ -3300,7 +3300,7 @@
           {
             "name": "Insecure / Cleartext Services (Req 2.2.5, 2.2.7)",
             "description": "FTP, Telnet, TFTP, r-services, POP3/IMAP, VNC, plain HTTP admin. Cleartext admin is non-compliant.",
-            "command_template": "nmap -n -Pn -sS -sV -p 21,23,69,80,110,143,512,513,514,5900-5910,8080 --open -iL {cde_scope}",
+            "command_template": "nmap -T {speed} -n -Pn -sS -sV -p 21,23,69,80,110,143,512,513,514,5900-5910,8080 --open -iL {cde_scope}",
             "output_regex": {},
             "input_definitions": {},
             "storage_policy": {},
@@ -3330,7 +3330,7 @@
           {
             "name": "Exposed Databases & Caches (Req 1.3.1, 1.4.4)",
             "description": "DB/cache ports that should only be reachable from the application tier.",
-            "command_template": "nmap -n -Pn -sS -sV -p 1433,1521,3306,5432,5984,6379,9042,9200,11211,27017 --open -iL {cde_scope}",
+            "command_template": "nmap -T {speed} -n -Pn -sS -sV -p 1433,1521,3306,5432,5984,6379,9042,9200,11211,27017 --open -iL {cde_scope}",
             "output_regex": {},
             "input_definitions": {},
             "storage_policy": {},
@@ -3357,7 +3357,7 @@
           {
             "name": "TLS Protocols & Ciphers (Req 4.2.1)",
             "description": "SSLv3/TLS 1.0/TLS 1.1 or cipher grade below B fails strong-cryptography requirements.",
-            "command_template": "nmap -n -Pn -sV -p 443,465,636,989,990,993,995,1433,3389,5986,8443 --script ssl-enum-ciphers,ssl-cert -iL {cde_scope}",
+            "command_template": "nmap -T {speed} -n -Pn -sV -p 443,465,636,989,990,993,995,1433,3389,5986,8443 --script ssl-enum-ciphers,ssl-cert -iL {cde_scope}",
             "output_regex": {},
             "input_definitions": {},
             "storage_policy": {},
@@ -3389,7 +3389,7 @@
           {
             "name": "SSH Algorithms (Req 4.2.1, 2.2.7)",
             "description": "Weak KEX/cipher/MAC on SSH administrative access.",
-            "command_template": "nmap -n -Pn -p 22 --script ssh2-enum-algos,ssh-auth-methods -iL {cde_scope}",
+            "command_template": "nmap -T {speed} -n -Pn -p 22 --script ssh2-enum-algos,ssh-auth-methods -iL {cde_scope}",
             "output_regex": {},
             "input_definitions": {},
             "storage_policy": {},
@@ -3421,7 +3421,7 @@
           {
             "name": "Default Web Credentials (Req 2.2.2)",
             "description": "Vendor default accounts on web admin consoles (Tomcat, printers, appliances, etc.).",
-            "command_template": "nmap -n -Pn -p 80,443,8000,8080,8443,8888,9090 --script http-default-accounts,http-title -iL {cde_scope}",
+            "command_template": "nmap -T {speed} -n -Pn -p 80,443,8000,8080,8443,8888,9090 --script http-default-accounts,http-title -iL {cde_scope}",
             "output_regex": {},
             "input_definitions": {},
             "storage_policy": {},
@@ -3449,7 +3449,7 @@
           {
             "name": "Anonymous FTP (Req 2.2.2, 7.2)",
             "description": "Anonymous FTP login on CDE systems.",
-            "command_template": "nmap -n -Pn -p 21 --script ftp-anon -iL {cde_scope}",
+            "command_template": "nmap -T {speed} -n -Pn -p 21 --script ftp-anon -iL {cde_scope}",
             "output_regex": {},
             "input_definitions": {},
             "storage_policy": {},
@@ -3477,7 +3477,7 @@
           {
             "name": "SNMP Default Community (Req 2.2.2)",
             "description": "SNMP v1/v2c answering the default 'public' community.",
-            "command_template": "nmap -n -Pn -sU -p 161 --script snmp-info,snmp-sysdescr -iL {cde_scope}",
+            "command_template": "nmap -T {speed} -n -Pn -sU -p 161 --script snmp-info,snmp-sysdescr -iL {cde_scope}",
             "output_regex": {},
             "input_definitions": {},
             "storage_policy": {},
@@ -3505,7 +3505,7 @@
           {
             "name": "SMBv1 & SMB Signing (Req 2.2.4, 4.2.1)",
             "description": "SMBv1 enabled or SMB signing not required on CDE Windows hosts.",
-            "command_template": "nmap -n -Pn -p 445 --script smb-protocols,smb2-security-mode -iL {cde_scope}",
+            "command_template": "nmap -T {speed} -n -Pn -p 445 --script smb-protocols,smb2-security-mode -iL {cde_scope}",
             "output_regex": {},
             "input_definitions": {},
             "storage_policy": {},
@@ -3535,7 +3535,7 @@
           {
             "name": "Internal Vulnerability Scan — vulners (Req 11.3.1)",
             "description": "Version-based CVE lookup (vulners NSE, needs internet). Complements, does not replace, the quarterly internal scan tool. Rescan after fixes until no high/critical remain (11.3.1.1, 11.3.1.3).",
-            "command_template": "nmap -n -Pn -sV --script vulners --script-args mincvss=7.0 -iL {cde_scope}",
+            "command_template": "nmap -T {speed} -n -Pn -sV --script vulners --script-args mincvss=7.0 -iL {cde_scope}",
             "output_regex": {},
             "input_definitions": {},
             "storage_policy": {},
@@ -3574,7 +3574,7 @@
           {
             "name": "rDNS Hostname Keyword Sweep",
             "description": "Reverse-DNS list scan (no packets to targets) and flag hostnames containing CDE keywords.",
-            "command_template": "nmap -sL -iL {scope}",
+            "command_template": "nmap -T {speed} -sL -iL {scope}",
             "output_regex": {
               "cde_keyword_hosts": "Nmap scan report for (\\S*(?:(?<![a-z])(?:tokenization|settlement|tokenizer|acquiring|payments|checkout|acquirer|merchant|terminal|payment|cashier|billing|gateway|issuer|cards|kiosk|token|vault|swift|card|ecom|pci|cde|pan|pos|pay|atm|hsm|3ds|emv)(?![a-z]))\\S*) \\("
             },
@@ -3603,7 +3603,7 @@
           {
             "name": "Web Title Keyword Sweep (non-CDE)",
             "description": "HTTP titles in the non-CDE range that mention payment/POS/card — possible CDE outside scope.",
-            "command_template": "nmap -n -Pn -p 80,443,8000,8080,8443 --script http-title --open -iL {non_cde_scope}",
+            "command_template": "nmap -T {speed} -n -Pn -p 80,443,8000,8080,8443 --script http-title --open -iL {non_cde_scope}",
             "output_regex": {},
             "input_definitions": {},
             "storage_policy": {},
@@ -3725,6 +3725,4426 @@
               "pan"
             ],
             "enabled": true
+          }
+        ]
+      }
+    ]
+  },
+  "flows": {
+    "flows": [
+      {
+        "name": "PCI Segmentation Flow — iface_1",
+        "description": "Runs every direction for iface_1 one by one (evidence, then cde/non_cde/out_of_scope).",
+        "is_default_import": false,
+        "requires_auth": false,
+        "tags": [
+          "pci-dss",
+          "sequential"
+        ],
+        "flow_definition": {
+          "edges": [
+            {
+              "source": 0,
+              "target": 1
+            },
+            {
+              "source": 1,
+              "target": 2
+            },
+            {
+              "source": 2,
+              "target": 3
+            },
+            {
+              "source": 3,
+              "target": 4
+            },
+            {
+              "source": 4,
+              "target": 5
+            },
+            {
+              "source": 5,
+              "target": 6
+            },
+            {
+              "source": 6,
+              "target": 7
+            },
+            {
+              "source": 7,
+              "target": 8
+            },
+            {
+              "source": 8,
+              "target": 9
+            }
+          ]
+        },
+        "steps": [
+          {
+            "checklist_item_name": "iface_1: Source Segment Evidence",
+            "order_index": 0,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 0
+            }
+          },
+          {
+            "checklist_item_name": "iface_1 -> cde_scope: Host Discovery",
+            "order_index": 1,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 120
+            }
+          },
+          {
+            "checklist_item_name": "iface_1 -> cde_scope: Full TCP Port Scan",
+            "order_index": 2,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 240
+            }
+          },
+          {
+            "checklist_item_name": "iface_1 -> cde_scope: Top UDP Port Scan",
+            "order_index": 3,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 360
+            }
+          },
+          {
+            "checklist_item_name": "iface_1 -> non_cde_scope: Host Discovery",
+            "order_index": 4,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 480
+            }
+          },
+          {
+            "checklist_item_name": "iface_1 -> non_cde_scope: Full TCP Port Scan",
+            "order_index": 5,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 600
+            }
+          },
+          {
+            "checklist_item_name": "iface_1 -> non_cde_scope: Top UDP Port Scan",
+            "order_index": 6,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 720
+            }
+          },
+          {
+            "checklist_item_name": "iface_1 -> out_of_scope: Host Discovery",
+            "order_index": 7,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 840
+            }
+          },
+          {
+            "checklist_item_name": "iface_1 -> out_of_scope: Full TCP Port Scan",
+            "order_index": 8,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 960
+            }
+          },
+          {
+            "checklist_item_name": "iface_1 -> out_of_scope: Top UDP Port Scan",
+            "order_index": 9,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 1080
+            }
+          }
+        ]
+      },
+      {
+        "name": "PCI Segmentation Flow — iface_2",
+        "description": "Runs every direction for iface_2 one by one (evidence, then cde/non_cde/out_of_scope).",
+        "is_default_import": false,
+        "requires_auth": false,
+        "tags": [
+          "pci-dss",
+          "sequential"
+        ],
+        "flow_definition": {
+          "edges": [
+            {
+              "source": 0,
+              "target": 1
+            },
+            {
+              "source": 1,
+              "target": 2
+            },
+            {
+              "source": 2,
+              "target": 3
+            },
+            {
+              "source": 3,
+              "target": 4
+            },
+            {
+              "source": 4,
+              "target": 5
+            },
+            {
+              "source": 5,
+              "target": 6
+            },
+            {
+              "source": 6,
+              "target": 7
+            },
+            {
+              "source": 7,
+              "target": 8
+            },
+            {
+              "source": 8,
+              "target": 9
+            }
+          ]
+        },
+        "steps": [
+          {
+            "checklist_item_name": "iface_2: Source Segment Evidence",
+            "order_index": 0,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 0
+            }
+          },
+          {
+            "checklist_item_name": "iface_2 -> cde_scope: Host Discovery",
+            "order_index": 1,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 120
+            }
+          },
+          {
+            "checklist_item_name": "iface_2 -> cde_scope: Full TCP Port Scan",
+            "order_index": 2,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 240
+            }
+          },
+          {
+            "checklist_item_name": "iface_2 -> cde_scope: Top UDP Port Scan",
+            "order_index": 3,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 360
+            }
+          },
+          {
+            "checklist_item_name": "iface_2 -> non_cde_scope: Host Discovery",
+            "order_index": 4,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 480
+            }
+          },
+          {
+            "checklist_item_name": "iface_2 -> non_cde_scope: Full TCP Port Scan",
+            "order_index": 5,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 600
+            }
+          },
+          {
+            "checklist_item_name": "iface_2 -> non_cde_scope: Top UDP Port Scan",
+            "order_index": 6,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 720
+            }
+          },
+          {
+            "checklist_item_name": "iface_2 -> out_of_scope: Host Discovery",
+            "order_index": 7,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 840
+            }
+          },
+          {
+            "checklist_item_name": "iface_2 -> out_of_scope: Full TCP Port Scan",
+            "order_index": 8,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 960
+            }
+          },
+          {
+            "checklist_item_name": "iface_2 -> out_of_scope: Top UDP Port Scan",
+            "order_index": 9,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 1080
+            }
+          }
+        ]
+      },
+      {
+        "name": "PCI Segmentation Flow — iface_3",
+        "description": "Runs every direction for iface_3 one by one (evidence, then cde/non_cde/out_of_scope).",
+        "is_default_import": false,
+        "requires_auth": false,
+        "tags": [
+          "pci-dss",
+          "sequential"
+        ],
+        "flow_definition": {
+          "edges": [
+            {
+              "source": 0,
+              "target": 1
+            },
+            {
+              "source": 1,
+              "target": 2
+            },
+            {
+              "source": 2,
+              "target": 3
+            },
+            {
+              "source": 3,
+              "target": 4
+            },
+            {
+              "source": 4,
+              "target": 5
+            },
+            {
+              "source": 5,
+              "target": 6
+            },
+            {
+              "source": 6,
+              "target": 7
+            },
+            {
+              "source": 7,
+              "target": 8
+            },
+            {
+              "source": 8,
+              "target": 9
+            }
+          ]
+        },
+        "steps": [
+          {
+            "checklist_item_name": "iface_3: Source Segment Evidence",
+            "order_index": 0,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 0
+            }
+          },
+          {
+            "checklist_item_name": "iface_3 -> cde_scope: Host Discovery",
+            "order_index": 1,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 120
+            }
+          },
+          {
+            "checklist_item_name": "iface_3 -> cde_scope: Full TCP Port Scan",
+            "order_index": 2,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 240
+            }
+          },
+          {
+            "checklist_item_name": "iface_3 -> cde_scope: Top UDP Port Scan",
+            "order_index": 3,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 360
+            }
+          },
+          {
+            "checklist_item_name": "iface_3 -> non_cde_scope: Host Discovery",
+            "order_index": 4,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 480
+            }
+          },
+          {
+            "checklist_item_name": "iface_3 -> non_cde_scope: Full TCP Port Scan",
+            "order_index": 5,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 600
+            }
+          },
+          {
+            "checklist_item_name": "iface_3 -> non_cde_scope: Top UDP Port Scan",
+            "order_index": 6,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 720
+            }
+          },
+          {
+            "checklist_item_name": "iface_3 -> out_of_scope: Host Discovery",
+            "order_index": 7,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 840
+            }
+          },
+          {
+            "checklist_item_name": "iface_3 -> out_of_scope: Full TCP Port Scan",
+            "order_index": 8,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 960
+            }
+          },
+          {
+            "checklist_item_name": "iface_3 -> out_of_scope: Top UDP Port Scan",
+            "order_index": 9,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 1080
+            }
+          }
+        ]
+      },
+      {
+        "name": "PCI Segmentation Flow — iface_4",
+        "description": "Runs every direction for iface_4 one by one (evidence, then cde/non_cde/out_of_scope).",
+        "is_default_import": false,
+        "requires_auth": false,
+        "tags": [
+          "pci-dss",
+          "sequential"
+        ],
+        "flow_definition": {
+          "edges": [
+            {
+              "source": 0,
+              "target": 1
+            },
+            {
+              "source": 1,
+              "target": 2
+            },
+            {
+              "source": 2,
+              "target": 3
+            },
+            {
+              "source": 3,
+              "target": 4
+            },
+            {
+              "source": 4,
+              "target": 5
+            },
+            {
+              "source": 5,
+              "target": 6
+            },
+            {
+              "source": 6,
+              "target": 7
+            },
+            {
+              "source": 7,
+              "target": 8
+            },
+            {
+              "source": 8,
+              "target": 9
+            }
+          ]
+        },
+        "steps": [
+          {
+            "checklist_item_name": "iface_4: Source Segment Evidence",
+            "order_index": 0,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 0
+            }
+          },
+          {
+            "checklist_item_name": "iface_4 -> cde_scope: Host Discovery",
+            "order_index": 1,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 120
+            }
+          },
+          {
+            "checklist_item_name": "iface_4 -> cde_scope: Full TCP Port Scan",
+            "order_index": 2,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 240
+            }
+          },
+          {
+            "checklist_item_name": "iface_4 -> cde_scope: Top UDP Port Scan",
+            "order_index": 3,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 360
+            }
+          },
+          {
+            "checklist_item_name": "iface_4 -> non_cde_scope: Host Discovery",
+            "order_index": 4,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 480
+            }
+          },
+          {
+            "checklist_item_name": "iface_4 -> non_cde_scope: Full TCP Port Scan",
+            "order_index": 5,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 600
+            }
+          },
+          {
+            "checklist_item_name": "iface_4 -> non_cde_scope: Top UDP Port Scan",
+            "order_index": 6,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 720
+            }
+          },
+          {
+            "checklist_item_name": "iface_4 -> out_of_scope: Host Discovery",
+            "order_index": 7,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 840
+            }
+          },
+          {
+            "checklist_item_name": "iface_4 -> out_of_scope: Full TCP Port Scan",
+            "order_index": 8,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 960
+            }
+          },
+          {
+            "checklist_item_name": "iface_4 -> out_of_scope: Top UDP Port Scan",
+            "order_index": 9,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 1080
+            }
+          }
+        ]
+      },
+      {
+        "name": "PCI Segmentation Flow — iface_5",
+        "description": "Runs every direction for iface_5 one by one (evidence, then cde/non_cde/out_of_scope).",
+        "is_default_import": false,
+        "requires_auth": false,
+        "tags": [
+          "pci-dss",
+          "sequential"
+        ],
+        "flow_definition": {
+          "edges": [
+            {
+              "source": 0,
+              "target": 1
+            },
+            {
+              "source": 1,
+              "target": 2
+            },
+            {
+              "source": 2,
+              "target": 3
+            },
+            {
+              "source": 3,
+              "target": 4
+            },
+            {
+              "source": 4,
+              "target": 5
+            },
+            {
+              "source": 5,
+              "target": 6
+            },
+            {
+              "source": 6,
+              "target": 7
+            },
+            {
+              "source": 7,
+              "target": 8
+            },
+            {
+              "source": 8,
+              "target": 9
+            }
+          ]
+        },
+        "steps": [
+          {
+            "checklist_item_name": "iface_5: Source Segment Evidence",
+            "order_index": 0,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 0
+            }
+          },
+          {
+            "checklist_item_name": "iface_5 -> cde_scope: Host Discovery",
+            "order_index": 1,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 120
+            }
+          },
+          {
+            "checklist_item_name": "iface_5 -> cde_scope: Full TCP Port Scan",
+            "order_index": 2,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 240
+            }
+          },
+          {
+            "checklist_item_name": "iface_5 -> cde_scope: Top UDP Port Scan",
+            "order_index": 3,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 360
+            }
+          },
+          {
+            "checklist_item_name": "iface_5 -> non_cde_scope: Host Discovery",
+            "order_index": 4,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 480
+            }
+          },
+          {
+            "checklist_item_name": "iface_5 -> non_cde_scope: Full TCP Port Scan",
+            "order_index": 5,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 600
+            }
+          },
+          {
+            "checklist_item_name": "iface_5 -> non_cde_scope: Top UDP Port Scan",
+            "order_index": 6,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 720
+            }
+          },
+          {
+            "checklist_item_name": "iface_5 -> out_of_scope: Host Discovery",
+            "order_index": 7,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 840
+            }
+          },
+          {
+            "checklist_item_name": "iface_5 -> out_of_scope: Full TCP Port Scan",
+            "order_index": 8,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 960
+            }
+          },
+          {
+            "checklist_item_name": "iface_5 -> out_of_scope: Top UDP Port Scan",
+            "order_index": 9,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 1080
+            }
+          }
+        ]
+      },
+      {
+        "name": "PCI Segmentation Flow — iface_6",
+        "description": "Runs every direction for iface_6 one by one (evidence, then cde/non_cde/out_of_scope).",
+        "is_default_import": false,
+        "requires_auth": false,
+        "tags": [
+          "pci-dss",
+          "sequential"
+        ],
+        "flow_definition": {
+          "edges": [
+            {
+              "source": 0,
+              "target": 1
+            },
+            {
+              "source": 1,
+              "target": 2
+            },
+            {
+              "source": 2,
+              "target": 3
+            },
+            {
+              "source": 3,
+              "target": 4
+            },
+            {
+              "source": 4,
+              "target": 5
+            },
+            {
+              "source": 5,
+              "target": 6
+            },
+            {
+              "source": 6,
+              "target": 7
+            },
+            {
+              "source": 7,
+              "target": 8
+            },
+            {
+              "source": 8,
+              "target": 9
+            }
+          ]
+        },
+        "steps": [
+          {
+            "checklist_item_name": "iface_6: Source Segment Evidence",
+            "order_index": 0,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 0
+            }
+          },
+          {
+            "checklist_item_name": "iface_6 -> cde_scope: Host Discovery",
+            "order_index": 1,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 120
+            }
+          },
+          {
+            "checklist_item_name": "iface_6 -> cde_scope: Full TCP Port Scan",
+            "order_index": 2,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 240
+            }
+          },
+          {
+            "checklist_item_name": "iface_6 -> cde_scope: Top UDP Port Scan",
+            "order_index": 3,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 360
+            }
+          },
+          {
+            "checklist_item_name": "iface_6 -> non_cde_scope: Host Discovery",
+            "order_index": 4,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 480
+            }
+          },
+          {
+            "checklist_item_name": "iface_6 -> non_cde_scope: Full TCP Port Scan",
+            "order_index": 5,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 600
+            }
+          },
+          {
+            "checklist_item_name": "iface_6 -> non_cde_scope: Top UDP Port Scan",
+            "order_index": 6,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 720
+            }
+          },
+          {
+            "checklist_item_name": "iface_6 -> out_of_scope: Host Discovery",
+            "order_index": 7,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 840
+            }
+          },
+          {
+            "checklist_item_name": "iface_6 -> out_of_scope: Full TCP Port Scan",
+            "order_index": 8,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 960
+            }
+          },
+          {
+            "checklist_item_name": "iface_6 -> out_of_scope: Top UDP Port Scan",
+            "order_index": 9,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 1080
+            }
+          }
+        ]
+      },
+      {
+        "name": "PCI Segmentation Flow — iface_7",
+        "description": "Runs every direction for iface_7 one by one (evidence, then cde/non_cde/out_of_scope).",
+        "is_default_import": false,
+        "requires_auth": false,
+        "tags": [
+          "pci-dss",
+          "sequential"
+        ],
+        "flow_definition": {
+          "edges": [
+            {
+              "source": 0,
+              "target": 1
+            },
+            {
+              "source": 1,
+              "target": 2
+            },
+            {
+              "source": 2,
+              "target": 3
+            },
+            {
+              "source": 3,
+              "target": 4
+            },
+            {
+              "source": 4,
+              "target": 5
+            },
+            {
+              "source": 5,
+              "target": 6
+            },
+            {
+              "source": 6,
+              "target": 7
+            },
+            {
+              "source": 7,
+              "target": 8
+            },
+            {
+              "source": 8,
+              "target": 9
+            }
+          ]
+        },
+        "steps": [
+          {
+            "checklist_item_name": "iface_7: Source Segment Evidence",
+            "order_index": 0,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 0
+            }
+          },
+          {
+            "checklist_item_name": "iface_7 -> cde_scope: Host Discovery",
+            "order_index": 1,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 120
+            }
+          },
+          {
+            "checklist_item_name": "iface_7 -> cde_scope: Full TCP Port Scan",
+            "order_index": 2,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 240
+            }
+          },
+          {
+            "checklist_item_name": "iface_7 -> cde_scope: Top UDP Port Scan",
+            "order_index": 3,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 360
+            }
+          },
+          {
+            "checklist_item_name": "iface_7 -> non_cde_scope: Host Discovery",
+            "order_index": 4,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 480
+            }
+          },
+          {
+            "checklist_item_name": "iface_7 -> non_cde_scope: Full TCP Port Scan",
+            "order_index": 5,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 600
+            }
+          },
+          {
+            "checklist_item_name": "iface_7 -> non_cde_scope: Top UDP Port Scan",
+            "order_index": 6,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 720
+            }
+          },
+          {
+            "checklist_item_name": "iface_7 -> out_of_scope: Host Discovery",
+            "order_index": 7,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 840
+            }
+          },
+          {
+            "checklist_item_name": "iface_7 -> out_of_scope: Full TCP Port Scan",
+            "order_index": 8,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 960
+            }
+          },
+          {
+            "checklist_item_name": "iface_7 -> out_of_scope: Top UDP Port Scan",
+            "order_index": 9,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 1080
+            }
+          }
+        ]
+      },
+      {
+        "name": "PCI Segmentation Flow — iface_8",
+        "description": "Runs every direction for iface_8 one by one (evidence, then cde/non_cde/out_of_scope).",
+        "is_default_import": false,
+        "requires_auth": false,
+        "tags": [
+          "pci-dss",
+          "sequential"
+        ],
+        "flow_definition": {
+          "edges": [
+            {
+              "source": 0,
+              "target": 1
+            },
+            {
+              "source": 1,
+              "target": 2
+            },
+            {
+              "source": 2,
+              "target": 3
+            },
+            {
+              "source": 3,
+              "target": 4
+            },
+            {
+              "source": 4,
+              "target": 5
+            },
+            {
+              "source": 5,
+              "target": 6
+            },
+            {
+              "source": 6,
+              "target": 7
+            },
+            {
+              "source": 7,
+              "target": 8
+            },
+            {
+              "source": 8,
+              "target": 9
+            }
+          ]
+        },
+        "steps": [
+          {
+            "checklist_item_name": "iface_8: Source Segment Evidence",
+            "order_index": 0,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 0
+            }
+          },
+          {
+            "checklist_item_name": "iface_8 -> cde_scope: Host Discovery",
+            "order_index": 1,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 120
+            }
+          },
+          {
+            "checklist_item_name": "iface_8 -> cde_scope: Full TCP Port Scan",
+            "order_index": 2,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 240
+            }
+          },
+          {
+            "checklist_item_name": "iface_8 -> cde_scope: Top UDP Port Scan",
+            "order_index": 3,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 360
+            }
+          },
+          {
+            "checklist_item_name": "iface_8 -> non_cde_scope: Host Discovery",
+            "order_index": 4,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 480
+            }
+          },
+          {
+            "checklist_item_name": "iface_8 -> non_cde_scope: Full TCP Port Scan",
+            "order_index": 5,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 600
+            }
+          },
+          {
+            "checklist_item_name": "iface_8 -> non_cde_scope: Top UDP Port Scan",
+            "order_index": 6,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 720
+            }
+          },
+          {
+            "checklist_item_name": "iface_8 -> out_of_scope: Host Discovery",
+            "order_index": 7,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 840
+            }
+          },
+          {
+            "checklist_item_name": "iface_8 -> out_of_scope: Full TCP Port Scan",
+            "order_index": 8,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 960
+            }
+          },
+          {
+            "checklist_item_name": "iface_8 -> out_of_scope: Top UDP Port Scan",
+            "order_index": 9,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 1080
+            }
+          }
+        ]
+      },
+      {
+        "name": "PCI Segmentation Flow — All Adapters",
+        "description": "iface_1 .. iface_8, every direction, one execution at a time.",
+        "is_default_import": false,
+        "requires_auth": false,
+        "tags": [
+          "pci-dss",
+          "sequential"
+        ],
+        "flow_definition": {
+          "edges": [
+            {
+              "source": 0,
+              "target": 1
+            },
+            {
+              "source": 1,
+              "target": 2
+            },
+            {
+              "source": 2,
+              "target": 3
+            },
+            {
+              "source": 3,
+              "target": 4
+            },
+            {
+              "source": 4,
+              "target": 5
+            },
+            {
+              "source": 5,
+              "target": 6
+            },
+            {
+              "source": 6,
+              "target": 7
+            },
+            {
+              "source": 7,
+              "target": 8
+            },
+            {
+              "source": 8,
+              "target": 9
+            },
+            {
+              "source": 9,
+              "target": 10
+            },
+            {
+              "source": 10,
+              "target": 11
+            },
+            {
+              "source": 11,
+              "target": 12
+            },
+            {
+              "source": 12,
+              "target": 13
+            },
+            {
+              "source": 13,
+              "target": 14
+            },
+            {
+              "source": 14,
+              "target": 15
+            },
+            {
+              "source": 15,
+              "target": 16
+            },
+            {
+              "source": 16,
+              "target": 17
+            },
+            {
+              "source": 17,
+              "target": 18
+            },
+            {
+              "source": 18,
+              "target": 19
+            },
+            {
+              "source": 19,
+              "target": 20
+            },
+            {
+              "source": 20,
+              "target": 21
+            },
+            {
+              "source": 21,
+              "target": 22
+            },
+            {
+              "source": 22,
+              "target": 23
+            },
+            {
+              "source": 23,
+              "target": 24
+            },
+            {
+              "source": 24,
+              "target": 25
+            },
+            {
+              "source": 25,
+              "target": 26
+            },
+            {
+              "source": 26,
+              "target": 27
+            },
+            {
+              "source": 27,
+              "target": 28
+            },
+            {
+              "source": 28,
+              "target": 29
+            },
+            {
+              "source": 29,
+              "target": 30
+            },
+            {
+              "source": 30,
+              "target": 31
+            },
+            {
+              "source": 31,
+              "target": 32
+            },
+            {
+              "source": 32,
+              "target": 33
+            },
+            {
+              "source": 33,
+              "target": 34
+            },
+            {
+              "source": 34,
+              "target": 35
+            },
+            {
+              "source": 35,
+              "target": 36
+            },
+            {
+              "source": 36,
+              "target": 37
+            },
+            {
+              "source": 37,
+              "target": 38
+            },
+            {
+              "source": 38,
+              "target": 39
+            },
+            {
+              "source": 39,
+              "target": 40
+            },
+            {
+              "source": 40,
+              "target": 41
+            },
+            {
+              "source": 41,
+              "target": 42
+            },
+            {
+              "source": 42,
+              "target": 43
+            },
+            {
+              "source": 43,
+              "target": 44
+            },
+            {
+              "source": 44,
+              "target": 45
+            },
+            {
+              "source": 45,
+              "target": 46
+            },
+            {
+              "source": 46,
+              "target": 47
+            },
+            {
+              "source": 47,
+              "target": 48
+            },
+            {
+              "source": 48,
+              "target": 49
+            },
+            {
+              "source": 49,
+              "target": 50
+            },
+            {
+              "source": 50,
+              "target": 51
+            },
+            {
+              "source": 51,
+              "target": 52
+            },
+            {
+              "source": 52,
+              "target": 53
+            },
+            {
+              "source": 53,
+              "target": 54
+            },
+            {
+              "source": 54,
+              "target": 55
+            },
+            {
+              "source": 55,
+              "target": 56
+            },
+            {
+              "source": 56,
+              "target": 57
+            },
+            {
+              "source": 57,
+              "target": 58
+            },
+            {
+              "source": 58,
+              "target": 59
+            },
+            {
+              "source": 59,
+              "target": 60
+            },
+            {
+              "source": 60,
+              "target": 61
+            },
+            {
+              "source": 61,
+              "target": 62
+            },
+            {
+              "source": 62,
+              "target": 63
+            },
+            {
+              "source": 63,
+              "target": 64
+            },
+            {
+              "source": 64,
+              "target": 65
+            },
+            {
+              "source": 65,
+              "target": 66
+            },
+            {
+              "source": 66,
+              "target": 67
+            },
+            {
+              "source": 67,
+              "target": 68
+            },
+            {
+              "source": 68,
+              "target": 69
+            },
+            {
+              "source": 69,
+              "target": 70
+            },
+            {
+              "source": 70,
+              "target": 71
+            },
+            {
+              "source": 71,
+              "target": 72
+            },
+            {
+              "source": 72,
+              "target": 73
+            },
+            {
+              "source": 73,
+              "target": 74
+            },
+            {
+              "source": 74,
+              "target": 75
+            },
+            {
+              "source": 75,
+              "target": 76
+            },
+            {
+              "source": 76,
+              "target": 77
+            },
+            {
+              "source": 77,
+              "target": 78
+            },
+            {
+              "source": 78,
+              "target": 79
+            }
+          ]
+        },
+        "steps": [
+          {
+            "checklist_item_name": "iface_1: Source Segment Evidence",
+            "order_index": 0,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 0
+            }
+          },
+          {
+            "checklist_item_name": "iface_1 -> cde_scope: Host Discovery",
+            "order_index": 1,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 120
+            }
+          },
+          {
+            "checklist_item_name": "iface_1 -> cde_scope: Full TCP Port Scan",
+            "order_index": 2,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 240
+            }
+          },
+          {
+            "checklist_item_name": "iface_1 -> cde_scope: Top UDP Port Scan",
+            "order_index": 3,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 360
+            }
+          },
+          {
+            "checklist_item_name": "iface_1 -> non_cde_scope: Host Discovery",
+            "order_index": 4,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 480
+            }
+          },
+          {
+            "checklist_item_name": "iface_1 -> non_cde_scope: Full TCP Port Scan",
+            "order_index": 5,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 600
+            }
+          },
+          {
+            "checklist_item_name": "iface_1 -> non_cde_scope: Top UDP Port Scan",
+            "order_index": 6,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 720
+            }
+          },
+          {
+            "checklist_item_name": "iface_1 -> out_of_scope: Host Discovery",
+            "order_index": 7,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 840
+            }
+          },
+          {
+            "checklist_item_name": "iface_1 -> out_of_scope: Full TCP Port Scan",
+            "order_index": 8,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 960
+            }
+          },
+          {
+            "checklist_item_name": "iface_1 -> out_of_scope: Top UDP Port Scan",
+            "order_index": 9,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 1080
+            }
+          },
+          {
+            "checklist_item_name": "iface_2: Source Segment Evidence",
+            "order_index": 10,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 1200
+            }
+          },
+          {
+            "checklist_item_name": "iface_2 -> cde_scope: Host Discovery",
+            "order_index": 11,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 1320
+            }
+          },
+          {
+            "checklist_item_name": "iface_2 -> cde_scope: Full TCP Port Scan",
+            "order_index": 12,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 1440
+            }
+          },
+          {
+            "checklist_item_name": "iface_2 -> cde_scope: Top UDP Port Scan",
+            "order_index": 13,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 1560
+            }
+          },
+          {
+            "checklist_item_name": "iface_2 -> non_cde_scope: Host Discovery",
+            "order_index": 14,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 1680
+            }
+          },
+          {
+            "checklist_item_name": "iface_2 -> non_cde_scope: Full TCP Port Scan",
+            "order_index": 15,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 1800
+            }
+          },
+          {
+            "checklist_item_name": "iface_2 -> non_cde_scope: Top UDP Port Scan",
+            "order_index": 16,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 1920
+            }
+          },
+          {
+            "checklist_item_name": "iface_2 -> out_of_scope: Host Discovery",
+            "order_index": 17,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 2040
+            }
+          },
+          {
+            "checklist_item_name": "iface_2 -> out_of_scope: Full TCP Port Scan",
+            "order_index": 18,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 2160
+            }
+          },
+          {
+            "checklist_item_name": "iface_2 -> out_of_scope: Top UDP Port Scan",
+            "order_index": 19,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 2280
+            }
+          },
+          {
+            "checklist_item_name": "iface_3: Source Segment Evidence",
+            "order_index": 20,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 2400
+            }
+          },
+          {
+            "checklist_item_name": "iface_3 -> cde_scope: Host Discovery",
+            "order_index": 21,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 2520
+            }
+          },
+          {
+            "checklist_item_name": "iface_3 -> cde_scope: Full TCP Port Scan",
+            "order_index": 22,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 2640
+            }
+          },
+          {
+            "checklist_item_name": "iface_3 -> cde_scope: Top UDP Port Scan",
+            "order_index": 23,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 2760
+            }
+          },
+          {
+            "checklist_item_name": "iface_3 -> non_cde_scope: Host Discovery",
+            "order_index": 24,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 2880
+            }
+          },
+          {
+            "checklist_item_name": "iface_3 -> non_cde_scope: Full TCP Port Scan",
+            "order_index": 25,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 3000
+            }
+          },
+          {
+            "checklist_item_name": "iface_3 -> non_cde_scope: Top UDP Port Scan",
+            "order_index": 26,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 3120
+            }
+          },
+          {
+            "checklist_item_name": "iface_3 -> out_of_scope: Host Discovery",
+            "order_index": 27,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 3240
+            }
+          },
+          {
+            "checklist_item_name": "iface_3 -> out_of_scope: Full TCP Port Scan",
+            "order_index": 28,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 3360
+            }
+          },
+          {
+            "checklist_item_name": "iface_3 -> out_of_scope: Top UDP Port Scan",
+            "order_index": 29,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 3480
+            }
+          },
+          {
+            "checklist_item_name": "iface_4: Source Segment Evidence",
+            "order_index": 30,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 3600
+            }
+          },
+          {
+            "checklist_item_name": "iface_4 -> cde_scope: Host Discovery",
+            "order_index": 31,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 3720
+            }
+          },
+          {
+            "checklist_item_name": "iface_4 -> cde_scope: Full TCP Port Scan",
+            "order_index": 32,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 3840
+            }
+          },
+          {
+            "checklist_item_name": "iface_4 -> cde_scope: Top UDP Port Scan",
+            "order_index": 33,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 3960
+            }
+          },
+          {
+            "checklist_item_name": "iface_4 -> non_cde_scope: Host Discovery",
+            "order_index": 34,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 4080
+            }
+          },
+          {
+            "checklist_item_name": "iface_4 -> non_cde_scope: Full TCP Port Scan",
+            "order_index": 35,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 4200
+            }
+          },
+          {
+            "checklist_item_name": "iface_4 -> non_cde_scope: Top UDP Port Scan",
+            "order_index": 36,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 4320
+            }
+          },
+          {
+            "checklist_item_name": "iface_4 -> out_of_scope: Host Discovery",
+            "order_index": 37,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 4440
+            }
+          },
+          {
+            "checklist_item_name": "iface_4 -> out_of_scope: Full TCP Port Scan",
+            "order_index": 38,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 4560
+            }
+          },
+          {
+            "checklist_item_name": "iface_4 -> out_of_scope: Top UDP Port Scan",
+            "order_index": 39,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 4680
+            }
+          },
+          {
+            "checklist_item_name": "iface_5: Source Segment Evidence",
+            "order_index": 40,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 4800
+            }
+          },
+          {
+            "checklist_item_name": "iface_5 -> cde_scope: Host Discovery",
+            "order_index": 41,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 4920
+            }
+          },
+          {
+            "checklist_item_name": "iface_5 -> cde_scope: Full TCP Port Scan",
+            "order_index": 42,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 5040
+            }
+          },
+          {
+            "checklist_item_name": "iface_5 -> cde_scope: Top UDP Port Scan",
+            "order_index": 43,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 5160
+            }
+          },
+          {
+            "checklist_item_name": "iface_5 -> non_cde_scope: Host Discovery",
+            "order_index": 44,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 5280
+            }
+          },
+          {
+            "checklist_item_name": "iface_5 -> non_cde_scope: Full TCP Port Scan",
+            "order_index": 45,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 5400
+            }
+          },
+          {
+            "checklist_item_name": "iface_5 -> non_cde_scope: Top UDP Port Scan",
+            "order_index": 46,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 5520
+            }
+          },
+          {
+            "checklist_item_name": "iface_5 -> out_of_scope: Host Discovery",
+            "order_index": 47,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 5640
+            }
+          },
+          {
+            "checklist_item_name": "iface_5 -> out_of_scope: Full TCP Port Scan",
+            "order_index": 48,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 5760
+            }
+          },
+          {
+            "checklist_item_name": "iface_5 -> out_of_scope: Top UDP Port Scan",
+            "order_index": 49,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 5880
+            }
+          },
+          {
+            "checklist_item_name": "iface_6: Source Segment Evidence",
+            "order_index": 50,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 6000
+            }
+          },
+          {
+            "checklist_item_name": "iface_6 -> cde_scope: Host Discovery",
+            "order_index": 51,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 6120
+            }
+          },
+          {
+            "checklist_item_name": "iface_6 -> cde_scope: Full TCP Port Scan",
+            "order_index": 52,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 6240
+            }
+          },
+          {
+            "checklist_item_name": "iface_6 -> cde_scope: Top UDP Port Scan",
+            "order_index": 53,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 6360
+            }
+          },
+          {
+            "checklist_item_name": "iface_6 -> non_cde_scope: Host Discovery",
+            "order_index": 54,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 6480
+            }
+          },
+          {
+            "checklist_item_name": "iface_6 -> non_cde_scope: Full TCP Port Scan",
+            "order_index": 55,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 6600
+            }
+          },
+          {
+            "checklist_item_name": "iface_6 -> non_cde_scope: Top UDP Port Scan",
+            "order_index": 56,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 6720
+            }
+          },
+          {
+            "checklist_item_name": "iface_6 -> out_of_scope: Host Discovery",
+            "order_index": 57,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 6840
+            }
+          },
+          {
+            "checklist_item_name": "iface_6 -> out_of_scope: Full TCP Port Scan",
+            "order_index": 58,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 6960
+            }
+          },
+          {
+            "checklist_item_name": "iface_6 -> out_of_scope: Top UDP Port Scan",
+            "order_index": 59,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 7080
+            }
+          },
+          {
+            "checklist_item_name": "iface_7: Source Segment Evidence",
+            "order_index": 60,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 7200
+            }
+          },
+          {
+            "checklist_item_name": "iface_7 -> cde_scope: Host Discovery",
+            "order_index": 61,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 7320
+            }
+          },
+          {
+            "checklist_item_name": "iface_7 -> cde_scope: Full TCP Port Scan",
+            "order_index": 62,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 7440
+            }
+          },
+          {
+            "checklist_item_name": "iface_7 -> cde_scope: Top UDP Port Scan",
+            "order_index": 63,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 7560
+            }
+          },
+          {
+            "checklist_item_name": "iface_7 -> non_cde_scope: Host Discovery",
+            "order_index": 64,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 7680
+            }
+          },
+          {
+            "checklist_item_name": "iface_7 -> non_cde_scope: Full TCP Port Scan",
+            "order_index": 65,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 7800
+            }
+          },
+          {
+            "checklist_item_name": "iface_7 -> non_cde_scope: Top UDP Port Scan",
+            "order_index": 66,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 7920
+            }
+          },
+          {
+            "checklist_item_name": "iface_7 -> out_of_scope: Host Discovery",
+            "order_index": 67,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 8040
+            }
+          },
+          {
+            "checklist_item_name": "iface_7 -> out_of_scope: Full TCP Port Scan",
+            "order_index": 68,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 8160
+            }
+          },
+          {
+            "checklist_item_name": "iface_7 -> out_of_scope: Top UDP Port Scan",
+            "order_index": 69,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 8280
+            }
+          },
+          {
+            "checklist_item_name": "iface_8: Source Segment Evidence",
+            "order_index": 70,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 8400
+            }
+          },
+          {
+            "checklist_item_name": "iface_8 -> cde_scope: Host Discovery",
+            "order_index": 71,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 8520
+            }
+          },
+          {
+            "checklist_item_name": "iface_8 -> cde_scope: Full TCP Port Scan",
+            "order_index": 72,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 8640
+            }
+          },
+          {
+            "checklist_item_name": "iface_8 -> cde_scope: Top UDP Port Scan",
+            "order_index": 73,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 8760
+            }
+          },
+          {
+            "checklist_item_name": "iface_8 -> non_cde_scope: Host Discovery",
+            "order_index": 74,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 8880
+            }
+          },
+          {
+            "checklist_item_name": "iface_8 -> non_cde_scope: Full TCP Port Scan",
+            "order_index": 75,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 9000
+            }
+          },
+          {
+            "checklist_item_name": "iface_8 -> non_cde_scope: Top UDP Port Scan",
+            "order_index": 76,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 9120
+            }
+          },
+          {
+            "checklist_item_name": "iface_8 -> out_of_scope: Host Discovery",
+            "order_index": 77,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 9240
+            }
+          },
+          {
+            "checklist_item_name": "iface_8 -> out_of_scope: Full TCP Port Scan",
+            "order_index": 78,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 9360
+            }
+          },
+          {
+            "checklist_item_name": "iface_8 -> out_of_scope: Top UDP Port Scan",
+            "order_index": 79,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 9480
+            }
+          }
+        ]
+      },
+      {
+        "name": "PCI CDE Review & Scoping Flow",
+        "description": "CDE service/config review then keyword scoping, one by one.",
+        "is_default_import": false,
+        "requires_auth": false,
+        "tags": [
+          "pci-dss",
+          "sequential"
+        ],
+        "flow_definition": {
+          "edges": [
+            {
+              "source": 0,
+              "target": 1
+            },
+            {
+              "source": 1,
+              "target": 2
+            },
+            {
+              "source": 2,
+              "target": 3
+            },
+            {
+              "source": 3,
+              "target": 4
+            },
+            {
+              "source": 4,
+              "target": 5
+            },
+            {
+              "source": 5,
+              "target": 6
+            },
+            {
+              "source": 6,
+              "target": 7
+            },
+            {
+              "source": 7,
+              "target": 8
+            },
+            {
+              "source": 8,
+              "target": 9
+            },
+            {
+              "source": 9,
+              "target": 10
+            },
+            {
+              "source": 10,
+              "target": 11
+            }
+          ]
+        },
+        "steps": [
+          {
+            "checklist_item_name": "CDE Service Inventory (Req 1.2.5)",
+            "order_index": 0,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 0
+            }
+          },
+          {
+            "checklist_item_name": "Insecure / Cleartext Services (Req 2.2.5, 2.2.7)",
+            "order_index": 1,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 120
+            }
+          },
+          {
+            "checklist_item_name": "Exposed Databases & Caches (Req 1.3.1, 1.4.4)",
+            "order_index": 2,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 240
+            }
+          },
+          {
+            "checklist_item_name": "TLS Protocols & Ciphers (Req 4.2.1)",
+            "order_index": 3,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 360
+            }
+          },
+          {
+            "checklist_item_name": "SSH Algorithms (Req 4.2.1, 2.2.7)",
+            "order_index": 4,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 480
+            }
+          },
+          {
+            "checklist_item_name": "Default Web Credentials (Req 2.2.2)",
+            "order_index": 5,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 600
+            }
+          },
+          {
+            "checklist_item_name": "Anonymous FTP (Req 2.2.2, 7.2)",
+            "order_index": 6,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 720
+            }
+          },
+          {
+            "checklist_item_name": "SNMP Default Community (Req 2.2.2)",
+            "order_index": 7,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 840
+            }
+          },
+          {
+            "checklist_item_name": "SMBv1 & SMB Signing (Req 2.2.4, 4.2.1)",
+            "order_index": 8,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 960
+            }
+          },
+          {
+            "checklist_item_name": "Internal Vulnerability Scan — vulners (Req 11.3.1)",
+            "order_index": 9,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 1080
+            }
+          },
+          {
+            "checklist_item_name": "rDNS Hostname Keyword Sweep",
+            "order_index": 10,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 1200
+            }
+          },
+          {
+            "checklist_item_name": "Web Title Keyword Sweep (non-CDE)",
+            "order_index": 11,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 1320
+            }
+          }
+        ]
+      },
+      {
+        "name": "PCI CHD Discovery Flow",
+        "description": "Authenticated card-data discovery in non-CDE, one by one.",
+        "is_default_import": false,
+        "requires_auth": true,
+        "tags": [
+          "pci-dss",
+          "sequential"
+        ],
+        "flow_definition": {
+          "edges": [
+            {
+              "source": 0,
+              "target": 1
+            },
+            {
+              "source": 1,
+              "target": 2
+            }
+          ]
+        },
+        "steps": [
+          {
+            "checklist_item_name": "SMB Share Name Keywords",
+            "order_index": 0,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 0
+            }
+          },
+          {
+            "checklist_item_name": "CHD Filename Keyword Spider",
+            "order_index": 1,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 120
+            }
+          },
+          {
+            "checklist_item_name": "PAN Content Regex Spider",
+            "order_index": 2,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 240
+            }
+          }
+        ]
+      },
+      {
+        "name": "PCI DSS Full Assessment Flow (no auth)",
+        "description": "All segmentation directions for all 8 adapters, CDE review and scoping, one execution at a time.",
+        "is_default_import": false,
+        "requires_auth": false,
+        "tags": [
+          "pci-dss",
+          "sequential"
+        ],
+        "flow_definition": {
+          "edges": [
+            {
+              "source": 0,
+              "target": 1
+            },
+            {
+              "source": 1,
+              "target": 2
+            },
+            {
+              "source": 2,
+              "target": 3
+            },
+            {
+              "source": 3,
+              "target": 4
+            },
+            {
+              "source": 4,
+              "target": 5
+            },
+            {
+              "source": 5,
+              "target": 6
+            },
+            {
+              "source": 6,
+              "target": 7
+            },
+            {
+              "source": 7,
+              "target": 8
+            },
+            {
+              "source": 8,
+              "target": 9
+            },
+            {
+              "source": 9,
+              "target": 10
+            },
+            {
+              "source": 10,
+              "target": 11
+            },
+            {
+              "source": 11,
+              "target": 12
+            },
+            {
+              "source": 12,
+              "target": 13
+            },
+            {
+              "source": 13,
+              "target": 14
+            },
+            {
+              "source": 14,
+              "target": 15
+            },
+            {
+              "source": 15,
+              "target": 16
+            },
+            {
+              "source": 16,
+              "target": 17
+            },
+            {
+              "source": 17,
+              "target": 18
+            },
+            {
+              "source": 18,
+              "target": 19
+            },
+            {
+              "source": 19,
+              "target": 20
+            },
+            {
+              "source": 20,
+              "target": 21
+            },
+            {
+              "source": 21,
+              "target": 22
+            },
+            {
+              "source": 22,
+              "target": 23
+            },
+            {
+              "source": 23,
+              "target": 24
+            },
+            {
+              "source": 24,
+              "target": 25
+            },
+            {
+              "source": 25,
+              "target": 26
+            },
+            {
+              "source": 26,
+              "target": 27
+            },
+            {
+              "source": 27,
+              "target": 28
+            },
+            {
+              "source": 28,
+              "target": 29
+            },
+            {
+              "source": 29,
+              "target": 30
+            },
+            {
+              "source": 30,
+              "target": 31
+            },
+            {
+              "source": 31,
+              "target": 32
+            },
+            {
+              "source": 32,
+              "target": 33
+            },
+            {
+              "source": 33,
+              "target": 34
+            },
+            {
+              "source": 34,
+              "target": 35
+            },
+            {
+              "source": 35,
+              "target": 36
+            },
+            {
+              "source": 36,
+              "target": 37
+            },
+            {
+              "source": 37,
+              "target": 38
+            },
+            {
+              "source": 38,
+              "target": 39
+            },
+            {
+              "source": 39,
+              "target": 40
+            },
+            {
+              "source": 40,
+              "target": 41
+            },
+            {
+              "source": 41,
+              "target": 42
+            },
+            {
+              "source": 42,
+              "target": 43
+            },
+            {
+              "source": 43,
+              "target": 44
+            },
+            {
+              "source": 44,
+              "target": 45
+            },
+            {
+              "source": 45,
+              "target": 46
+            },
+            {
+              "source": 46,
+              "target": 47
+            },
+            {
+              "source": 47,
+              "target": 48
+            },
+            {
+              "source": 48,
+              "target": 49
+            },
+            {
+              "source": 49,
+              "target": 50
+            },
+            {
+              "source": 50,
+              "target": 51
+            },
+            {
+              "source": 51,
+              "target": 52
+            },
+            {
+              "source": 52,
+              "target": 53
+            },
+            {
+              "source": 53,
+              "target": 54
+            },
+            {
+              "source": 54,
+              "target": 55
+            },
+            {
+              "source": 55,
+              "target": 56
+            },
+            {
+              "source": 56,
+              "target": 57
+            },
+            {
+              "source": 57,
+              "target": 58
+            },
+            {
+              "source": 58,
+              "target": 59
+            },
+            {
+              "source": 59,
+              "target": 60
+            },
+            {
+              "source": 60,
+              "target": 61
+            },
+            {
+              "source": 61,
+              "target": 62
+            },
+            {
+              "source": 62,
+              "target": 63
+            },
+            {
+              "source": 63,
+              "target": 64
+            },
+            {
+              "source": 64,
+              "target": 65
+            },
+            {
+              "source": 65,
+              "target": 66
+            },
+            {
+              "source": 66,
+              "target": 67
+            },
+            {
+              "source": 67,
+              "target": 68
+            },
+            {
+              "source": 68,
+              "target": 69
+            },
+            {
+              "source": 69,
+              "target": 70
+            },
+            {
+              "source": 70,
+              "target": 71
+            },
+            {
+              "source": 71,
+              "target": 72
+            },
+            {
+              "source": 72,
+              "target": 73
+            },
+            {
+              "source": 73,
+              "target": 74
+            },
+            {
+              "source": 74,
+              "target": 75
+            },
+            {
+              "source": 75,
+              "target": 76
+            },
+            {
+              "source": 76,
+              "target": 77
+            },
+            {
+              "source": 77,
+              "target": 78
+            },
+            {
+              "source": 78,
+              "target": 79
+            },
+            {
+              "source": 79,
+              "target": 80
+            },
+            {
+              "source": 80,
+              "target": 81
+            },
+            {
+              "source": 81,
+              "target": 82
+            },
+            {
+              "source": 82,
+              "target": 83
+            },
+            {
+              "source": 83,
+              "target": 84
+            },
+            {
+              "source": 84,
+              "target": 85
+            },
+            {
+              "source": 85,
+              "target": 86
+            },
+            {
+              "source": 86,
+              "target": 87
+            },
+            {
+              "source": 87,
+              "target": 88
+            },
+            {
+              "source": 88,
+              "target": 89
+            },
+            {
+              "source": 89,
+              "target": 90
+            },
+            {
+              "source": 90,
+              "target": 91
+            }
+          ]
+        },
+        "steps": [
+          {
+            "checklist_item_name": "iface_1: Source Segment Evidence",
+            "order_index": 0,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 0
+            }
+          },
+          {
+            "checklist_item_name": "iface_1 -> cde_scope: Host Discovery",
+            "order_index": 1,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 120
+            }
+          },
+          {
+            "checklist_item_name": "iface_1 -> cde_scope: Full TCP Port Scan",
+            "order_index": 2,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 240
+            }
+          },
+          {
+            "checklist_item_name": "iface_1 -> cde_scope: Top UDP Port Scan",
+            "order_index": 3,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 360
+            }
+          },
+          {
+            "checklist_item_name": "iface_1 -> non_cde_scope: Host Discovery",
+            "order_index": 4,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 480
+            }
+          },
+          {
+            "checklist_item_name": "iface_1 -> non_cde_scope: Full TCP Port Scan",
+            "order_index": 5,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 600
+            }
+          },
+          {
+            "checklist_item_name": "iface_1 -> non_cde_scope: Top UDP Port Scan",
+            "order_index": 6,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 720
+            }
+          },
+          {
+            "checklist_item_name": "iface_1 -> out_of_scope: Host Discovery",
+            "order_index": 7,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 840
+            }
+          },
+          {
+            "checklist_item_name": "iface_1 -> out_of_scope: Full TCP Port Scan",
+            "order_index": 8,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 960
+            }
+          },
+          {
+            "checklist_item_name": "iface_1 -> out_of_scope: Top UDP Port Scan",
+            "order_index": 9,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 1080
+            }
+          },
+          {
+            "checklist_item_name": "iface_2: Source Segment Evidence",
+            "order_index": 10,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 1200
+            }
+          },
+          {
+            "checklist_item_name": "iface_2 -> cde_scope: Host Discovery",
+            "order_index": 11,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 1320
+            }
+          },
+          {
+            "checklist_item_name": "iface_2 -> cde_scope: Full TCP Port Scan",
+            "order_index": 12,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 1440
+            }
+          },
+          {
+            "checklist_item_name": "iface_2 -> cde_scope: Top UDP Port Scan",
+            "order_index": 13,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 1560
+            }
+          },
+          {
+            "checklist_item_name": "iface_2 -> non_cde_scope: Host Discovery",
+            "order_index": 14,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 1680
+            }
+          },
+          {
+            "checklist_item_name": "iface_2 -> non_cde_scope: Full TCP Port Scan",
+            "order_index": 15,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 1800
+            }
+          },
+          {
+            "checklist_item_name": "iface_2 -> non_cde_scope: Top UDP Port Scan",
+            "order_index": 16,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 1920
+            }
+          },
+          {
+            "checklist_item_name": "iface_2 -> out_of_scope: Host Discovery",
+            "order_index": 17,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 2040
+            }
+          },
+          {
+            "checklist_item_name": "iface_2 -> out_of_scope: Full TCP Port Scan",
+            "order_index": 18,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 2160
+            }
+          },
+          {
+            "checklist_item_name": "iface_2 -> out_of_scope: Top UDP Port Scan",
+            "order_index": 19,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 2280
+            }
+          },
+          {
+            "checklist_item_name": "iface_3: Source Segment Evidence",
+            "order_index": 20,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 2400
+            }
+          },
+          {
+            "checklist_item_name": "iface_3 -> cde_scope: Host Discovery",
+            "order_index": 21,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 2520
+            }
+          },
+          {
+            "checklist_item_name": "iface_3 -> cde_scope: Full TCP Port Scan",
+            "order_index": 22,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 2640
+            }
+          },
+          {
+            "checklist_item_name": "iface_3 -> cde_scope: Top UDP Port Scan",
+            "order_index": 23,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 2760
+            }
+          },
+          {
+            "checklist_item_name": "iface_3 -> non_cde_scope: Host Discovery",
+            "order_index": 24,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 2880
+            }
+          },
+          {
+            "checklist_item_name": "iface_3 -> non_cde_scope: Full TCP Port Scan",
+            "order_index": 25,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 3000
+            }
+          },
+          {
+            "checklist_item_name": "iface_3 -> non_cde_scope: Top UDP Port Scan",
+            "order_index": 26,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 3120
+            }
+          },
+          {
+            "checklist_item_name": "iface_3 -> out_of_scope: Host Discovery",
+            "order_index": 27,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 3240
+            }
+          },
+          {
+            "checklist_item_name": "iface_3 -> out_of_scope: Full TCP Port Scan",
+            "order_index": 28,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 3360
+            }
+          },
+          {
+            "checklist_item_name": "iface_3 -> out_of_scope: Top UDP Port Scan",
+            "order_index": 29,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 3480
+            }
+          },
+          {
+            "checklist_item_name": "iface_4: Source Segment Evidence",
+            "order_index": 30,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 3600
+            }
+          },
+          {
+            "checklist_item_name": "iface_4 -> cde_scope: Host Discovery",
+            "order_index": 31,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 3720
+            }
+          },
+          {
+            "checklist_item_name": "iface_4 -> cde_scope: Full TCP Port Scan",
+            "order_index": 32,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 3840
+            }
+          },
+          {
+            "checklist_item_name": "iface_4 -> cde_scope: Top UDP Port Scan",
+            "order_index": 33,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 3960
+            }
+          },
+          {
+            "checklist_item_name": "iface_4 -> non_cde_scope: Host Discovery",
+            "order_index": 34,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 4080
+            }
+          },
+          {
+            "checklist_item_name": "iface_4 -> non_cde_scope: Full TCP Port Scan",
+            "order_index": 35,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 4200
+            }
+          },
+          {
+            "checklist_item_name": "iface_4 -> non_cde_scope: Top UDP Port Scan",
+            "order_index": 36,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 4320
+            }
+          },
+          {
+            "checklist_item_name": "iface_4 -> out_of_scope: Host Discovery",
+            "order_index": 37,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 4440
+            }
+          },
+          {
+            "checklist_item_name": "iface_4 -> out_of_scope: Full TCP Port Scan",
+            "order_index": 38,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 4560
+            }
+          },
+          {
+            "checklist_item_name": "iface_4 -> out_of_scope: Top UDP Port Scan",
+            "order_index": 39,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 4680
+            }
+          },
+          {
+            "checklist_item_name": "iface_5: Source Segment Evidence",
+            "order_index": 40,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 4800
+            }
+          },
+          {
+            "checklist_item_name": "iface_5 -> cde_scope: Host Discovery",
+            "order_index": 41,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 4920
+            }
+          },
+          {
+            "checklist_item_name": "iface_5 -> cde_scope: Full TCP Port Scan",
+            "order_index": 42,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 5040
+            }
+          },
+          {
+            "checklist_item_name": "iface_5 -> cde_scope: Top UDP Port Scan",
+            "order_index": 43,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 5160
+            }
+          },
+          {
+            "checklist_item_name": "iface_5 -> non_cde_scope: Host Discovery",
+            "order_index": 44,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 5280
+            }
+          },
+          {
+            "checklist_item_name": "iface_5 -> non_cde_scope: Full TCP Port Scan",
+            "order_index": 45,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 5400
+            }
+          },
+          {
+            "checklist_item_name": "iface_5 -> non_cde_scope: Top UDP Port Scan",
+            "order_index": 46,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 5520
+            }
+          },
+          {
+            "checklist_item_name": "iface_5 -> out_of_scope: Host Discovery",
+            "order_index": 47,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 5640
+            }
+          },
+          {
+            "checklist_item_name": "iface_5 -> out_of_scope: Full TCP Port Scan",
+            "order_index": 48,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 5760
+            }
+          },
+          {
+            "checklist_item_name": "iface_5 -> out_of_scope: Top UDP Port Scan",
+            "order_index": 49,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 5880
+            }
+          },
+          {
+            "checklist_item_name": "iface_6: Source Segment Evidence",
+            "order_index": 50,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 6000
+            }
+          },
+          {
+            "checklist_item_name": "iface_6 -> cde_scope: Host Discovery",
+            "order_index": 51,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 6120
+            }
+          },
+          {
+            "checklist_item_name": "iface_6 -> cde_scope: Full TCP Port Scan",
+            "order_index": 52,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 6240
+            }
+          },
+          {
+            "checklist_item_name": "iface_6 -> cde_scope: Top UDP Port Scan",
+            "order_index": 53,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 6360
+            }
+          },
+          {
+            "checklist_item_name": "iface_6 -> non_cde_scope: Host Discovery",
+            "order_index": 54,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 6480
+            }
+          },
+          {
+            "checklist_item_name": "iface_6 -> non_cde_scope: Full TCP Port Scan",
+            "order_index": 55,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 6600
+            }
+          },
+          {
+            "checklist_item_name": "iface_6 -> non_cde_scope: Top UDP Port Scan",
+            "order_index": 56,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 6720
+            }
+          },
+          {
+            "checklist_item_name": "iface_6 -> out_of_scope: Host Discovery",
+            "order_index": 57,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 6840
+            }
+          },
+          {
+            "checklist_item_name": "iface_6 -> out_of_scope: Full TCP Port Scan",
+            "order_index": 58,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 6960
+            }
+          },
+          {
+            "checklist_item_name": "iface_6 -> out_of_scope: Top UDP Port Scan",
+            "order_index": 59,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 7080
+            }
+          },
+          {
+            "checklist_item_name": "iface_7: Source Segment Evidence",
+            "order_index": 60,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 7200
+            }
+          },
+          {
+            "checklist_item_name": "iface_7 -> cde_scope: Host Discovery",
+            "order_index": 61,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 7320
+            }
+          },
+          {
+            "checklist_item_name": "iface_7 -> cde_scope: Full TCP Port Scan",
+            "order_index": 62,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 7440
+            }
+          },
+          {
+            "checklist_item_name": "iface_7 -> cde_scope: Top UDP Port Scan",
+            "order_index": 63,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 7560
+            }
+          },
+          {
+            "checklist_item_name": "iface_7 -> non_cde_scope: Host Discovery",
+            "order_index": 64,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 7680
+            }
+          },
+          {
+            "checklist_item_name": "iface_7 -> non_cde_scope: Full TCP Port Scan",
+            "order_index": 65,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 7800
+            }
+          },
+          {
+            "checklist_item_name": "iface_7 -> non_cde_scope: Top UDP Port Scan",
+            "order_index": 66,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 7920
+            }
+          },
+          {
+            "checklist_item_name": "iface_7 -> out_of_scope: Host Discovery",
+            "order_index": 67,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 8040
+            }
+          },
+          {
+            "checklist_item_name": "iface_7 -> out_of_scope: Full TCP Port Scan",
+            "order_index": 68,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 8160
+            }
+          },
+          {
+            "checklist_item_name": "iface_7 -> out_of_scope: Top UDP Port Scan",
+            "order_index": 69,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 8280
+            }
+          },
+          {
+            "checklist_item_name": "iface_8: Source Segment Evidence",
+            "order_index": 70,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 8400
+            }
+          },
+          {
+            "checklist_item_name": "iface_8 -> cde_scope: Host Discovery",
+            "order_index": 71,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 8520
+            }
+          },
+          {
+            "checklist_item_name": "iface_8 -> cde_scope: Full TCP Port Scan",
+            "order_index": 72,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 8640
+            }
+          },
+          {
+            "checklist_item_name": "iface_8 -> cde_scope: Top UDP Port Scan",
+            "order_index": 73,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 8760
+            }
+          },
+          {
+            "checklist_item_name": "iface_8 -> non_cde_scope: Host Discovery",
+            "order_index": 74,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 8880
+            }
+          },
+          {
+            "checklist_item_name": "iface_8 -> non_cde_scope: Full TCP Port Scan",
+            "order_index": 75,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 9000
+            }
+          },
+          {
+            "checklist_item_name": "iface_8 -> non_cde_scope: Top UDP Port Scan",
+            "order_index": 76,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 9120
+            }
+          },
+          {
+            "checklist_item_name": "iface_8 -> out_of_scope: Host Discovery",
+            "order_index": 77,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 9240
+            }
+          },
+          {
+            "checklist_item_name": "iface_8 -> out_of_scope: Full TCP Port Scan",
+            "order_index": 78,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 9360
+            }
+          },
+          {
+            "checklist_item_name": "iface_8 -> out_of_scope: Top UDP Port Scan",
+            "order_index": 79,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 9480
+            }
+          },
+          {
+            "checklist_item_name": "CDE Service Inventory (Req 1.2.5)",
+            "order_index": 80,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 9600
+            }
+          },
+          {
+            "checklist_item_name": "Insecure / Cleartext Services (Req 2.2.5, 2.2.7)",
+            "order_index": 81,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 9720
+            }
+          },
+          {
+            "checklist_item_name": "Exposed Databases & Caches (Req 1.3.1, 1.4.4)",
+            "order_index": 82,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 9840
+            }
+          },
+          {
+            "checklist_item_name": "TLS Protocols & Ciphers (Req 4.2.1)",
+            "order_index": 83,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 9960
+            }
+          },
+          {
+            "checklist_item_name": "SSH Algorithms (Req 4.2.1, 2.2.7)",
+            "order_index": 84,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 10080
+            }
+          },
+          {
+            "checklist_item_name": "Default Web Credentials (Req 2.2.2)",
+            "order_index": 85,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 10200
+            }
+          },
+          {
+            "checklist_item_name": "Anonymous FTP (Req 2.2.2, 7.2)",
+            "order_index": 86,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 10320
+            }
+          },
+          {
+            "checklist_item_name": "SNMP Default Community (Req 2.2.2)",
+            "order_index": 87,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 10440
+            }
+          },
+          {
+            "checklist_item_name": "SMBv1 & SMB Signing (Req 2.2.4, 4.2.1)",
+            "order_index": 88,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 10560
+            }
+          },
+          {
+            "checklist_item_name": "Internal Vulnerability Scan — vulners (Req 11.3.1)",
+            "order_index": 89,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 10680
+            }
+          },
+          {
+            "checklist_item_name": "rDNS Hostname Keyword Sweep",
+            "order_index": 90,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 10800
+            }
+          },
+          {
+            "checklist_item_name": "Web Title Keyword Sweep (non-CDE)",
+            "order_index": 91,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "ui_position": {
+              "x": 250,
+              "y": 10920
+            }
           }
         ]
       }
@@ -3975,6 +8395,13 @@
         "value": "",
         "var_type": "file",
         "description": "Out-of-scope IPs/CIDRs (one per line): no CDE access, no security impact",
+        "is_default_import": false
+      },
+      {
+        "key": "speed",
+        "value": "3",
+        "var_type": "string",
+        "description": "nmap timing template for every PCI nmap item: 0 paranoid .. 3 normal .. 5 insane",
         "is_default_import": false
       }
     ]
