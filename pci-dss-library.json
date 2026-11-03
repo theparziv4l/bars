@@ -1,0 +1,1719 @@
+{
+  "checklists": {
+    "groups": [
+      {
+        "name": "PCI Segmentation — iface_1",
+        "description": "PCI DSS 11.4.5 (annual, all entities) / 11.4.6 (every 6 months, service providers): prove that the segment behind adapter {iface_1} cannot reach the CDE. Run from the out-of-scope (non-CDE) or connected-to segment attached to {iface_1}. Any open port or live host is a segmentation failure. Requires root (raw sockets, -e).",
+        "is_default_import": false,
+        "requires_auth": false,
+        "speed_profile": "default",
+        "items": [
+          {
+            "name": "iface_1: Source Segment Evidence",
+            "description": "Record source IP, VLAN and routes of the test adapter. QSA evidence of where the test ran from.",
+            "command_template": "ip -br addr show dev {iface_1}; ip route show dev {iface_1}; ip -d link show dev {iface_1} | grep -i vlan || true",
+            "output_regex": {
+              "source_ip": "^\\S+\\s+(?:UP|DOWN|UNKNOWN|DORMANT|LOWERLAYERDOWN)\\s+(\\d{1,3}(?:\\.\\d{1,3}){3})/\\d+"
+            },
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {},
+            "target_filter": {},
+            "timeout": 60,
+            "alert_patterns": {},
+            "finding_template": {},
+            "tags": [
+              "pci-dss",
+              "segmentation",
+              "evidence"
+            ],
+            "enabled": true
+          },
+          {
+            "name": "iface_1: CDE Host Discovery",
+            "description": "Multi-probe discovery (ICMP echo/timestamp, TCP SYN/ACK, UDP) toward the CDE through this adapter.",
+            "command_template": "nmap -e {iface_1} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {cde_scope}",
+            "output_regex": {
+              "alive_hosts": "Nmap scan report for (\\b(?:(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\b)"
+            },
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {
+              "cde_scope": {
+                "type": "file"
+              }
+            },
+            "target_filter": {},
+            "timeout": 1800,
+            "alert_patterns": {
+              "high": [
+                "Host is up"
+              ]
+            },
+            "finding_template": {
+              "title": "PCI DSS 11.4.5 segmentation failure: CDE reachable from out-of-scope segment",
+              "severity": "high",
+              "description": "A CDE system answered from a segment that is supposed to be isolated from the CDE. Segmentation is not operational and effective, so the source segment is in PCI DSS scope.",
+              "remediation": "Restrict the flow at the segmentation control (firewall/ACL/VLAN) to deny all traffic from out-of-scope segments to the CDE, then re-run the segmentation test and keep the evidence.",
+              "references": [
+                "PCI DSS v4.0.1 Req 11.4.5",
+                "PCI DSS v4.0.1 Req 11.4.6",
+                "PCI DSS v4.0.1 Req 1.3.1"
+              ]
+            },
+            "tags": [
+              "pci-dss",
+              "segmentation",
+              "discovery"
+            ],
+            "enabled": true
+          },
+          {
+            "name": "iface_1: CDE Full TCP Port Scan",
+            "description": "All 65535 TCP ports toward every CDE address with -Pn (ICMP filtering must not hide hosts).",
+            "command_template": "nmap -e {iface_1} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {cde_scope}",
+            "output_regex": {
+              "open_ports": "^(\\d+)/tcp\\s+open\\s"
+            },
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {
+              "cde_scope": {
+                "type": "file"
+              }
+            },
+            "target_filter": {},
+            "timeout": 43200,
+            "alert_patterns": {
+              "critical": [
+                "^\\d+/tcp\\s+open\\s"
+              ]
+            },
+            "finding_template": {
+              "title": "PCI DSS 11.4.5 segmentation failure: CDE reachable from out-of-scope segment",
+              "severity": "critical",
+              "description": "A CDE system answered from a segment that is supposed to be isolated from the CDE. Segmentation is not operational and effective, so the source segment is in PCI DSS scope.",
+              "remediation": "Restrict the flow at the segmentation control (firewall/ACL/VLAN) to deny all traffic from out-of-scope segments to the CDE, then re-run the segmentation test and keep the evidence.",
+              "references": [
+                "PCI DSS v4.0.1 Req 11.4.5",
+                "PCI DSS v4.0.1 Req 11.4.6",
+                "PCI DSS v4.0.1 Req 1.3.1"
+              ]
+            },
+            "tags": [
+              "pci-dss",
+              "segmentation",
+              "tcp"
+            ],
+            "enabled": true
+          },
+          {
+            "name": "iface_1: CDE Top UDP Port Scan",
+            "description": "Top 200 UDP ports toward the CDE. Only 'open' (not open|filtered) is treated as a failure.",
+            "command_template": "nmap -e {iface_1} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {cde_scope}",
+            "output_regex": {
+              "open_udp_ports": "^(\\d+)/udp\\s+open\\s"
+            },
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {
+              "cde_scope": {
+                "type": "file"
+              }
+            },
+            "target_filter": {},
+            "timeout": 21600,
+            "alert_patterns": {
+              "critical": [
+                "^\\d+/udp\\s+open\\s"
+              ]
+            },
+            "finding_template": {
+              "title": "PCI DSS 11.4.5 segmentation failure: CDE reachable from out-of-scope segment",
+              "severity": "critical",
+              "description": "A CDE system answered from a segment that is supposed to be isolated from the CDE. Segmentation is not operational and effective, so the source segment is in PCI DSS scope.",
+              "remediation": "Restrict the flow at the segmentation control (firewall/ACL/VLAN) to deny all traffic from out-of-scope segments to the CDE, then re-run the segmentation test and keep the evidence.",
+              "references": [
+                "PCI DSS v4.0.1 Req 11.4.5",
+                "PCI DSS v4.0.1 Req 11.4.6",
+                "PCI DSS v4.0.1 Req 1.3.1"
+              ]
+            },
+            "tags": [
+              "pci-dss",
+              "segmentation",
+              "udp"
+            ],
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "name": "PCI Segmentation — iface_2",
+        "description": "PCI DSS 11.4.5 (annual, all entities) / 11.4.6 (every 6 months, service providers): prove that the segment behind adapter {iface_2} cannot reach the CDE. Run from the out-of-scope (non-CDE) or connected-to segment attached to {iface_2}. Any open port or live host is a segmentation failure. Requires root (raw sockets, -e).",
+        "is_default_import": false,
+        "requires_auth": false,
+        "speed_profile": "default",
+        "items": [
+          {
+            "name": "iface_2: Source Segment Evidence",
+            "description": "Record source IP, VLAN and routes of the test adapter. QSA evidence of where the test ran from.",
+            "command_template": "ip -br addr show dev {iface_2}; ip route show dev {iface_2}; ip -d link show dev {iface_2} | grep -i vlan || true",
+            "output_regex": {
+              "source_ip": "^\\S+\\s+(?:UP|DOWN|UNKNOWN|DORMANT|LOWERLAYERDOWN)\\s+(\\d{1,3}(?:\\.\\d{1,3}){3})/\\d+"
+            },
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {},
+            "target_filter": {},
+            "timeout": 60,
+            "alert_patterns": {},
+            "finding_template": {},
+            "tags": [
+              "pci-dss",
+              "segmentation",
+              "evidence"
+            ],
+            "enabled": true
+          },
+          {
+            "name": "iface_2: CDE Host Discovery",
+            "description": "Multi-probe discovery (ICMP echo/timestamp, TCP SYN/ACK, UDP) toward the CDE through this adapter.",
+            "command_template": "nmap -e {iface_2} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {cde_scope}",
+            "output_regex": {
+              "alive_hosts": "Nmap scan report for (\\b(?:(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\b)"
+            },
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {
+              "cde_scope": {
+                "type": "file"
+              }
+            },
+            "target_filter": {},
+            "timeout": 1800,
+            "alert_patterns": {
+              "high": [
+                "Host is up"
+              ]
+            },
+            "finding_template": {
+              "title": "PCI DSS 11.4.5 segmentation failure: CDE reachable from out-of-scope segment",
+              "severity": "high",
+              "description": "A CDE system answered from a segment that is supposed to be isolated from the CDE. Segmentation is not operational and effective, so the source segment is in PCI DSS scope.",
+              "remediation": "Restrict the flow at the segmentation control (firewall/ACL/VLAN) to deny all traffic from out-of-scope segments to the CDE, then re-run the segmentation test and keep the evidence.",
+              "references": [
+                "PCI DSS v4.0.1 Req 11.4.5",
+                "PCI DSS v4.0.1 Req 11.4.6",
+                "PCI DSS v4.0.1 Req 1.3.1"
+              ]
+            },
+            "tags": [
+              "pci-dss",
+              "segmentation",
+              "discovery"
+            ],
+            "enabled": true
+          },
+          {
+            "name": "iface_2: CDE Full TCP Port Scan",
+            "description": "All 65535 TCP ports toward every CDE address with -Pn (ICMP filtering must not hide hosts).",
+            "command_template": "nmap -e {iface_2} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {cde_scope}",
+            "output_regex": {
+              "open_ports": "^(\\d+)/tcp\\s+open\\s"
+            },
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {
+              "cde_scope": {
+                "type": "file"
+              }
+            },
+            "target_filter": {},
+            "timeout": 43200,
+            "alert_patterns": {
+              "critical": [
+                "^\\d+/tcp\\s+open\\s"
+              ]
+            },
+            "finding_template": {
+              "title": "PCI DSS 11.4.5 segmentation failure: CDE reachable from out-of-scope segment",
+              "severity": "critical",
+              "description": "A CDE system answered from a segment that is supposed to be isolated from the CDE. Segmentation is not operational and effective, so the source segment is in PCI DSS scope.",
+              "remediation": "Restrict the flow at the segmentation control (firewall/ACL/VLAN) to deny all traffic from out-of-scope segments to the CDE, then re-run the segmentation test and keep the evidence.",
+              "references": [
+                "PCI DSS v4.0.1 Req 11.4.5",
+                "PCI DSS v4.0.1 Req 11.4.6",
+                "PCI DSS v4.0.1 Req 1.3.1"
+              ]
+            },
+            "tags": [
+              "pci-dss",
+              "segmentation",
+              "tcp"
+            ],
+            "enabled": true
+          },
+          {
+            "name": "iface_2: CDE Top UDP Port Scan",
+            "description": "Top 200 UDP ports toward the CDE. Only 'open' (not open|filtered) is treated as a failure.",
+            "command_template": "nmap -e {iface_2} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {cde_scope}",
+            "output_regex": {
+              "open_udp_ports": "^(\\d+)/udp\\s+open\\s"
+            },
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {
+              "cde_scope": {
+                "type": "file"
+              }
+            },
+            "target_filter": {},
+            "timeout": 21600,
+            "alert_patterns": {
+              "critical": [
+                "^\\d+/udp\\s+open\\s"
+              ]
+            },
+            "finding_template": {
+              "title": "PCI DSS 11.4.5 segmentation failure: CDE reachable from out-of-scope segment",
+              "severity": "critical",
+              "description": "A CDE system answered from a segment that is supposed to be isolated from the CDE. Segmentation is not operational and effective, so the source segment is in PCI DSS scope.",
+              "remediation": "Restrict the flow at the segmentation control (firewall/ACL/VLAN) to deny all traffic from out-of-scope segments to the CDE, then re-run the segmentation test and keep the evidence.",
+              "references": [
+                "PCI DSS v4.0.1 Req 11.4.5",
+                "PCI DSS v4.0.1 Req 11.4.6",
+                "PCI DSS v4.0.1 Req 1.3.1"
+              ]
+            },
+            "tags": [
+              "pci-dss",
+              "segmentation",
+              "udp"
+            ],
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "name": "PCI Segmentation — iface_3",
+        "description": "PCI DSS 11.4.5 (annual, all entities) / 11.4.6 (every 6 months, service providers): prove that the segment behind adapter {iface_3} cannot reach the CDE. Run from the out-of-scope (non-CDE) or connected-to segment attached to {iface_3}. Any open port or live host is a segmentation failure. Requires root (raw sockets, -e).",
+        "is_default_import": false,
+        "requires_auth": false,
+        "speed_profile": "default",
+        "items": [
+          {
+            "name": "iface_3: Source Segment Evidence",
+            "description": "Record source IP, VLAN and routes of the test adapter. QSA evidence of where the test ran from.",
+            "command_template": "ip -br addr show dev {iface_3}; ip route show dev {iface_3}; ip -d link show dev {iface_3} | grep -i vlan || true",
+            "output_regex": {
+              "source_ip": "^\\S+\\s+(?:UP|DOWN|UNKNOWN|DORMANT|LOWERLAYERDOWN)\\s+(\\d{1,3}(?:\\.\\d{1,3}){3})/\\d+"
+            },
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {},
+            "target_filter": {},
+            "timeout": 60,
+            "alert_patterns": {},
+            "finding_template": {},
+            "tags": [
+              "pci-dss",
+              "segmentation",
+              "evidence"
+            ],
+            "enabled": true
+          },
+          {
+            "name": "iface_3: CDE Host Discovery",
+            "description": "Multi-probe discovery (ICMP echo/timestamp, TCP SYN/ACK, UDP) toward the CDE through this adapter.",
+            "command_template": "nmap -e {iface_3} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {cde_scope}",
+            "output_regex": {
+              "alive_hosts": "Nmap scan report for (\\b(?:(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\b)"
+            },
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {
+              "cde_scope": {
+                "type": "file"
+              }
+            },
+            "target_filter": {},
+            "timeout": 1800,
+            "alert_patterns": {
+              "high": [
+                "Host is up"
+              ]
+            },
+            "finding_template": {
+              "title": "PCI DSS 11.4.5 segmentation failure: CDE reachable from out-of-scope segment",
+              "severity": "high",
+              "description": "A CDE system answered from a segment that is supposed to be isolated from the CDE. Segmentation is not operational and effective, so the source segment is in PCI DSS scope.",
+              "remediation": "Restrict the flow at the segmentation control (firewall/ACL/VLAN) to deny all traffic from out-of-scope segments to the CDE, then re-run the segmentation test and keep the evidence.",
+              "references": [
+                "PCI DSS v4.0.1 Req 11.4.5",
+                "PCI DSS v4.0.1 Req 11.4.6",
+                "PCI DSS v4.0.1 Req 1.3.1"
+              ]
+            },
+            "tags": [
+              "pci-dss",
+              "segmentation",
+              "discovery"
+            ],
+            "enabled": true
+          },
+          {
+            "name": "iface_3: CDE Full TCP Port Scan",
+            "description": "All 65535 TCP ports toward every CDE address with -Pn (ICMP filtering must not hide hosts).",
+            "command_template": "nmap -e {iface_3} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {cde_scope}",
+            "output_regex": {
+              "open_ports": "^(\\d+)/tcp\\s+open\\s"
+            },
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {
+              "cde_scope": {
+                "type": "file"
+              }
+            },
+            "target_filter": {},
+            "timeout": 43200,
+            "alert_patterns": {
+              "critical": [
+                "^\\d+/tcp\\s+open\\s"
+              ]
+            },
+            "finding_template": {
+              "title": "PCI DSS 11.4.5 segmentation failure: CDE reachable from out-of-scope segment",
+              "severity": "critical",
+              "description": "A CDE system answered from a segment that is supposed to be isolated from the CDE. Segmentation is not operational and effective, so the source segment is in PCI DSS scope.",
+              "remediation": "Restrict the flow at the segmentation control (firewall/ACL/VLAN) to deny all traffic from out-of-scope segments to the CDE, then re-run the segmentation test and keep the evidence.",
+              "references": [
+                "PCI DSS v4.0.1 Req 11.4.5",
+                "PCI DSS v4.0.1 Req 11.4.6",
+                "PCI DSS v4.0.1 Req 1.3.1"
+              ]
+            },
+            "tags": [
+              "pci-dss",
+              "segmentation",
+              "tcp"
+            ],
+            "enabled": true
+          },
+          {
+            "name": "iface_3: CDE Top UDP Port Scan",
+            "description": "Top 200 UDP ports toward the CDE. Only 'open' (not open|filtered) is treated as a failure.",
+            "command_template": "nmap -e {iface_3} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {cde_scope}",
+            "output_regex": {
+              "open_udp_ports": "^(\\d+)/udp\\s+open\\s"
+            },
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {
+              "cde_scope": {
+                "type": "file"
+              }
+            },
+            "target_filter": {},
+            "timeout": 21600,
+            "alert_patterns": {
+              "critical": [
+                "^\\d+/udp\\s+open\\s"
+              ]
+            },
+            "finding_template": {
+              "title": "PCI DSS 11.4.5 segmentation failure: CDE reachable from out-of-scope segment",
+              "severity": "critical",
+              "description": "A CDE system answered from a segment that is supposed to be isolated from the CDE. Segmentation is not operational and effective, so the source segment is in PCI DSS scope.",
+              "remediation": "Restrict the flow at the segmentation control (firewall/ACL/VLAN) to deny all traffic from out-of-scope segments to the CDE, then re-run the segmentation test and keep the evidence.",
+              "references": [
+                "PCI DSS v4.0.1 Req 11.4.5",
+                "PCI DSS v4.0.1 Req 11.4.6",
+                "PCI DSS v4.0.1 Req 1.3.1"
+              ]
+            },
+            "tags": [
+              "pci-dss",
+              "segmentation",
+              "udp"
+            ],
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "name": "PCI Segmentation — iface_4",
+        "description": "PCI DSS 11.4.5 (annual, all entities) / 11.4.6 (every 6 months, service providers): prove that the segment behind adapter {iface_4} cannot reach the CDE. Run from the out-of-scope (non-CDE) or connected-to segment attached to {iface_4}. Any open port or live host is a segmentation failure. Requires root (raw sockets, -e).",
+        "is_default_import": false,
+        "requires_auth": false,
+        "speed_profile": "default",
+        "items": [
+          {
+            "name": "iface_4: Source Segment Evidence",
+            "description": "Record source IP, VLAN and routes of the test adapter. QSA evidence of where the test ran from.",
+            "command_template": "ip -br addr show dev {iface_4}; ip route show dev {iface_4}; ip -d link show dev {iface_4} | grep -i vlan || true",
+            "output_regex": {
+              "source_ip": "^\\S+\\s+(?:UP|DOWN|UNKNOWN|DORMANT|LOWERLAYERDOWN)\\s+(\\d{1,3}(?:\\.\\d{1,3}){3})/\\d+"
+            },
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {},
+            "target_filter": {},
+            "timeout": 60,
+            "alert_patterns": {},
+            "finding_template": {},
+            "tags": [
+              "pci-dss",
+              "segmentation",
+              "evidence"
+            ],
+            "enabled": true
+          },
+          {
+            "name": "iface_4: CDE Host Discovery",
+            "description": "Multi-probe discovery (ICMP echo/timestamp, TCP SYN/ACK, UDP) toward the CDE through this adapter.",
+            "command_template": "nmap -e {iface_4} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {cde_scope}",
+            "output_regex": {
+              "alive_hosts": "Nmap scan report for (\\b(?:(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\b)"
+            },
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {
+              "cde_scope": {
+                "type": "file"
+              }
+            },
+            "target_filter": {},
+            "timeout": 1800,
+            "alert_patterns": {
+              "high": [
+                "Host is up"
+              ]
+            },
+            "finding_template": {
+              "title": "PCI DSS 11.4.5 segmentation failure: CDE reachable from out-of-scope segment",
+              "severity": "high",
+              "description": "A CDE system answered from a segment that is supposed to be isolated from the CDE. Segmentation is not operational and effective, so the source segment is in PCI DSS scope.",
+              "remediation": "Restrict the flow at the segmentation control (firewall/ACL/VLAN) to deny all traffic from out-of-scope segments to the CDE, then re-run the segmentation test and keep the evidence.",
+              "references": [
+                "PCI DSS v4.0.1 Req 11.4.5",
+                "PCI DSS v4.0.1 Req 11.4.6",
+                "PCI DSS v4.0.1 Req 1.3.1"
+              ]
+            },
+            "tags": [
+              "pci-dss",
+              "segmentation",
+              "discovery"
+            ],
+            "enabled": true
+          },
+          {
+            "name": "iface_4: CDE Full TCP Port Scan",
+            "description": "All 65535 TCP ports toward every CDE address with -Pn (ICMP filtering must not hide hosts).",
+            "command_template": "nmap -e {iface_4} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {cde_scope}",
+            "output_regex": {
+              "open_ports": "^(\\d+)/tcp\\s+open\\s"
+            },
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {
+              "cde_scope": {
+                "type": "file"
+              }
+            },
+            "target_filter": {},
+            "timeout": 43200,
+            "alert_patterns": {
+              "critical": [
+                "^\\d+/tcp\\s+open\\s"
+              ]
+            },
+            "finding_template": {
+              "title": "PCI DSS 11.4.5 segmentation failure: CDE reachable from out-of-scope segment",
+              "severity": "critical",
+              "description": "A CDE system answered from a segment that is supposed to be isolated from the CDE. Segmentation is not operational and effective, so the source segment is in PCI DSS scope.",
+              "remediation": "Restrict the flow at the segmentation control (firewall/ACL/VLAN) to deny all traffic from out-of-scope segments to the CDE, then re-run the segmentation test and keep the evidence.",
+              "references": [
+                "PCI DSS v4.0.1 Req 11.4.5",
+                "PCI DSS v4.0.1 Req 11.4.6",
+                "PCI DSS v4.0.1 Req 1.3.1"
+              ]
+            },
+            "tags": [
+              "pci-dss",
+              "segmentation",
+              "tcp"
+            ],
+            "enabled": true
+          },
+          {
+            "name": "iface_4: CDE Top UDP Port Scan",
+            "description": "Top 200 UDP ports toward the CDE. Only 'open' (not open|filtered) is treated as a failure.",
+            "command_template": "nmap -e {iface_4} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {cde_scope}",
+            "output_regex": {
+              "open_udp_ports": "^(\\d+)/udp\\s+open\\s"
+            },
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {
+              "cde_scope": {
+                "type": "file"
+              }
+            },
+            "target_filter": {},
+            "timeout": 21600,
+            "alert_patterns": {
+              "critical": [
+                "^\\d+/udp\\s+open\\s"
+              ]
+            },
+            "finding_template": {
+              "title": "PCI DSS 11.4.5 segmentation failure: CDE reachable from out-of-scope segment",
+              "severity": "critical",
+              "description": "A CDE system answered from a segment that is supposed to be isolated from the CDE. Segmentation is not operational and effective, so the source segment is in PCI DSS scope.",
+              "remediation": "Restrict the flow at the segmentation control (firewall/ACL/VLAN) to deny all traffic from out-of-scope segments to the CDE, then re-run the segmentation test and keep the evidence.",
+              "references": [
+                "PCI DSS v4.0.1 Req 11.4.5",
+                "PCI DSS v4.0.1 Req 11.4.6",
+                "PCI DSS v4.0.1 Req 1.3.1"
+              ]
+            },
+            "tags": [
+              "pci-dss",
+              "segmentation",
+              "udp"
+            ],
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "name": "PCI Segmentation — iface_5",
+        "description": "PCI DSS 11.4.5 (annual, all entities) / 11.4.6 (every 6 months, service providers): prove that the segment behind adapter {iface_5} cannot reach the CDE. Run from the out-of-scope (non-CDE) or connected-to segment attached to {iface_5}. Any open port or live host is a segmentation failure. Requires root (raw sockets, -e).",
+        "is_default_import": false,
+        "requires_auth": false,
+        "speed_profile": "default",
+        "items": [
+          {
+            "name": "iface_5: Source Segment Evidence",
+            "description": "Record source IP, VLAN and routes of the test adapter. QSA evidence of where the test ran from.",
+            "command_template": "ip -br addr show dev {iface_5}; ip route show dev {iface_5}; ip -d link show dev {iface_5} | grep -i vlan || true",
+            "output_regex": {
+              "source_ip": "^\\S+\\s+(?:UP|DOWN|UNKNOWN|DORMANT|LOWERLAYERDOWN)\\s+(\\d{1,3}(?:\\.\\d{1,3}){3})/\\d+"
+            },
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {},
+            "target_filter": {},
+            "timeout": 60,
+            "alert_patterns": {},
+            "finding_template": {},
+            "tags": [
+              "pci-dss",
+              "segmentation",
+              "evidence"
+            ],
+            "enabled": true
+          },
+          {
+            "name": "iface_5: CDE Host Discovery",
+            "description": "Multi-probe discovery (ICMP echo/timestamp, TCP SYN/ACK, UDP) toward the CDE through this adapter.",
+            "command_template": "nmap -e {iface_5} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {cde_scope}",
+            "output_regex": {
+              "alive_hosts": "Nmap scan report for (\\b(?:(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\b)"
+            },
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {
+              "cde_scope": {
+                "type": "file"
+              }
+            },
+            "target_filter": {},
+            "timeout": 1800,
+            "alert_patterns": {
+              "high": [
+                "Host is up"
+              ]
+            },
+            "finding_template": {
+              "title": "PCI DSS 11.4.5 segmentation failure: CDE reachable from out-of-scope segment",
+              "severity": "high",
+              "description": "A CDE system answered from a segment that is supposed to be isolated from the CDE. Segmentation is not operational and effective, so the source segment is in PCI DSS scope.",
+              "remediation": "Restrict the flow at the segmentation control (firewall/ACL/VLAN) to deny all traffic from out-of-scope segments to the CDE, then re-run the segmentation test and keep the evidence.",
+              "references": [
+                "PCI DSS v4.0.1 Req 11.4.5",
+                "PCI DSS v4.0.1 Req 11.4.6",
+                "PCI DSS v4.0.1 Req 1.3.1"
+              ]
+            },
+            "tags": [
+              "pci-dss",
+              "segmentation",
+              "discovery"
+            ],
+            "enabled": true
+          },
+          {
+            "name": "iface_5: CDE Full TCP Port Scan",
+            "description": "All 65535 TCP ports toward every CDE address with -Pn (ICMP filtering must not hide hosts).",
+            "command_template": "nmap -e {iface_5} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {cde_scope}",
+            "output_regex": {
+              "open_ports": "^(\\d+)/tcp\\s+open\\s"
+            },
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {
+              "cde_scope": {
+                "type": "file"
+              }
+            },
+            "target_filter": {},
+            "timeout": 43200,
+            "alert_patterns": {
+              "critical": [
+                "^\\d+/tcp\\s+open\\s"
+              ]
+            },
+            "finding_template": {
+              "title": "PCI DSS 11.4.5 segmentation failure: CDE reachable from out-of-scope segment",
+              "severity": "critical",
+              "description": "A CDE system answered from a segment that is supposed to be isolated from the CDE. Segmentation is not operational and effective, so the source segment is in PCI DSS scope.",
+              "remediation": "Restrict the flow at the segmentation control (firewall/ACL/VLAN) to deny all traffic from out-of-scope segments to the CDE, then re-run the segmentation test and keep the evidence.",
+              "references": [
+                "PCI DSS v4.0.1 Req 11.4.5",
+                "PCI DSS v4.0.1 Req 11.4.6",
+                "PCI DSS v4.0.1 Req 1.3.1"
+              ]
+            },
+            "tags": [
+              "pci-dss",
+              "segmentation",
+              "tcp"
+            ],
+            "enabled": true
+          },
+          {
+            "name": "iface_5: CDE Top UDP Port Scan",
+            "description": "Top 200 UDP ports toward the CDE. Only 'open' (not open|filtered) is treated as a failure.",
+            "command_template": "nmap -e {iface_5} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {cde_scope}",
+            "output_regex": {
+              "open_udp_ports": "^(\\d+)/udp\\s+open\\s"
+            },
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {
+              "cde_scope": {
+                "type": "file"
+              }
+            },
+            "target_filter": {},
+            "timeout": 21600,
+            "alert_patterns": {
+              "critical": [
+                "^\\d+/udp\\s+open\\s"
+              ]
+            },
+            "finding_template": {
+              "title": "PCI DSS 11.4.5 segmentation failure: CDE reachable from out-of-scope segment",
+              "severity": "critical",
+              "description": "A CDE system answered from a segment that is supposed to be isolated from the CDE. Segmentation is not operational and effective, so the source segment is in PCI DSS scope.",
+              "remediation": "Restrict the flow at the segmentation control (firewall/ACL/VLAN) to deny all traffic from out-of-scope segments to the CDE, then re-run the segmentation test and keep the evidence.",
+              "references": [
+                "PCI DSS v4.0.1 Req 11.4.5",
+                "PCI DSS v4.0.1 Req 11.4.6",
+                "PCI DSS v4.0.1 Req 1.3.1"
+              ]
+            },
+            "tags": [
+              "pci-dss",
+              "segmentation",
+              "udp"
+            ],
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "name": "PCI Segmentation — iface_6",
+        "description": "PCI DSS 11.4.5 (annual, all entities) / 11.4.6 (every 6 months, service providers): prove that the segment behind adapter {iface_6} cannot reach the CDE. Run from the out-of-scope (non-CDE) or connected-to segment attached to {iface_6}. Any open port or live host is a segmentation failure. Requires root (raw sockets, -e).",
+        "is_default_import": false,
+        "requires_auth": false,
+        "speed_profile": "default",
+        "items": [
+          {
+            "name": "iface_6: Source Segment Evidence",
+            "description": "Record source IP, VLAN and routes of the test adapter. QSA evidence of where the test ran from.",
+            "command_template": "ip -br addr show dev {iface_6}; ip route show dev {iface_6}; ip -d link show dev {iface_6} | grep -i vlan || true",
+            "output_regex": {
+              "source_ip": "^\\S+\\s+(?:UP|DOWN|UNKNOWN|DORMANT|LOWERLAYERDOWN)\\s+(\\d{1,3}(?:\\.\\d{1,3}){3})/\\d+"
+            },
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {},
+            "target_filter": {},
+            "timeout": 60,
+            "alert_patterns": {},
+            "finding_template": {},
+            "tags": [
+              "pci-dss",
+              "segmentation",
+              "evidence"
+            ],
+            "enabled": true
+          },
+          {
+            "name": "iface_6: CDE Host Discovery",
+            "description": "Multi-probe discovery (ICMP echo/timestamp, TCP SYN/ACK, UDP) toward the CDE through this adapter.",
+            "command_template": "nmap -e {iface_6} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {cde_scope}",
+            "output_regex": {
+              "alive_hosts": "Nmap scan report for (\\b(?:(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\b)"
+            },
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {
+              "cde_scope": {
+                "type": "file"
+              }
+            },
+            "target_filter": {},
+            "timeout": 1800,
+            "alert_patterns": {
+              "high": [
+                "Host is up"
+              ]
+            },
+            "finding_template": {
+              "title": "PCI DSS 11.4.5 segmentation failure: CDE reachable from out-of-scope segment",
+              "severity": "high",
+              "description": "A CDE system answered from a segment that is supposed to be isolated from the CDE. Segmentation is not operational and effective, so the source segment is in PCI DSS scope.",
+              "remediation": "Restrict the flow at the segmentation control (firewall/ACL/VLAN) to deny all traffic from out-of-scope segments to the CDE, then re-run the segmentation test and keep the evidence.",
+              "references": [
+                "PCI DSS v4.0.1 Req 11.4.5",
+                "PCI DSS v4.0.1 Req 11.4.6",
+                "PCI DSS v4.0.1 Req 1.3.1"
+              ]
+            },
+            "tags": [
+              "pci-dss",
+              "segmentation",
+              "discovery"
+            ],
+            "enabled": true
+          },
+          {
+            "name": "iface_6: CDE Full TCP Port Scan",
+            "description": "All 65535 TCP ports toward every CDE address with -Pn (ICMP filtering must not hide hosts).",
+            "command_template": "nmap -e {iface_6} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {cde_scope}",
+            "output_regex": {
+              "open_ports": "^(\\d+)/tcp\\s+open\\s"
+            },
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {
+              "cde_scope": {
+                "type": "file"
+              }
+            },
+            "target_filter": {},
+            "timeout": 43200,
+            "alert_patterns": {
+              "critical": [
+                "^\\d+/tcp\\s+open\\s"
+              ]
+            },
+            "finding_template": {
+              "title": "PCI DSS 11.4.5 segmentation failure: CDE reachable from out-of-scope segment",
+              "severity": "critical",
+              "description": "A CDE system answered from a segment that is supposed to be isolated from the CDE. Segmentation is not operational and effective, so the source segment is in PCI DSS scope.",
+              "remediation": "Restrict the flow at the segmentation control (firewall/ACL/VLAN) to deny all traffic from out-of-scope segments to the CDE, then re-run the segmentation test and keep the evidence.",
+              "references": [
+                "PCI DSS v4.0.1 Req 11.4.5",
+                "PCI DSS v4.0.1 Req 11.4.6",
+                "PCI DSS v4.0.1 Req 1.3.1"
+              ]
+            },
+            "tags": [
+              "pci-dss",
+              "segmentation",
+              "tcp"
+            ],
+            "enabled": true
+          },
+          {
+            "name": "iface_6: CDE Top UDP Port Scan",
+            "description": "Top 200 UDP ports toward the CDE. Only 'open' (not open|filtered) is treated as a failure.",
+            "command_template": "nmap -e {iface_6} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {cde_scope}",
+            "output_regex": {
+              "open_udp_ports": "^(\\d+)/udp\\s+open\\s"
+            },
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {
+              "cde_scope": {
+                "type": "file"
+              }
+            },
+            "target_filter": {},
+            "timeout": 21600,
+            "alert_patterns": {
+              "critical": [
+                "^\\d+/udp\\s+open\\s"
+              ]
+            },
+            "finding_template": {
+              "title": "PCI DSS 11.4.5 segmentation failure: CDE reachable from out-of-scope segment",
+              "severity": "critical",
+              "description": "A CDE system answered from a segment that is supposed to be isolated from the CDE. Segmentation is not operational and effective, so the source segment is in PCI DSS scope.",
+              "remediation": "Restrict the flow at the segmentation control (firewall/ACL/VLAN) to deny all traffic from out-of-scope segments to the CDE, then re-run the segmentation test and keep the evidence.",
+              "references": [
+                "PCI DSS v4.0.1 Req 11.4.5",
+                "PCI DSS v4.0.1 Req 11.4.6",
+                "PCI DSS v4.0.1 Req 1.3.1"
+              ]
+            },
+            "tags": [
+              "pci-dss",
+              "segmentation",
+              "udp"
+            ],
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "name": "PCI Segmentation — iface_7",
+        "description": "PCI DSS 11.4.5 (annual, all entities) / 11.4.6 (every 6 months, service providers): prove that the segment behind adapter {iface_7} cannot reach the CDE. Run from the out-of-scope (non-CDE) or connected-to segment attached to {iface_7}. Any open port or live host is a segmentation failure. Requires root (raw sockets, -e).",
+        "is_default_import": false,
+        "requires_auth": false,
+        "speed_profile": "default",
+        "items": [
+          {
+            "name": "iface_7: Source Segment Evidence",
+            "description": "Record source IP, VLAN and routes of the test adapter. QSA evidence of where the test ran from.",
+            "command_template": "ip -br addr show dev {iface_7}; ip route show dev {iface_7}; ip -d link show dev {iface_7} | grep -i vlan || true",
+            "output_regex": {
+              "source_ip": "^\\S+\\s+(?:UP|DOWN|UNKNOWN|DORMANT|LOWERLAYERDOWN)\\s+(\\d{1,3}(?:\\.\\d{1,3}){3})/\\d+"
+            },
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {},
+            "target_filter": {},
+            "timeout": 60,
+            "alert_patterns": {},
+            "finding_template": {},
+            "tags": [
+              "pci-dss",
+              "segmentation",
+              "evidence"
+            ],
+            "enabled": true
+          },
+          {
+            "name": "iface_7: CDE Host Discovery",
+            "description": "Multi-probe discovery (ICMP echo/timestamp, TCP SYN/ACK, UDP) toward the CDE through this adapter.",
+            "command_template": "nmap -e {iface_7} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {cde_scope}",
+            "output_regex": {
+              "alive_hosts": "Nmap scan report for (\\b(?:(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\b)"
+            },
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {
+              "cde_scope": {
+                "type": "file"
+              }
+            },
+            "target_filter": {},
+            "timeout": 1800,
+            "alert_patterns": {
+              "high": [
+                "Host is up"
+              ]
+            },
+            "finding_template": {
+              "title": "PCI DSS 11.4.5 segmentation failure: CDE reachable from out-of-scope segment",
+              "severity": "high",
+              "description": "A CDE system answered from a segment that is supposed to be isolated from the CDE. Segmentation is not operational and effective, so the source segment is in PCI DSS scope.",
+              "remediation": "Restrict the flow at the segmentation control (firewall/ACL/VLAN) to deny all traffic from out-of-scope segments to the CDE, then re-run the segmentation test and keep the evidence.",
+              "references": [
+                "PCI DSS v4.0.1 Req 11.4.5",
+                "PCI DSS v4.0.1 Req 11.4.6",
+                "PCI DSS v4.0.1 Req 1.3.1"
+              ]
+            },
+            "tags": [
+              "pci-dss",
+              "segmentation",
+              "discovery"
+            ],
+            "enabled": true
+          },
+          {
+            "name": "iface_7: CDE Full TCP Port Scan",
+            "description": "All 65535 TCP ports toward every CDE address with -Pn (ICMP filtering must not hide hosts).",
+            "command_template": "nmap -e {iface_7} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {cde_scope}",
+            "output_regex": {
+              "open_ports": "^(\\d+)/tcp\\s+open\\s"
+            },
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {
+              "cde_scope": {
+                "type": "file"
+              }
+            },
+            "target_filter": {},
+            "timeout": 43200,
+            "alert_patterns": {
+              "critical": [
+                "^\\d+/tcp\\s+open\\s"
+              ]
+            },
+            "finding_template": {
+              "title": "PCI DSS 11.4.5 segmentation failure: CDE reachable from out-of-scope segment",
+              "severity": "critical",
+              "description": "A CDE system answered from a segment that is supposed to be isolated from the CDE. Segmentation is not operational and effective, so the source segment is in PCI DSS scope.",
+              "remediation": "Restrict the flow at the segmentation control (firewall/ACL/VLAN) to deny all traffic from out-of-scope segments to the CDE, then re-run the segmentation test and keep the evidence.",
+              "references": [
+                "PCI DSS v4.0.1 Req 11.4.5",
+                "PCI DSS v4.0.1 Req 11.4.6",
+                "PCI DSS v4.0.1 Req 1.3.1"
+              ]
+            },
+            "tags": [
+              "pci-dss",
+              "segmentation",
+              "tcp"
+            ],
+            "enabled": true
+          },
+          {
+            "name": "iface_7: CDE Top UDP Port Scan",
+            "description": "Top 200 UDP ports toward the CDE. Only 'open' (not open|filtered) is treated as a failure.",
+            "command_template": "nmap -e {iface_7} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {cde_scope}",
+            "output_regex": {
+              "open_udp_ports": "^(\\d+)/udp\\s+open\\s"
+            },
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {
+              "cde_scope": {
+                "type": "file"
+              }
+            },
+            "target_filter": {},
+            "timeout": 21600,
+            "alert_patterns": {
+              "critical": [
+                "^\\d+/udp\\s+open\\s"
+              ]
+            },
+            "finding_template": {
+              "title": "PCI DSS 11.4.5 segmentation failure: CDE reachable from out-of-scope segment",
+              "severity": "critical",
+              "description": "A CDE system answered from a segment that is supposed to be isolated from the CDE. Segmentation is not operational and effective, so the source segment is in PCI DSS scope.",
+              "remediation": "Restrict the flow at the segmentation control (firewall/ACL/VLAN) to deny all traffic from out-of-scope segments to the CDE, then re-run the segmentation test and keep the evidence.",
+              "references": [
+                "PCI DSS v4.0.1 Req 11.4.5",
+                "PCI DSS v4.0.1 Req 11.4.6",
+                "PCI DSS v4.0.1 Req 1.3.1"
+              ]
+            },
+            "tags": [
+              "pci-dss",
+              "segmentation",
+              "udp"
+            ],
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "name": "PCI Segmentation — iface_8",
+        "description": "PCI DSS 11.4.5 (annual, all entities) / 11.4.6 (every 6 months, service providers): prove that the segment behind adapter {iface_8} cannot reach the CDE. Run from the out-of-scope (non-CDE) or connected-to segment attached to {iface_8}. Any open port or live host is a segmentation failure. Requires root (raw sockets, -e).",
+        "is_default_import": false,
+        "requires_auth": false,
+        "speed_profile": "default",
+        "items": [
+          {
+            "name": "iface_8: Source Segment Evidence",
+            "description": "Record source IP, VLAN and routes of the test adapter. QSA evidence of where the test ran from.",
+            "command_template": "ip -br addr show dev {iface_8}; ip route show dev {iface_8}; ip -d link show dev {iface_8} | grep -i vlan || true",
+            "output_regex": {
+              "source_ip": "^\\S+\\s+(?:UP|DOWN|UNKNOWN|DORMANT|LOWERLAYERDOWN)\\s+(\\d{1,3}(?:\\.\\d{1,3}){3})/\\d+"
+            },
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {},
+            "target_filter": {},
+            "timeout": 60,
+            "alert_patterns": {},
+            "finding_template": {},
+            "tags": [
+              "pci-dss",
+              "segmentation",
+              "evidence"
+            ],
+            "enabled": true
+          },
+          {
+            "name": "iface_8: CDE Host Discovery",
+            "description": "Multi-probe discovery (ICMP echo/timestamp, TCP SYN/ACK, UDP) toward the CDE through this adapter.",
+            "command_template": "nmap -e {iface_8} -n -sn -PE -PP -PS21,22,23,25,80,135,443,445,1433,3306,3389,8080,8443 -PA80,443 -PU53,161 --reason -iL {cde_scope}",
+            "output_regex": {
+              "alive_hosts": "Nmap scan report for (\\b(?:(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\b)"
+            },
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {
+              "cde_scope": {
+                "type": "file"
+              }
+            },
+            "target_filter": {},
+            "timeout": 1800,
+            "alert_patterns": {
+              "high": [
+                "Host is up"
+              ]
+            },
+            "finding_template": {
+              "title": "PCI DSS 11.4.5 segmentation failure: CDE reachable from out-of-scope segment",
+              "severity": "high",
+              "description": "A CDE system answered from a segment that is supposed to be isolated from the CDE. Segmentation is not operational and effective, so the source segment is in PCI DSS scope.",
+              "remediation": "Restrict the flow at the segmentation control (firewall/ACL/VLAN) to deny all traffic from out-of-scope segments to the CDE, then re-run the segmentation test and keep the evidence.",
+              "references": [
+                "PCI DSS v4.0.1 Req 11.4.5",
+                "PCI DSS v4.0.1 Req 11.4.6",
+                "PCI DSS v4.0.1 Req 1.3.1"
+              ]
+            },
+            "tags": [
+              "pci-dss",
+              "segmentation",
+              "discovery"
+            ],
+            "enabled": true
+          },
+          {
+            "name": "iface_8: CDE Full TCP Port Scan",
+            "description": "All 65535 TCP ports toward every CDE address with -Pn (ICMP filtering must not hide hosts).",
+            "command_template": "nmap -e {iface_8} -n -Pn -sS -p- --min-rate 500 --max-retries 2 --reason --open -iL {cde_scope}",
+            "output_regex": {
+              "open_ports": "^(\\d+)/tcp\\s+open\\s"
+            },
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {
+              "cde_scope": {
+                "type": "file"
+              }
+            },
+            "target_filter": {},
+            "timeout": 43200,
+            "alert_patterns": {
+              "critical": [
+                "^\\d+/tcp\\s+open\\s"
+              ]
+            },
+            "finding_template": {
+              "title": "PCI DSS 11.4.5 segmentation failure: CDE reachable from out-of-scope segment",
+              "severity": "critical",
+              "description": "A CDE system answered from a segment that is supposed to be isolated from the CDE. Segmentation is not operational and effective, so the source segment is in PCI DSS scope.",
+              "remediation": "Restrict the flow at the segmentation control (firewall/ACL/VLAN) to deny all traffic from out-of-scope segments to the CDE, then re-run the segmentation test and keep the evidence.",
+              "references": [
+                "PCI DSS v4.0.1 Req 11.4.5",
+                "PCI DSS v4.0.1 Req 11.4.6",
+                "PCI DSS v4.0.1 Req 1.3.1"
+              ]
+            },
+            "tags": [
+              "pci-dss",
+              "segmentation",
+              "tcp"
+            ],
+            "enabled": true
+          },
+          {
+            "name": "iface_8: CDE Top UDP Port Scan",
+            "description": "Top 200 UDP ports toward the CDE. Only 'open' (not open|filtered) is treated as a failure.",
+            "command_template": "nmap -e {iface_8} -n -Pn -sU --top-ports 200 --max-retries 2 --reason -iL {cde_scope}",
+            "output_regex": {
+              "open_udp_ports": "^(\\d+)/udp\\s+open\\s"
+            },
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {
+              "cde_scope": {
+                "type": "file"
+              }
+            },
+            "target_filter": {},
+            "timeout": 21600,
+            "alert_patterns": {
+              "critical": [
+                "^\\d+/udp\\s+open\\s"
+              ]
+            },
+            "finding_template": {
+              "title": "PCI DSS 11.4.5 segmentation failure: CDE reachable from out-of-scope segment",
+              "severity": "critical",
+              "description": "A CDE system answered from a segment that is supposed to be isolated from the CDE. Segmentation is not operational and effective, so the source segment is in PCI DSS scope.",
+              "remediation": "Restrict the flow at the segmentation control (firewall/ACL/VLAN) to deny all traffic from out-of-scope segments to the CDE, then re-run the segmentation test and keep the evidence.",
+              "references": [
+                "PCI DSS v4.0.1 Req 11.4.5",
+                "PCI DSS v4.0.1 Req 11.4.6",
+                "PCI DSS v4.0.1 Req 1.3.1"
+              ]
+            },
+            "tags": [
+              "pci-dss",
+              "segmentation",
+              "udp"
+            ],
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "name": "PCI CDE Service & Configuration Review",
+        "description": "Run from inside the CDE or a connected-to segment against {cde_scope}. Maps to PCI DSS v4.0.1 Req 1.2.5 (identify ports/services), 2.2.2 (vendor defaults), 2.2.4/2.2.5 (only necessary services, insecure ones justified), 2.2.7 (encrypted non-console admin), 4.2.1 (strong crypto in transit), 11.3.1 (internal vulnerability scan).",
+        "is_default_import": false,
+        "requires_auth": false,
+        "speed_profile": "default",
+        "items": [
+          {
+            "name": "CDE Service Inventory (Req 1.2.5)",
+            "description": "Full TCP port + version inventory. Compare with the approved ports/services/protocols list.",
+            "command_template": "nmap -n -Pn -sS -sV --version-light -p- --min-rate 500 --open -iL {cde_scope}",
+            "output_regex": {
+              "open_ports": "^(\\d+)/tcp\\s+open\\s"
+            },
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {
+              "cde_scope": {
+                "type": "file"
+              }
+            },
+            "target_filter": {},
+            "timeout": 43200,
+            "alert_patterns": {},
+            "finding_template": {},
+            "tags": [
+              "pci-dss",
+              "cde",
+              "inventory"
+            ],
+            "enabled": true
+          },
+          {
+            "name": "Insecure / Cleartext Services (Req 2.2.5, 2.2.7)",
+            "description": "FTP, Telnet, TFTP, r-services, POP3/IMAP, VNC, plain HTTP admin. Cleartext admin is non-compliant.",
+            "command_template": "nmap -n -Pn -sS -sV -p 21,23,69,80,110,143,512,513,514,5900-5910,8080 --open -iL {cde_scope}",
+            "output_regex": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {
+              "cde_scope": {
+                "type": "file"
+              }
+            },
+            "target_filter": {},
+            "timeout": 7200,
+            "alert_patterns": {
+              "high": [
+                "^(?:21|23|512|513|514|59\\d\\d)/tcp\\s+open\\s"
+              ],
+              "medium": [
+                "^(?:80|110|143|8080)/tcp\\s+open\\s"
+              ]
+            },
+            "finding_template": {},
+            "tags": [
+              "pci-dss",
+              "cde",
+              "insecure-services"
+            ],
+            "enabled": true
+          },
+          {
+            "name": "Exposed Databases & Caches (Req 1.3.1, 1.4.4)",
+            "description": "DB/cache ports that should only be reachable from the application tier.",
+            "command_template": "nmap -n -Pn -sS -sV -p 1433,1521,3306,5432,5984,6379,9042,9200,11211,27017 --open -iL {cde_scope}",
+            "output_regex": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {
+              "cde_scope": {
+                "type": "file"
+              }
+            },
+            "target_filter": {},
+            "timeout": 7200,
+            "alert_patterns": {
+              "high": [
+                "^\\d+/tcp\\s+open\\s"
+              ]
+            },
+            "finding_template": {},
+            "tags": [
+              "pci-dss",
+              "cde",
+              "database"
+            ],
+            "enabled": true
+          },
+          {
+            "name": "TLS Protocols & Ciphers (Req 4.2.1)",
+            "description": "SSLv3/TLS 1.0/TLS 1.1 or cipher grade below B fails strong-cryptography requirements.",
+            "command_template": "nmap -n -Pn -sV -p 443,465,636,989,990,993,995,1433,3389,5986,8443 --script ssl-enum-ciphers,ssl-cert -iL {cde_scope}",
+            "output_regex": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {
+              "cde_scope": {
+                "type": "file"
+              }
+            },
+            "target_filter": {},
+            "timeout": 7200,
+            "alert_patterns": {
+              "high": [
+                "^\\|\\s+(?:SSLv2|SSLv3|TLSv1\\.0|TLSv1\\.1):"
+              ],
+              "medium": [
+                "least strength: [C-F]",
+                "Not valid after:\\s+20[01]\\d"
+              ]
+            },
+            "finding_template": {},
+            "tags": [
+              "pci-dss",
+              "cde",
+              "tls",
+              "crypto"
+            ],
+            "enabled": true
+          },
+          {
+            "name": "SSH Algorithms (Req 4.2.1, 2.2.7)",
+            "description": "Weak KEX/cipher/MAC on SSH administrative access.",
+            "command_template": "nmap -n -Pn -p 22 --script ssh2-enum-algos,ssh-auth-methods -iL {cde_scope}",
+            "output_regex": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {
+              "cde_scope": {
+                "type": "file"
+              }
+            },
+            "target_filter": {},
+            "timeout": 3600,
+            "alert_patterns": {
+              "medium": [
+                "diffie-hellman-group1-sha1",
+                "\\barcfour",
+                "3des-cbc",
+                "hmac-md5",
+                "ssh-dss"
+              ]
+            },
+            "finding_template": {},
+            "tags": [
+              "pci-dss",
+              "cde",
+              "ssh",
+              "crypto"
+            ],
+            "enabled": true
+          },
+          {
+            "name": "Default Web Credentials (Req 2.2.2)",
+            "description": "Vendor default accounts on web admin consoles (Tomcat, printers, appliances, etc.).",
+            "command_template": "nmap -n -Pn -p 80,443,8000,8080,8443,8888,9090 --script http-default-accounts,http-title -iL {cde_scope}",
+            "output_regex": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {
+              "cde_scope": {
+                "type": "file"
+              }
+            },
+            "target_filter": {},
+            "timeout": 7200,
+            "alert_patterns": {
+              "critical": [
+                "^\\|\\s+\\[.+\\] at /"
+              ]
+            },
+            "finding_template": {},
+            "tags": [
+              "pci-dss",
+              "cde",
+              "default-creds",
+              "web"
+            ],
+            "enabled": true
+          },
+          {
+            "name": "Anonymous FTP (Req 2.2.2, 7.2)",
+            "description": "Anonymous FTP login on CDE systems.",
+            "command_template": "nmap -n -Pn -p 21 --script ftp-anon -iL {cde_scope}",
+            "output_regex": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {
+              "cde_scope": {
+                "type": "file"
+              }
+            },
+            "target_filter": {},
+            "timeout": 1800,
+            "alert_patterns": {
+              "high": [
+                "Anonymous FTP login allowed"
+              ]
+            },
+            "finding_template": {},
+            "tags": [
+              "pci-dss",
+              "cde",
+              "default-creds",
+              "ftp"
+            ],
+            "enabled": true
+          },
+          {
+            "name": "SNMP Default Community (Req 2.2.2)",
+            "description": "SNMP v1/v2c answering the default 'public' community.",
+            "command_template": "nmap -n -Pn -sU -p 161 --script snmp-info,snmp-sysdescr -iL {cde_scope}",
+            "output_regex": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {
+              "cde_scope": {
+                "type": "file"
+              }
+            },
+            "target_filter": {},
+            "timeout": 3600,
+            "alert_patterns": {
+              "high": [
+                "snmp-(?:info|sysdescr):"
+              ]
+            },
+            "finding_template": {},
+            "tags": [
+              "pci-dss",
+              "cde",
+              "default-creds",
+              "snmp"
+            ],
+            "enabled": true
+          },
+          {
+            "name": "SMBv1 & SMB Signing (Req 2.2.4, 4.2.1)",
+            "description": "SMBv1 enabled or SMB signing not required on CDE Windows hosts.",
+            "command_template": "nmap -n -Pn -p 445 --script smb-protocols,smb2-security-mode -iL {cde_scope}",
+            "output_regex": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {
+              "cde_scope": {
+                "type": "file"
+              }
+            },
+            "target_filter": {},
+            "timeout": 3600,
+            "alert_patterns": {
+              "high": [
+                "SMBv1"
+              ],
+              "medium": [
+                "enabled but not required"
+              ]
+            },
+            "finding_template": {},
+            "tags": [
+              "pci-dss",
+              "cde",
+              "smb"
+            ],
+            "enabled": true
+          },
+          {
+            "name": "Internal Vulnerability Scan — vulners (Req 11.3.1)",
+            "description": "Version-based CVE lookup (vulners NSE, needs internet). Complements, does not replace, the quarterly internal scan tool. Rescan after fixes until no high/critical remain (11.3.1.1, 11.3.1.3).",
+            "command_template": "nmap -n -Pn -sV --script vulners --script-args mincvss=7.0 -iL {cde_scope}",
+            "output_regex": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {
+              "cde_scope": {
+                "type": "file"
+              }
+            },
+            "target_filter": {},
+            "timeout": 43200,
+            "alert_patterns": {
+              "high": [
+                "\\*EXPLOIT\\*"
+              ],
+              "medium": [
+                "CVE-\\d{4}-\\d+"
+              ]
+            },
+            "finding_template": {},
+            "tags": [
+              "pci-dss",
+              "cde",
+              "vuln-scan"
+            ],
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "name": "PCI CDE Asset Identification (Keywords)",
+        "description": "Scope confirmation (Req 12.5.2): find systems that look like they store/process/transmit CHD but are not in {cde_scope}. CDE = systems that store/process/transmit CHD/SAD + systems in the same segment. Connected-to / security-impacting = can reach the CDE or affect its security (AD, jump hosts, PAM, logging, AV, patching, NTP, DNS) — in scope. Out-of-scope = no access to CDE and no security impact. Keywords: pci, cde, card, cards, pan, pos, payment, payments, pay, checkout, cashier, kiosk, atm, hsm, token, tokenization, tokenizer, vault, acquirer, acquiring, issuer, merchant, settlement, billing, ecom, gateway, swift, 3ds, emv, terminal.",
+        "is_default_import": false,
+        "requires_auth": false,
+        "speed_profile": "default",
+        "items": [
+          {
+            "name": "rDNS Hostname Keyword Sweep",
+            "description": "Reverse-DNS list scan (no packets to targets) and flag hostnames containing CDE keywords.",
+            "command_template": "nmap -sL -iL {scope}",
+            "output_regex": {
+              "cde_keyword_hosts": "Nmap scan report for (\\S*(?:(?<![a-z])(?:tokenization|settlement|tokenizer|acquiring|payments|checkout|acquirer|merchant|terminal|payment|cashier|billing|gateway|issuer|cards|kiosk|token|vault|swift|card|ecom|pci|cde|pan|pos|pay|atm|hsm|3ds|emv)(?![a-z]))\\S*) \\("
+            },
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {
+              "scope": {
+                "type": "file"
+              }
+            },
+            "target_filter": {},
+            "timeout": 3600,
+            "alert_patterns": {
+              "medium": [
+                "Nmap scan report for \\S*(?:(?<![a-z])(?:tokenization|settlement|tokenizer|acquiring|payments|checkout|acquirer|merchant|terminal|payment|cashier|billing|gateway|issuer|cards|kiosk|token|vault|swift|card|ecom|pci|cde|pan|pos|pay|atm|hsm|3ds|emv)(?![a-z]))\\S* \\("
+              ]
+            },
+            "finding_template": {},
+            "tags": [
+              "pci-dss",
+              "scoping",
+              "dns"
+            ],
+            "enabled": true
+          },
+          {
+            "name": "Web Title Keyword Sweep (non-CDE)",
+            "description": "HTTP titles in the non-CDE range that mention payment/POS/card — possible CDE outside scope.",
+            "command_template": "nmap -n -Pn -p 80,443,8000,8080,8443 --script http-title --open -iL {non_cde_scope}",
+            "output_regex": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {
+              "non_cde_scope": {
+                "type": "file"
+              }
+            },
+            "target_filter": {},
+            "timeout": 7200,
+            "alert_patterns": {
+              "medium": [
+                "http-title:.*(?:(?<![a-z])(?:tokenization|settlement|tokenizer|acquiring|payments|checkout|acquirer|merchant|terminal|payment|cashier|billing|gateway|issuer|cards|kiosk|token|vault|swift|card|ecom|pci|cde|pan|pos|pay|atm|hsm|3ds|emv)|cardholder|credit card)"
+              ]
+            },
+            "finding_template": {},
+            "tags": [
+              "pci-dss",
+              "scoping",
+              "web"
+            ],
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "name": "PCI CHD Discovery in non-CDE (Authenticated)",
+        "description": "Look for cardholder data outside the CDE (Req 3.2.1, 12.5.2). Spider only prints matching paths, but WARNING: if real PAN ever lands in Bars output/DB, Bars itself becomes in-scope — do not store PAN. Uses {username}/{password}.",
+        "is_default_import": false,
+        "requires_auth": true,
+        "speed_profile": "default",
+        "items": [
+          {
+            "name": "SMB Share Name Keywords",
+            "description": "List readable shares in the non-CDE range and flag share names containing CDE keywords.",
+            "command_template": "netexec smb {non_cde_scope} -u {username} -p {password} --shares",
+            "output_regex": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {
+              "non_cde_scope": {
+                "type": "file"
+              }
+            },
+            "target_filter": {},
+            "timeout": 3600,
+            "alert_patterns": {
+              "medium": [
+                "^SMB\\s.*\\s\\S*(?<![a-z])(?:tokenization|settlement|tokenizer|acquiring|payments|checkout|acquirer|merchant|terminal|payment|cashier|billing|gateway|issuer|cards|kiosk|token|vault|swift|card|ecom|pci|cde|pan|pos|pay|atm|hsm|3ds|emv)\\S*\\s+(?:READ|WRITE)"
+              ]
+            },
+            "finding_template": {},
+            "tags": [
+              "pci-dss",
+              "chd-discovery",
+              "smb"
+            ],
+            "enabled": true
+          },
+          {
+            "name": "CHD Filename Keyword Spider",
+            "description": "Spider C$ for file/folder names suggesting CHD (needs local admin).",
+            "command_template": "netexec smb {non_cde_scope} -u {username} -p {password} --spider C$ --depth 6 --only-files --exclude-dirs Windows,'Program Files','Program Files (x86)',ProgramData --pattern cardholder creditcard credit_card card_number cardnumber pan_ cvv track1 track2 pci payment",
+            "output_regex": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {
+              "non_cde_scope": {
+                "type": "file"
+              }
+            },
+            "target_filter": {},
+            "timeout": 21600,
+            "alert_patterns": {
+              "high": [
+                "\\[lastm:"
+              ]
+            },
+            "finding_template": {},
+            "tags": [
+              "pci-dss",
+              "chd-discovery",
+              "smb"
+            ],
+            "enabled": true
+          },
+          {
+            "name": "PAN Content Regex Spider",
+            "description": "Spider C$ file contents for PAN-shaped numbers (Visa/MC/Amex/Discover). Matches need Luhn + manual validation.",
+            "command_template": "netexec smb {non_cde_scope} -u {username} -p {password} --spider C$ --depth 6 --only-files --content --exclude-dirs Windows,'Program Files','Program Files (x86)',ProgramData --regex '\\b(?:4\\d{3}|5[1-5]\\d{2}|2[2-7]\\d{2}|6011|65\\d{2})[ -]?\\d{4}[ -]?\\d{4}[ -]?\\d{4}\\b|\\b3[47]\\d{2}[ -]?\\d{6}[ -]?\\d{5}\\b'",
+            "output_regex": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {
+              "non_cde_scope": {
+                "type": "file"
+              }
+            },
+            "target_filter": {},
+            "timeout": 43200,
+            "alert_patterns": {
+              "critical": [
+                "\\[lastm:"
+              ]
+            },
+            "finding_template": {
+              "title": "PCI DSS 3.2.1: possible cardholder data outside the CDE",
+              "severity": "critical",
+              "remediation": "Validate (Luhn + owner), securely delete or bring the system into CDE scope.",
+              "references": [
+                "PCI DSS v4.0.1 Req 3.2.1",
+                "PCI DSS v4.0.1 Req 12.5.2"
+              ]
+            },
+            "tags": [
+              "pci-dss",
+              "chd-discovery",
+              "smb",
+              "pan"
+            ],
+            "enabled": true
+          }
+        ]
+      }
+    ]
+  },
+  "variables": {
+    "variables": [
+      {
+        "key": "iface_1",
+        "value": "eth0",
+        "var_type": "string",
+        "description": "PCI segmentation test adapter #1 (one adapter per source segment/VLAN)",
+        "is_default_import": false
+      },
+      {
+        "key": "iface_2",
+        "value": "eth1",
+        "var_type": "string",
+        "description": "PCI segmentation test adapter #2 (one adapter per source segment/VLAN)",
+        "is_default_import": false
+      },
+      {
+        "key": "iface_3",
+        "value": "eth2",
+        "var_type": "string",
+        "description": "PCI segmentation test adapter #3 (one adapter per source segment/VLAN)",
+        "is_default_import": false
+      },
+      {
+        "key": "iface_4",
+        "value": "eth3",
+        "var_type": "string",
+        "description": "PCI segmentation test adapter #4 (one adapter per source segment/VLAN)",
+        "is_default_import": false
+      },
+      {
+        "key": "iface_5",
+        "value": "eth4",
+        "var_type": "string",
+        "description": "PCI segmentation test adapter #5 (one adapter per source segment/VLAN)",
+        "is_default_import": false
+      },
+      {
+        "key": "iface_6",
+        "value": "eth5",
+        "var_type": "string",
+        "description": "PCI segmentation test adapter #6 (one adapter per source segment/VLAN)",
+        "is_default_import": false
+      },
+      {
+        "key": "iface_7",
+        "value": "eth6",
+        "var_type": "string",
+        "description": "PCI segmentation test adapter #7 (one adapter per source segment/VLAN)",
+        "is_default_import": false
+      },
+      {
+        "key": "iface_8",
+        "value": "eth7",
+        "var_type": "string",
+        "description": "PCI segmentation test adapter #8 (one adapter per source segment/VLAN)",
+        "is_default_import": false
+      },
+      {
+        "key": "cde_scope",
+        "value": "",
+        "var_type": "file",
+        "description": "CDE IPs/CIDRs (one per line) — systems that store/process/transmit CHD + same-segment systems",
+        "is_default_import": false
+      },
+      {
+        "key": "non_cde_scope",
+        "value": "",
+        "var_type": "file",
+        "description": "Out-of-scope / non-CDE IPs/CIDRs (one per line)",
+        "is_default_import": false
+      }
+    ]
+  }
+}
