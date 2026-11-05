@@ -55,3 +55,18 @@ replay_parsing.py
 # OS
 .DS_Store
 Thumbs.db
+
+# Agent tooling, planning docs, dev/sync helpers: local only
+.agents/
+.agent/
+docs/superpowers/
+AGENTS.md
+CONTEXT.md
+FEATURES.md
+ARCHITECTURE.md
+TECH_STACK.md
+COLLABORATION.md
+checklist_generation_prompt.md
+sync-to-remote.sh
+scripts/
+docker-compose.sync.yml
