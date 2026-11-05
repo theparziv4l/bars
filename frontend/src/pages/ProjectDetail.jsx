@@ -11,6 +11,7 @@ import { useAuthStore, useChecklistsStore, useHostsStore, useAppStore, useExecut
 import ProjectVariables from '../components/ProjectVariables'
 import toast from 'react-hot-toast'
 import OutputViewer from '../components/OutputViewer'
+import BulkDeleteModal from '../components/BulkDeleteModal'
 
 export default function ProjectDetail() {
     const { projectId } = useParams()
@@ -22,6 +23,7 @@ export default function ProjectDetail() {
     const [showExecutionPanel, setShowExecutionPanel] = useState(false)
     const [showImportModal, setShowImportModal] = useState(false)
     const [importType, setImportType] = useState('checklist') // 'checklist' or 'flow'
+    const [bulkDelete, setBulkDelete] = useState(null) // 'checklist' | 'flow' | null
     const [executionVariables, setExecutionVariables] = useState({})
     const [targetSearch, setTargetSearch] = useState('')
     const [executeDomainFilter, setExecuteDomainFilter] = useState('')
@@ -554,6 +556,13 @@ export default function ProjectDetail() {
                                 <FileText size={16} />
                                 Import
                             </button>
+                            <button
+                                onClick={() => setBulkDelete('checklist')}
+                                className="btn-secondary btn-sm"
+                            >
+                                <Trash2 size={16} />
+                                Delete…
+                            </button>
                         </div>
 
                         <div className="space-y-4">
@@ -729,6 +738,13 @@ export default function ProjectDetail() {
                                 >
                                     <Workflow size={16} />
                                     Import
+                                </button>
+                                <button
+                                    onClick={() => setBulkDelete('flow')}
+                                    className="btn-secondary btn-sm"
+                                >
+                                    <Trash2 size={16} />
+                                    Delete…
                                 </button>
                             </div>
                         </div>
@@ -1230,6 +1246,19 @@ export default function ProjectDetail() {
                     </div>
                 )
             }
+
+            {bulkDelete && (
+                <BulkDeleteModal
+                    title={bulkDelete === 'checklist' ? 'Delete Checklist Groups / Items' : 'Delete Flows'}
+                    rows={bulkDelete === 'checklist'
+                        ? groups.map(g => ({ id: g.id, label: g.name, children: (g.items || []).map(i => ({ id: i.id, label: i.name })) }))
+                        : projectFlows.map(f => ({ id: f.id, label: f.name }))}
+                    onDelete={(id, isItem) => bulkDelete === 'flow' ? flowsApi.delete(id)
+                        : isItem ? checklistsApi.deleteItem(id) : checklistsApi.deleteGroup(id)}
+                    onDone={() => bulkDelete === 'checklist' ? fetchGroups(projectId) : fetchFlows(projectId)}
+                    onClose={() => setBulkDelete(null)}
+                />
+            )}
 
             {/* Import Modal */}
             {

@@ -3,6 +3,7 @@ import { Plus, FolderPlus, Trash2, Edit2, Copy, FileText, Workflow, Download, Up
 import { useNavigate } from 'react-router-dom'
 import { checklistsApi, flowsApi, libraryVariablesApi, libraryApi } from '../services/api'
 import toast from 'react-hot-toast'
+import BulkDeleteModal from '../components/BulkDeleteModal'
 
 const SPEED_PROFILE_CONFIG = {
     stealth: { icon: Turtle, label: 'Stealth', color: 'text-blue-400', bg: 'bg-blue-500/10' },
@@ -28,6 +29,7 @@ export default function Library() {
     const [flowTemplates, setFlowTemplates] = useState([])
     const [libraryVariables, setLibraryVariables] = useState([])
     const [loading, setLoading] = useState(true)
+    const [showBulkDelete, setShowBulkDelete] = useState(false)
 
     // Variable form state
     const [isAddingVar, setIsAddingVar] = useState(false)
@@ -379,6 +381,10 @@ export default function Library() {
                                     <Download size={18} />
                                     Export All
                                 </button>
+                                <button onClick={() => setShowBulkDelete(true)} className="btn-secondary">
+                                    <Trash2 size={18} />
+                                    Delete…
+                                </button>
                             </div>
                         )}
                         {activeTab === 'flows' && (
@@ -396,6 +402,10 @@ export default function Library() {
                                     <Download size={18} />
                                     Export All
                                 </button>
+                                <button onClick={() => setShowBulkDelete(true)} className="btn-secondary">
+                                    <Trash2 size={18} />
+                                    Delete…
+                                </button>
                             </div>
                         )}
                         {activeTab === 'variables' && (
@@ -412,6 +422,10 @@ export default function Library() {
                                 <button onClick={handleVariableExport} className="btn-secondary">
                                     <Download size={18} />
                                     Export All
+                                </button>
+                                <button onClick={() => setShowBulkDelete(true)} className="btn-secondary">
+                                    <Trash2 size={18} />
+                                    Delete…
                                 </button>
                             </div>
                         )}
@@ -725,6 +739,17 @@ export default function Library() {
                         </div>
                     )}
                 </div>
+            )}
+            {showBulkDelete && (
+                <BulkDeleteModal
+                    title={`Delete Library ${activeTab}`}
+                    rows={(activeTab === 'checklists' ? checklistTemplates : activeTab === 'flows' ? flowTemplates : libraryVariables)
+                        .map(t => ({ id: t.id, label: t.name || t.key }))}
+                    onDelete={(id) => activeTab === 'checklists' ? checklistsApi.deleteGroup(id)
+                        : activeTab === 'flows' ? flowsApi.delete(id) : libraryVariablesApi.delete(id)}
+                    onDone={fetchTemplates}
+                    onClose={() => setShowBulkDelete(false)}
+                />
             )}
         </div>
     )

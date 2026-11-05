@@ -4,6 +4,7 @@ import { projectsApi, libraryVariablesApi, adDomainsApi } from '../services/api'
 import { useProjectsStore } from '../stores'
 import toast from 'react-hot-toast'
 import ADDomainManager from './ADDomainManager'
+import BulkDeleteModal from './BulkDeleteModal'
 
 export default function ProjectVariables({ projectId }) {
     const { projectVariables, fetchProjectVariables } = useProjectsStore()
@@ -15,6 +16,7 @@ export default function ProjectVariables({ projectId }) {
     const [editType, setEditType] = useState('string')
     const [editBaseline, setEditBaseline] = useState('')  // value as it was when editing started
     const [showImportModal, setShowImportModal] = useState(false)
+    const [showBulkDelete, setShowBulkDelete] = useState(false)
     const [adDomains, setAdDomains] = useState([])
     const [domainFilter, setDomainFilter] = useState('all') // 'all' | 'global' | domain_id
 
@@ -145,6 +147,9 @@ export default function ProjectVariables({ projectId }) {
                 <div className="flex gap-2">
                     <button onClick={() => setShowImportModal(true)} className="btn-secondary">
                         <Download size={18} /> Import from Library
+                    </button>
+                    <button onClick={() => setShowBulkDelete(true)} className="btn-secondary">
+                        <Trash2 size={18} /> Delete…
                     </button>
                     <button onClick={() => setIsAdding(true)} className="btn-primary">
                         <Plus size={18} /> Add Variable
@@ -331,6 +336,16 @@ export default function ProjectVariables({ projectId }) {
                     </tbody>
                 </table>
             </div>
+
+            {showBulkDelete && (
+                <BulkDeleteModal
+                    title="Delete Variables"
+                    rows={projectVariables.map(v => ({ id: v.id, label: v.key, sub: getDomainName(v.ad_domain_id) }))}
+                    onDelete={(id) => projectsApi.deleteVariable(projectId, id)}
+                    onDone={() => fetchProjectVariables(projectId)}
+                    onClose={() => setShowBulkDelete(false)}
+                />
+            )}
 
             {showImportModal && (
                 <ImportVariablesModal
