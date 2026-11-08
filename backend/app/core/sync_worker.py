@@ -181,6 +181,7 @@ class SyncWorker:
         # 1) Pull remote events and ingest locally
         async with async_session_maker() as db:
             pull_cursor = await sync_service.get_cursor(db, cursor_key, "pull")
+        remote_node_id = None
         pull_url = f"{sync_base}/pull?since_logical_ts={pull_cursor}&limit={settings.SYNC_BATCH_SIZE}"
         if project_public_id:
             pull_url += f"&project_public_id={project_public_id}"
@@ -205,13 +206,16 @@ class SyncWorker:
                     events = []
                 else:
                     events = payload.get("events", [])
+                    remote_node_id = payload.get("node_id")
         # Ingest AFTER the response is drained and closed: no DB session spans HTTP.
         if events:
             async with async_session_maker() as db:
                 await sync_service.ingest_remote_events(
                     db,
+                    # lock on the peer's node id: the same key its pushes to us use
+                    peer_node_id=remote_node_id or cursor_key,
                     # write the pull cursor under the SAME key we read it with
-                    peer_node_id=cursor_key,
+                    cursor_key=cursor_key,
                     events=events,
                 )
                 await db.commit()

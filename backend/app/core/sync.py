@@ -297,8 +297,17 @@ class SyncService:
         *,
         peer_node_id: str,
         events: Iterable[Dict[str, Any]],
+        cursor_key: Optional[str] = None,
+        update_cursor: bool = True,
     ) -> IngestResult:
         """Ingest remote events with dedupe and deterministic apply ordering.
+
+        ``peer_node_id`` is the per-peer serialization key (the peer's node id, so a
+        push from it and our pull of it share one lock). ``cursor_key`` is where the
+        pull cursor is stored (the worker keys it by peer URL); it defaults to
+        ``peer_node_id``. A push receiver passes ``update_cursor=False``: it has no
+        pull position to advance.
+
         Events are sorted by logical_ts, source_node_id, and entity type so that
         FK dependencies are respected (e.g. projects before project_members).
         """
@@ -314,7 +323,11 @@ class SyncService:
         for attempt in range(_MAX_INGEST_ATTEMPTS):
             try:
                 return await self._ingest_attempt(
-                    db, peer_node_id=peer_node_id, sorted_events=sorted_events
+                    db,
+                    peer_node_id=peer_node_id,
+                    sorted_events=sorted_events,
+                    cursor_key=cursor_key or peer_node_id,
+                    update_cursor=update_cursor,
                 )
             except OperationalError as exc:
                 last_exc = exc
@@ -330,6 +343,8 @@ class SyncService:
         *,
         peer_node_id: str,
         sorted_events: list[Dict[str, Any]],
+        cursor_key: str,
+        update_cursor: bool = True,
     ) -> IngestResult:
         """One ingest attempt: prefetch, locked multi-pass apply, cursor write."""
         result = IngestResult()
@@ -372,12 +387,13 @@ class SyncService:
                 # Don't advance past the earliest deferred event, so it (and everything after)
                 # is retried once its parent has synced.
                 cursor_ts = min(cursor_ts, min_deferred - 1)
-            await self.set_cursor(
-                db,
-                peer_node_id=peer_node_id,
-                direction="pull",
-                logical_ts=cursor_ts,
-            )
+            if update_cursor:
+                await self.set_cursor(
+                    db,
+                    peer_node_id=cursor_key,
+                    direction="pull",
+                    logical_ts=cursor_ts,
+                )
         return result
 
     async def _prefetch_batch_state(

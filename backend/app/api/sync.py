@@ -91,6 +91,7 @@ async def push_events(
         db,
         peer_node_id=data.source_node_id,
         events=[event.model_dump() for event in data.events],
+        update_cursor=False,
     )
     return SyncPushResponse(
         applied=result.applied,
