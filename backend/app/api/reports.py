@@ -1,5 +1,6 @@
 """Report generation API endpoints."""
 import asyncio
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -7,11 +8,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import selectinload, defer
 
 from app.core.auth import get_current_user_optional
 from app.database import get_db
-from app.models.user import User
+from app.models.user import User, ProjectMember
 from app.models.project import Project
 from app.models.host import Host
 from app.models.checklist import ChecklistGroup
@@ -69,8 +70,10 @@ async def generate_report(
     result = await db.execute(
         select(Project).where(Project.id == project_id)
         .options(
-            selectinload(Project.hosts).selectinload(Host.services),
-            selectinload(Project.hosts).selectinload(Host.executions),
+            selectinload(Project.hosts.and_(Host.deleted_at.is_(None))).selectinload(Host.services),
+            # The report only prints command/status/alerts: skip the bulky output columns.
+            selectinload(Project.hosts.and_(Host.deleted_at.is_(None))).selectinload(Host.executions).options(
+                defer(Execution.stdout), defer(Execution.stderr), defer(Execution.parsed_output)),
             selectinload(Project.checklist_groups).selectinload(ChecklistGroup.items),
         )
     )
@@ -106,7 +109,8 @@ async def generate_report(
     timestamp = utcnow().strftime("%Y%m%d_%H%M%S")
     # Sanitize the project name so it can't traverse out of REPORTS_PATH.
     safe_name = "".join(c if c.isalnum() or c in "-_" else "_" for c in (project.name or "project"))[:60]
-    base = f"report_{safe_name}_{timestamp}"
+    # project id in the name scopes list/download by membership
+    base = f"report_p{project_id}_{safe_name}_{timestamp}"
     report_path = settings.REPORTS_PATH / f"{base}.md"
     await asyncio.to_thread(_write_report_sync, report_path, content)
 
@@ -131,18 +135,38 @@ async def generate_report(
     return FileResponse(report_path, filename=report_path.name, media_type="text/markdown")
 
 
+_REPORT_PID_RE = re.compile(r"^report_p(\d+)_")
+
+
 @router.get("/list")
 async def list_reports(
+    db: AsyncSession = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user_optional),
 ):
-    """List generated reports."""
+    """List generated reports (only those of the user's projects)."""
     reports = await asyncio.to_thread(_list_reports_sync, settings.REPORTS_PATH)
-    return {"reports": reports}
+    if current_user is None:
+        return {"reports": reports}
+    member_ids = set((await db.execute(
+        select(ProjectMember.project_id).where(
+            ProjectMember.user_id == current_user.id,
+            ProjectMember.deleted_at.is_(None),
+        )
+    )).scalars().all())
+
+    def _visible(name: str) -> bool:
+        m = _REPORT_PID_RE.match(name)
+        if m:
+            return int(m.group(1)) in member_ids
+        return current_user.role == "admin"  # legacy report without a project id
+
+    return {"reports": [r for r in reports if _visible(r["name"])]}
 
 
 @router.get("/download/{filename}")
 async def download_report(
     filename: str,
+    db: AsyncSession = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     """Download a generated report."""
@@ -150,6 +174,13 @@ async def download_report(
     report_path = (settings.REPORTS_PATH / filename).resolve()
     if report_path != base and base not in report_path.parents:
         raise HTTPException(status_code=404, detail="Report not found")
+    if current_user is not None:
+        m = _REPORT_PID_RE.match(report_path.name)
+        if m:
+            from app.api.projects import _require_project_member
+            await _require_project_member(db, int(m.group(1)), current_user)
+        elif current_user.role != "admin":  # legacy report without a project id
+            raise HTTPException(status_code=403, detail="Project access denied")
     exists = await asyncio.to_thread(report_path.exists)
     if not exists:
         raise HTTPException(status_code=404, detail="Report not found")

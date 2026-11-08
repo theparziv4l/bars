@@ -16,7 +16,7 @@ def _engine(path):
     eng = create_async_engine(f"sqlite+aiosqlite:///{path}")
     # Same hooks the app engine uses.
     event.listen(eng.sync_engine, "connect", database.set_sqlite_pragma)
-    event.listen(eng.sync_engine, "begin", database.do_begin)
+    database.install_savepoint_fix(eng.sync_engine)
     return eng
 
 
@@ -78,4 +78,25 @@ def test_savepoint_semantics():
 
 
 def test_app_engine_has_hooks():
-    assert event.contains(database.engine.sync_engine, "begin", database.do_begin)
+    assert list(database.engine.sync_engine.dispatch.savepoint)
+
+
+async def _read_then_write():
+    """Session A reads, B writes+commits, then A writes: must wait/succeed, not
+    fail instantly with SQLITE_BUSY_SNAPSHOT ("database is locked")."""
+    with tempfile.TemporaryDirectory() as d:
+        eng = _engine(os.path.join(d, "t.db"))
+        async with eng.begin() as c:
+            await c.execute(text("CREATE TABLE t (v TEXT)"))
+        async with eng.connect() as a, eng.connect() as b:
+            await a.execute(text("SELECT count(*) FROM t"))
+            await b.execute(text("INSERT INTO t VALUES ('b')"))
+            await b.commit()
+            await a.execute(text("INSERT INTO t VALUES ('a')"))
+            await a.commit()
+        assert await _rows(eng) == ["a", "b"]
+        await eng.dispose()
+
+
+def test_read_then_write_concurrency():
+    asyncio.run(_read_then_write())

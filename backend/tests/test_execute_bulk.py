@@ -21,7 +21,7 @@ async def _run():
     orch = TaskOrchestrator()
     finished = []
 
-    async def fake_execute_item(session, item_id, *a, **k):
+    async def fake_run_one(item_id, *a, **k):
         if item_id == 1:
             raise ValueError("bad item")
         await asyncio.sleep(0.5)
@@ -31,8 +31,7 @@ async def _run():
         m.parsed_output = None
         return m
 
-    with patch("app.database.async_session_maker", maker), \
-         patch.object(orch, "execute_item", fake_execute_item):
+    with patch.object(orch, "_bulk_run_one", fake_run_one):
         async with maker() as db:
             try:
                 await orch.execute_bulk(db, [1, 2], sequential=False)

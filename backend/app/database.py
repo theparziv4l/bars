@@ -20,11 +20,6 @@ engine = create_async_engine(
 def set_sqlite_pragma(dbapi_connection, connection_record):
     """Set SQLite pragmas and register custom functions on each new connection."""
     import re as re_module
-    # Disable the driver's legacy implicit BEGIN; pysqlite/aiosqlite otherwise
-    # break SAVEPOINT semantics (a leading SAVEPOINT's RELEASE commits).
-    # Transactions are started explicitly in do_begin below. Must be set before
-    # the PRAGMAs so journal_mode runs in autocommit.
-    dbapi_connection.isolation_level = None
     cursor = dbapi_connection.cursor()
     cursor.execute("PRAGMA journal_mode=WAL")
     cursor.execute("PRAGMA busy_timeout=30000")
@@ -49,10 +44,39 @@ def set_sqlite_pragma(dbapi_connection, connection_record):
     dbapi_connection.create_function("regexp", 2, _regexp)
 
 
-@event.listens_for(engine.sync_engine, "begin")
-def do_begin(conn):
-    """Emit BEGIN ourselves (see isolation_level=None in set_sqlite_pragma)."""
-    conn.exec_driver_sql("BEGIN")
+_WRITE_VERBS = ("INSERT", "UPDATE", "DELETE", "REPLAC")
+
+
+def install_savepoint_fix(sync_engine) -> None:
+    """Make a leading SAVEPOINT behave like a nested transaction.
+
+    The driver only emits BEGIN before the first write, so SELECTs autocommit and
+    concurrent read-then-write sessions wait on busy_timeout instead of failing
+    with SQLITE_BUSY_SNAPSHOT. The catch: a SAVEPOINT issued before any write in
+    the transaction starts its own transaction, and its RELEASE commits. So when a
+    savepoint opens with no write yet, open the transaction first with BEGIN
+    IMMEDIATE (takes the write lock now, waiting on busy_timeout).
+    Not the docs' isolation_level=None + BEGIN-on-every-transaction recipe: that
+    puts every SELECT in a snapshot and turns concurrent writes into instant
+    "database is locked".
+    """
+    @event.listens_for(sync_engine, "begin")
+    def _txn_begin(conn):
+        conn.info["_sqlite_txn_open"] = False
+
+    @event.listens_for(sync_engine, "before_cursor_execute")
+    def _txn_write(conn, cursor, statement, parameters, context, executemany):
+        if statement.lstrip()[:6].upper() in _WRITE_VERBS:
+            conn.info["_sqlite_txn_open"] = True
+
+    @event.listens_for(sync_engine, "savepoint")
+    def _txn_savepoint(conn, name):
+        if not conn.info.get("_sqlite_txn_open"):
+            conn.info["_sqlite_txn_open"] = True
+            conn.exec_driver_sql("BEGIN IMMEDIATE")
+
+
+install_savepoint_fix(engine.sync_engine)
 
 
 # Session factory

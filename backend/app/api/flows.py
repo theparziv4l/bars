@@ -7,7 +7,7 @@ import json
 from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, inspect as sa_inspect
-from sqlalchemy.orm import selectinload, joinedload
+from sqlalchemy.orm import selectinload, joinedload, defer
 
 from app.database import get_db
 from app.core.auth import get_current_user_optional
@@ -40,6 +40,24 @@ async def _exec_project_id(db: AsyncSession, flow_execution_id: str) -> Optional
     if fer is None:
         return None
     return await _flow_project_id(db, fer)
+
+
+async def _validate_step_items(db: AsyncSession, project_id: Optional[int], steps) -> None:
+    """Steps may only run items of the flow's own project or library templates."""
+    ids = {s.checklist_item_id for s in steps}
+    if not ids:
+        return
+    rows = (await db.execute(
+        select(ChecklistItem.id, ChecklistGroup.project_id)
+        .join(ChecklistGroup, ChecklistItem.group_id == ChecklistGroup.id)
+        .where(ChecklistItem.id.in_(ids))
+    )).all()
+    owner = {iid: pid for iid, pid in rows}
+    for iid in ids:
+        if iid not in owner:
+            raise HTTPException(status_code=400, detail=f"Checklist item {iid} not found")
+        if owner[iid] is not None and owner[iid] != project_id:
+            raise HTTPException(status_code=400, detail=f"Checklist item {iid} belongs to another project")
 
 
 @router.get("", response_model=List[FlowResponse])
@@ -94,6 +112,7 @@ async def create_flow(
     if data.project_id is not None:
         from app.api.projects import _require_project_member
         await _require_project_member(db, data.project_id, current_user)
+    await _validate_step_items(db, data.project_id, data.steps)
     flow = Flow(
         project_id=data.project_id,
         name=data.name,
@@ -206,6 +225,7 @@ async def update_flow(
         setattr(flow, field, value)
     
     if data.steps is not None:
+        await _validate_step_items(db, flow.project_id, data.steps)
         # Record step deletes for sync before removing
         for step in flow.steps:
             try:
@@ -318,7 +338,7 @@ async def import_flow(
     await _require_project_member(db, project_id, current_user)
     result = await db.execute(
         select(Flow)
-        .where(Flow.id.in_(template_flow_ids))
+        .where(Flow.id.in_(template_flow_ids), Flow.project_id.is_(None))
         .options(selectinload(Flow.steps).selectinload(FlowStep.checklist_item))
     )
     templates = result.scalars().all()
@@ -733,9 +753,14 @@ async def get_flow_execution_status(
     # Find the FlowExecution to display
     if flow_execution_id:
         fe_result = await db.execute(
-            select(FlowExecution).where(FlowExecution.id == flow_execution_id)
+            select(FlowExecution).where(
+                FlowExecution.id == flow_execution_id,
+                FlowExecution.flow_id == flow_id,
+            )
         )
         flow_exec = fe_result.scalar_one_or_none()
+        if flow_exec is None:
+            raise HTTPException(status_code=404, detail="Flow execution not found")
     else:
         fe_result = await db.execute(
             select(FlowExecution)
@@ -748,9 +773,11 @@ async def get_flow_execution_status(
     latest_flow_exec_id = flow_exec.id if flow_exec else None
     executions: list = []
     if latest_flow_exec_id:
+        # Polled every 2 s: never drag the (large) output columns along.
         exec_result = await db.execute(
             select(Execution)
             .where(Execution.flow_execution_id == latest_flow_exec_id)
+            .options(defer(Execution.stdout), defer(Execution.stderr), defer(Execution.parsed_output))
         )
         executions = exec_result.scalars().all()
 
@@ -763,8 +790,9 @@ async def get_flow_execution_status(
     if batch_parent_ids:
         all_children_result = await db.execute(
             select(Execution).where(
-                Execution.item_id.in_([e.item_id for e in executions if e.id in batch_parent_ids])
-            )
+                Execution.item_id.in_([e.item_id for e in executions if e.id in batch_parent_ids]),
+                Execution.created_at >= flow_exec.created_at,
+            ).options(defer(Execution.stdout), defer(Execution.stderr), defer(Execution.parsed_output))
         )
         all_children = all_children_result.scalars().all()
         for pid in batch_parent_ids:
@@ -859,6 +887,9 @@ async def get_execution_context(
     if _cpid is not None:
         from app.api.projects import _require_project_member
         await _require_project_member(db, _cpid, current_user)
+    elif current_user is not None and current_user.role != "admin":
+        # Project unresolved (orphan run / template flow): fail closed.
+        raise HTTPException(status_code=404, detail="Flow execution not found")
     
     # Fetch all executions for this flow run
     stmt = (

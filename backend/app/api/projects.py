@@ -64,7 +64,7 @@ async def _get_project_counts(
     # Host counts
     host_rows = await db.execute(
         select(Host.project_id, func.count(Host.id).label("cnt"))
-        .where(Host.project_id.in_(project_ids))
+        .where(Host.project_id.in_(project_ids), Host.deleted_at.is_(None))
         .group_by(Host.project_id)
     )
     host_map = {r[0]: r[1] for r in host_rows.all()}
@@ -87,6 +87,7 @@ async def _get_project_counts(
         .where(
             ChecklistGroup.project_id.in_(project_ids),
             ChecklistGroup.deleted_at.is_(None),
+            ChecklistItem.deleted_at.is_(None),
             ChecklistItem.is_trashed.is_(False),
         )
         .group_by(ChecklistGroup.project_id)
@@ -102,6 +103,8 @@ async def _get_project_counts(
             ChecklistGroup.project_id.in_(project_ids),
             ChecklistGroup.deleted_at.is_(None),
             ChecklistItem.is_trashed.is_(False),
+            ChecklistItem.deleted_at.is_(None),
+            Execution.deleted_at.is_(None),
             Execution.status == ExecutionStatus.COMPLETED,
             Execution.exit_code == 0,
         )
@@ -117,6 +120,7 @@ async def _get_project_counts(
         .where(
             ChecklistGroup.project_id.in_(project_ids),
             ChecklistGroup.deleted_at.is_(None),
+            ChecklistItem.deleted_at.is_(None),
             ChecklistItem.is_trashed.is_(False),
         )
     )
@@ -269,6 +273,10 @@ async def create_project(
         operation="create",
         payload=await _project_variable_sync_payload(db, start_var),
     )
+
+    # Release the SQLite write lock before the agent HTTP call below; the
+    # remaining writes run in a fresh transaction.
+    await db.commit()
 
     # Auto-create attacker-ips variable (from Host)
     import json
@@ -460,10 +468,15 @@ async def update_project(
     await _require_project_member(db, project_id, current_user)
     
     for field, value in data.model_dump(exclude_unset=True).items():
+        if value is None and field in ("name", "scope", "status", "extra_data"):
+            continue  # explicit null on a NOT NULL column: ignore
         if field == "scope" and value:
             setattr(project, field, value.model_dump() if hasattr(value, 'model_dump') else value)
         elif field == "status" and value:
             setattr(project, field, ProjectStatus(value))
+        elif field == "extra_data":
+            # Merge: a client dict must not wipe project_path / SMB credentials.
+            setattr(project, field, {**(project.extra_data or {}), **value})
         else:
             setattr(project, field, value)
     
@@ -678,7 +691,9 @@ async def get_project_host_tags(
     result = await db.execute(select(Project).where(Project.id == project_id))
     if not result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Project not found")
-    result = await db.execute(select(Host.tags).where(Host.project_id == project_id))
+    result = await db.execute(
+        select(Host.tags).where(Host.project_id == project_id, Host.deleted_at.is_(None))
+    )
     rows = result.all()
 
     def _tags_from_value(val):
@@ -805,6 +820,8 @@ async def create_project_variable(
         select(ProjectVariable)
         .where(ProjectVariable.project_id == project_id)
         .where(ProjectVariable.key == key)
+        .where(ProjectVariable.host_id.is_(None))
+        .where(ProjectVariable.deleted_at.is_(None))
     )
     if ad_domain_id is not None:
         lookup = lookup.where(ProjectVariable.ad_domain_id == ad_domain_id)
@@ -932,7 +949,9 @@ async def export_services(
     result = await db.execute(
         select(Project)
         .where(Project.id == project_id)
-        .options(selectinload(Project.hosts).selectinload(Host.services))
+        .options(
+            selectinload(Project.hosts.and_(Host.deleted_at.is_(None))).selectinload(Host.services)
+        )
     )
     project = result.scalar_one_or_none()
     if not project:

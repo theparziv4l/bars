@@ -174,17 +174,17 @@ async def list_hosts(
     if smb_signing:
         if smb_signing == "true":
             query = query.where(text(
-                "json_extract(hosts.extra_data, '$.smb_signing') = 1 "
-                "OR json_extract(hosts.extra_data, '$.smb_signing') = 'true'"
+                "(json_extract(hosts.extra_data, '$.smb_signing') = 1 "
+                "OR json_extract(hosts.extra_data, '$.smb_signing') = 'true')"
             ))
         elif smb_signing == "false":
             query = query.where(text(
-                "json_extract(hosts.extra_data, '$.smb_signing') = 0 "
-                "OR lower(json_extract(hosts.extra_data, '$.smb_signing')) = 'false'"
+                "(json_extract(hosts.extra_data, '$.smb_signing') = 0 "
+                "OR lower(json_extract(hosts.extra_data, '$.smb_signing')) = 'false')"
             ))
         elif smb_signing == "unknown":
             query = query.where(text(
-                "json_extract(hosts.extra_data, '$.smb_signing') IS NULL"
+                "(json_extract(hosts.extra_data, '$.smb_signing') IS NULL)"
             ))
     if excluded is not None:
         query = query.where(Host.excluded.is_(excluded))
@@ -336,7 +336,11 @@ async def update_host(
     from app.api.projects import _require_project_member
     await _require_project_member(db, host.project_id, current_user)
     
+    # Explicit null on a NOT NULL column would 500 at flush: ignore it.
+    not_null = {"status", "extra_data", "tags", "excluded"}
     for field, value in data.model_dump(exclude_unset=True).items():
+        if value is None and field in not_null:
+            continue
         setattr(host, field, value)
     
     await db.flush()

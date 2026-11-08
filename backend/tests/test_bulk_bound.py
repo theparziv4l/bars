@@ -15,7 +15,8 @@ async def _run():
     live = 0
     peak = 0
 
-    async def _fake_execute_item(session, item_id, host_id=None, variables=None):
+    # execute_bulk goes through the shared pre-flight (_bulk_run_one), not execute_item.
+    async def _fake_run_one(item_id, host_id, variables, outputs=None):
         nonlocal live, peak
         live += 1
         peak = max(peak, live)
@@ -23,21 +24,7 @@ async def _run():
         live -= 1
         return f"exec-{item_id}"
 
-    class _FakeSession:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *a):
-            return False
-
-        async def commit(self):
-            pass
-
-        async def rollback(self):
-            pass
-
-    with patch.object(orch, "execute_item", _fake_execute_item), \
-         patch("app.database.async_session_maker", lambda: _FakeSession()):
+    with patch.object(orch, "_bulk_run_one", _fake_run_one):
         out = await orch.execute_bulk(None, list(range(30)))
     assert len(out) == 30, len(out)
     from app.config import settings

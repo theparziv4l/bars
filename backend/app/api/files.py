@@ -37,6 +37,28 @@ async def _file_project_id(db, file_id: int):
     return row
 
 
+def _smb_arg(value: str) -> str:
+    """Double-quote one argument for smbclient's own `-c` parser.
+
+    smbclient splits `-c` on `;` and has a `!cmd` local-shell escape, and has no
+    way to escape `"` inside quotes, so such names are refused outright. The
+    result is meant to be embedded in a string that is then shlex.quote'd.
+    """
+    if any(c in value for c in '";\0\r\n'):
+        raise HTTPException(status_code=400, detail="Name contains characters not allowed in an SMB command")
+    return f'"{value}"'
+
+
+def _path_parts(value: str, what: str) -> List[str]:
+    """Split a remote path into safe local components (reject '..', NUL)."""
+    if "\0" in value:
+        raise HTTPException(status_code=400, detail=f"Invalid {what}")
+    parts = [p for p in value.replace("\\", "/").split("/") if p not in ("", ".")]
+    if ".." in parts:
+        raise HTTPException(status_code=400, detail=f"Invalid {what}")
+    return parts
+
+
 CREDENTIAL_KEY_MAP = {
     "username": ["smb_user", "username", "user", "smb_username"],
     "password": ["smb_pass", "password", "pass", "smb_password"],
@@ -463,27 +485,33 @@ async def fetch_file(
 
     host_identifier = host.ip_address or host.hostname or f"host_{host.id}"
     remote_path = file.path.strip("/") if file.path else ""
-    local_dir = os.path.join(project_path, "files", host_identifier, file.share_name or "unknown")
-    if remote_path:
-        local_dir = os.path.join(local_dir, remote_path)
-    local_file_path = os.path.join(local_dir, file.name)
+    # Every component comes from the target (or a peer): refuse '..', separators, NUL
+    # and keep the result inside <project_path>/files.
+    host_part = _path_parts(host_identifier, "host")
+    share_part = _path_parts(file.share_name or "unknown", "share name")
+    dir_parts = _path_parts(remote_path, "remote path")
+    name_parts = _path_parts(file.name or "", "file name")
+    if len(host_part) != 1 or len(share_part) != 1 or len(name_parts) != 1:
+        raise HTTPException(status_code=400, detail="Invalid host, share or file name")
+    base_dir = os.path.realpath(os.path.join(project_path, "files"))
+    local_dir = os.path.realpath(os.path.join(base_dir, *host_part, *share_part, *dir_parts))
+    local_file_path = os.path.join(local_dir, name_parts[0])
+    if os.path.commonpath([base_dir, local_dir]) != base_dir:
+        raise HTTPException(status_code=400, detail="Path escapes the project files directory")
 
-    # Create local directory
-    mkdir_result = await host_runner.execute_sync(f'mkdir -p "{local_dir}"')
-    if mkdir_result["exit_code"] != 0:
-        raise HTTPException(status_code=500, detail=f"Failed to create directory: {mkdir_result['stderr']}")
-
-    # Build smbclient command
+    # Build smbclient command (validate before anything is run)
     target_host = host.ip_address or host.hostname
     share_name = file.share_name or ""
-    smb_remote_path = f"{remote_path}/{file.name}" if remote_path else file.name
-    # Normalize path separators for smbclient
-    smb_remote_path = smb_remote_path.replace("/", "\\\\")
-
+    smb_remote_path = "\\".join(dir_parts + name_parts)
     auth_part = f"{domain}\\{username}%{password}" if domain else f"{username}%{password}"
-    smb_remote_q = smb_remote_path.replace('"', '\\"')
-    local_file_q = local_file_path.replace('"', '\\"')
-    cmd = f'smbclient "//{target_host}/{share_name}" -U {shlex.quote(auth_part)} -c "get \\"{smb_remote_q}\\" \\"{local_file_q}\\""'
+    smb_script = f"get {_smb_arg(smb_remote_path)} {_smb_arg(local_file_path)}"
+    cmd = (f"smbclient {shlex.quote(f'//{target_host}/{share_name}')} "
+           f"-U {shlex.quote(auth_part)} -c {shlex.quote(smb_script)}")
+
+    # Create local directory
+    mkdir_result = await host_runner.execute_sync(f"mkdir -p {shlex.quote(local_dir)}")
+    if mkdir_result["exit_code"] != 0:
+        raise HTTPException(status_code=500, detail=f"Failed to create directory: {mkdir_result['stderr']}")
 
     result = await host_runner.execute_sync(cmd)
     if result["exit_code"] != 0:
@@ -578,14 +606,14 @@ async def upload_to_share(
     import os
     filename = os.path.basename(local_file_path)
 
-    local_q = local_file_path.replace('"', '\\"')
-    filename_q = filename.replace('"', '\\"')
+    smb_target = shlex.quote(f"//{target_host}/{share_name}")
+    put = f"put {_smb_arg(local_file_path)} {_smb_arg(filename)}"
     if remote_path:
-        remote_dir = remote_path.replace("/", "\\\\")
-        remote_dir_q = remote_dir.replace('"', '\\"')
-        cmd = f'smbclient "//{target_host}/{share_name}" -U {shlex.quote(auth_part)} -c "cd \\"{remote_dir_q}\\"; put \\"{local_q}\\" \\"{filename_q}\\""'
+        remote_dir = remote_path.replace("/", "\\")
+        smb_script = f"cd {_smb_arg(remote_dir)}; {put}"
     else:
-        cmd = f'smbclient "//{target_host}/{share_name}" -U {shlex.quote(auth_part)} -c "put \\"{local_q}\\" \\"{filename_q}\\""'
+        smb_script = put
+    cmd = f"smbclient {smb_target} -U {shlex.quote(auth_part)} -c {shlex.quote(smb_script)}"
 
     result = await host_runner.execute_sync(cmd)
     if result["exit_code"] != 0:
