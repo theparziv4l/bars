@@ -81,6 +81,7 @@ async def _run():
         "event_id": "rem-1", "entity_type": "projects", "entity_public_id": "rp",
         "operation": "create", "payload": {"public_id": "rp", "name": "Remote"},
         "logical_ts": 7, "source_node_id": "peer", "created_at": "2026-01-01T00:00:00",
+        "seq": 3,
     }]
     stub = _StubHttp(open_counter, pull_events)
     w = worker_mod.SyncWorker()
@@ -95,12 +96,12 @@ async def _run():
 
     assert stub.get_open == 0, f"GET fired with {stub.get_open} DB sessions open"
     assert stub.post_open == 0, f"POST fired with {stub.post_open} DB sessions open"
-    # And the cycle still did its job: pull cursor at the remote event (7);
-    # push cursor at the latest LOCAL event — the ingested remote row (7) is
-    # recorded locally, so it relays onward too.
+    # And the cycle still did its job: pull cursor at the remote event's seq (3);
+    # push cursor at the latest LOCAL seq — the ingested remote row is recorded
+    # locally (id 2, after local-1), so it relays onward too.
     async with real_maker() as db:
-        assert await sync_service.get_cursor(db, "http://peer:8000", "pull") == 7
-        assert await sync_service.get_cursor(db, "http://peer:8000", "push") == 7
+        assert await sync_service.get_cursor(db, "http://peer:8000", "pull_seq") == 3
+        assert await sync_service.get_cursor(db, "http://peer:8000", "push_seq") == 2
     await engine.dispose()
     print("PASS session boundaries")
 

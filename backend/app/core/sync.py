@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 import uuid
 from typing import Any, Dict, Iterable, Optional
 
-from sqlalchemy import delete, or_, select, tuple_
+from sqlalchemy import delete, func, or_, select, tuple_
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -236,7 +236,13 @@ class SyncService:
         peer_node_id: str,
         direction: str,
         logical_ts: int,
+        allow_decrease: bool = False,
     ) -> None:
+        """Advance (never rewind, unless ``allow_decrease``) a cursor.
+
+        The value is a logical_ts for directions "pull"/"push" and a local/remote
+        event sequence (SyncEvent.id) for "pull_seq"/"push_seq".
+        """
         result = await db.execute(
             select(SyncCursor).where(
                 SyncCursor.peer_node_id == peer_node_id,
@@ -252,7 +258,9 @@ class SyncService:
             )
             db.add(row)
         else:
-            row.last_logical_ts = max(row.last_logical_ts, logical_ts)
+            row.last_logical_ts = (
+                logical_ts if allow_decrease else max(row.last_logical_ts, logical_ts)
+            )
         await db.flush()
 
     async def record_event(
@@ -285,12 +293,23 @@ class SyncService:
         self,
         db: AsyncSession,
         *,
-        since_logical_ts: int,
+        since_logical_ts: int = 0,
         limit: int,
         project_public_id: Optional[str] = None,
+        since_seq: Optional[int] = None,
     ) -> list[SyncEvent]:
-        """Return local events newer than cursor, optionally filtered by project."""
-        stmt = select(SyncEvent).where(SyncEvent.logical_ts > since_logical_ts)
+        """Return local events newer than a cursor, optionally filtered by project.
+
+        ``since_seq`` selects by local insertion order (SyncEvent.id, assigned under the
+        single SQLite write lock so it follows commit order). That is the cursor to use:
+        logical_ts is stamped before the write lock is taken and relayed events carry
+        their origin's timestamp, so a logical_ts cursor silently skips events that
+        commit late or arrive from a third node. ``since_logical_ts`` stays for old peers.
+        """
+        if since_seq is not None:
+            stmt = select(SyncEvent).where(SyncEvent.id > since_seq)
+        else:
+            stmt = select(SyncEvent).where(SyncEvent.logical_ts > since_logical_ts)
         if project_public_id:
             stmt = stmt.where(
                 or_(
@@ -299,10 +318,16 @@ class SyncService:
                     SyncEvent.payload["project_public_id"].as_string() == project_public_id,
                 )
             )
-        result = await db.execute(
-            stmt.order_by(SyncEvent.logical_ts.asc(), SyncEvent.source_node_id.asc()).limit(limit)
+        order = (
+            (SyncEvent.id.asc(),) if since_seq is not None
+            else (SyncEvent.logical_ts.asc(), SyncEvent.source_node_id.asc())
         )
+        result = await db.execute(stmt.order_by(*order).limit(limit))
         return list(result.scalars().all())
+
+    async def max_seq(self, db: AsyncSession) -> int:
+        """Highest local event sequence (0 when the log is empty)."""
+        return (await db.execute(select(func.max(SyncEvent.id)))).scalar() or 0
 
     async def ingest_remote_events(
         self,
@@ -361,6 +386,12 @@ class SyncService:
     ) -> IngestResult:
         """One ingest attempt: prefetch, locked multi-pass apply, cursor write."""
         result = IngestResult()
+        # Sequence stats come from THIS batch only: parked events injected below belong
+        # to whichever peer sent them and live in that peer's sequence space.
+        batch_seqs = [
+            e["seq"] for e in sorted_events
+            if isinstance(e, dict) and isinstance(e.get("seq"), int)
+        ]
         # Parked events ride along with every batch so a late parent still resolves them.
         if self._parked:
             batch_ids = {e.get("event_id") for e in sorted_events if isinstance(e, dict)}
@@ -400,7 +431,7 @@ class SyncService:
                     break
                 pending = pass_deferred
 
-            min_deferred = self._settle_deferrals(sorted_events, pass_deferred)
+            min_deferred, min_deferred_seq = self._settle_deferrals(sorted_events, pass_deferred)
             result.min_deferred_ts = min_deferred
             cursor_ts = result.latest_logical_ts
             if min_deferred is not None:
@@ -414,12 +445,25 @@ class SyncService:
                     direction="pull",
                     logical_ts=cursor_ts,
                 )
+                if batch_seqs:
+                    cursor_seq = max(batch_seqs)
+                    if min_deferred_seq is not None:
+                        cursor_seq = min(cursor_seq, min_deferred_seq - 1)
+                    await self.set_cursor(
+                        db,
+                        peer_node_id=cursor_key,
+                        direction="pull_seq",
+                        logical_ts=cursor_seq,
+                    )
         return result
 
     def _settle_deferrals(
         self, batch: list[Dict[str, Any]], still_deferred: list[Dict[str, Any]]
-    ) -> Optional[int]:
-        """Update per-event deferral bookkeeping; return the ts that may hold the cursor.
+    ) -> tuple[Optional[int], Optional[int]]:
+        """Update per-event deferral bookkeeping.
+
+        Returns (logical_ts, seq) of the earliest event that may still hold the cursor
+        (seq None when none of them carries a remote sequence).
 
         Events deferred for more than ``_MAX_DEFERRAL_CYCLES`` cycles are parked and no
         longer contribute; events that applied are forgotten.
@@ -431,6 +475,7 @@ class SyncService:
                 self._deferral_attempts.pop(eid, None)
                 self._parked.pop(eid, None)
         holding: Optional[int] = None
+        holding_seq: Optional[int] = None
         for e in still_deferred:
             eid = e["event_id"]
             if eid in self._parked:
@@ -450,9 +495,11 @@ class SyncService:
             self._deferral_attempts[eid] = attempts
             ts = int(e["logical_ts"])
             holding = ts if holding is None else min(holding, ts)
+            if isinstance(e.get("seq"), int):
+                holding_seq = e["seq"] if holding_seq is None else min(holding_seq, e["seq"])
         if len(self._deferral_attempts) > _MAX_TRACKED_DEFERRALS:
             self._deferral_attempts.clear()
-        return holding
+        return holding, holding_seq
 
     async def _prefetch_batch_state(
         self, db: AsyncSession, events: list[Dict[str, Any]]
@@ -1327,6 +1374,9 @@ class SyncService:
         public_id = payload.get("public_id")
         if not public_id:
             return
+        # SECURITY: never read local_path (or any on-disk path) from a peer payload.
+        # api/files serves DiscoveredFile.local_path verbatim, so a peer-supplied value
+        # would be an arbitrary file read on this node. It is only ever set locally.
         host_id = None
         execution_id = None
         if payload.get("host_public_id"):

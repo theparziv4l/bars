@@ -25,6 +25,21 @@ from app.models.user import User
 router = APIRouter()
 
 
+class _SeqEventMessage(SyncEventMessage):
+    """Pull envelope plus the sender's local sequence (the cursor to resume from)."""
+
+    seq: int
+
+
+class _SeqPullResponse(SyncPullResponse):
+    """Pull response; `latest_seq` is the last returned seq (or the request's since_seq),
+    `max_seq` the sender's highest seq (lets a puller detect a reset/purged log)."""
+
+    events: List[_SeqEventMessage]
+    latest_seq: int = 0
+    max_seq: int = 0
+
+
 def _require_peer_token(request: Request) -> None:
     if not settings.SYNC_PEER_TOKEN:
         raise HTTPException(status_code=503, detail="Sync peer auth not configured")
@@ -42,10 +57,11 @@ def _normalize_base_url(url: str) -> str:
     return u
 
 
-@router.get("/pull", response_model=SyncPullResponse)
+@router.get("/pull", response_model=_SeqPullResponse)
 async def pull_events(
     request: Request,
-    since_logical_ts: int = Query(0, ge=0),
+    since_logical_ts: int = Query(0, ge=0, description="Legacy cursor; prefer since_seq"),
+    since_seq: Optional[int] = Query(None, ge=0, description="Resume after this local event sequence"),
     limit: int = Query(200, ge=1, le=5000),
     project_public_id: Optional[str] = Query(None, description="If set, return only events for this project"),
     db: AsyncSession = Depends(get_db),
@@ -57,11 +73,13 @@ async def pull_events(
     events = await sync_service.pull_events(
         db,
         since_logical_ts=since_logical_ts,
+        since_seq=since_seq,
         limit=limit,
         project_public_id=project_public_id,
     )
-    payload: List[SyncEventMessage] = [
-        SyncEventMessage(
+    payload: List[_SeqEventMessage] = [
+        _SeqEventMessage(
+            seq=e.id,
             event_id=e.event_id,
             entity_type=e.entity_type,
             entity_public_id=e.entity_public_id,
@@ -73,8 +91,17 @@ async def pull_events(
         )
         for e in events
     ]
-    latest = payload[-1].logical_ts if payload else since_logical_ts
-    return SyncPullResponse(node_id=settings.NODE_ID, latest_logical_ts=latest, events=payload)
+    if since_seq is not None:
+        latest = max((p.logical_ts for p in payload), default=since_logical_ts)
+    else:
+        latest = payload[-1].logical_ts if payload else since_logical_ts
+    return _SeqPullResponse(
+        node_id=settings.NODE_ID,
+        latest_logical_ts=latest,
+        events=payload,
+        latest_seq=payload[-1].seq if payload else (since_seq or 0),
+        max_seq=await sync_service.max_seq(db),
+    )
 
 
 @router.post("/push", response_model=SyncPushResponse)

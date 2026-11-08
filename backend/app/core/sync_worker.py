@@ -30,6 +30,20 @@ def _capped_push_cursor(latest: int, min_deferred_ts: int | None) -> int:
     return min(latest, min_deferred_ts - 1)
 
 
+def _capped_push_seq(events: list, min_deferred_ts: int | None) -> int:
+    """Push-cursor (local seq) advance after a batch, capped below deferred events.
+
+    The receiver reports only the smallest logical_ts it deferred, so hold the cursor
+    just below the first sent event (in seq order) at or after that ts. Re-pushing
+    already-applied events in between is harmless (dedup by event_id).
+    """
+    latest = events[-1].id
+    if min_deferred_ts is None:
+        return latest
+    held = [e.id for e in events if e.logical_ts >= min_deferred_ts]
+    return min(latest, min(held) - 1) if held else latest
+
+
 class SyncWorker:
     """Runs best-effort peer synchronization in background."""
 
@@ -180,9 +194,12 @@ class SyncWorker:
 
         # 1) Pull remote events and ingest locally
         async with async_session_maker() as db:
-            pull_cursor = await sync_service.get_cursor(db, cursor_key, "pull")
+            pull_cursor = await sync_service.get_cursor(db, cursor_key, "pull_seq")
         remote_node_id = None
-        pull_url = f"{sync_base}/pull?since_logical_ts={pull_cursor}&limit={settings.SYNC_BATCH_SIZE}"
+        remote_max_seq = None
+        # since_seq: the peer's own insertion order. logical_ts cursors lose events that
+        # commit late or are relayed with an old timestamp.
+        pull_url = f"{sync_base}/pull?since_seq={pull_cursor}&limit={settings.SYNC_BATCH_SIZE}"
         if project_public_id:
             pull_url += f"&project_public_id={project_public_id}"
         async with session.get(pull_url, headers=self._peer_headers()) as response:
@@ -207,6 +224,20 @@ class SyncWorker:
                 else:
                     events = payload.get("events", [])
                     remote_node_id = payload.get("node_id")
+                    remote_max_seq = payload.get("max_seq")
+        if isinstance(remote_max_seq, int) and pull_cursor > remote_max_seq:
+            # The peer's log is behind our cursor (purged/recreated): its sequence
+            # restarted. Re-pull from the start; ingest dedupes by event_id.
+            logger.warning(
+                f"[SyncWorker] {peer_base_url} max_seq={remote_max_seq} < cursor={pull_cursor}; resetting"
+            )
+            async with async_session_maker() as db:
+                await sync_service.set_cursor(
+                    db, peer_node_id=cursor_key, direction="pull_seq",
+                    logical_ts=0, allow_decrease=True,
+                )
+                await db.commit()
+            events = []
         # Ingest AFTER the response is drained and closed: no DB session spans HTTP.
         if events:
             async with async_session_maker() as db:
@@ -222,10 +253,10 @@ class SyncWorker:
 
         # 2) Push local events to peer
         async with async_session_maker() as db:
-            push_cursor = await sync_service.get_cursor(db, cursor_key, "push")
+            push_cursor = await sync_service.get_cursor(db, cursor_key, "push_seq")
             local_events = await sync_service.pull_events(
                 db,
-                since_logical_ts=push_cursor,
+                since_seq=push_cursor,
                 limit=settings.SYNC_BATCH_SIZE,
                 project_public_id=project_public_id,
             )
@@ -256,18 +287,17 @@ class SyncWorker:
                 body = await response.text()
                 logger.error(f"[SyncWorker] Push to {peer_base_url} failed: status={push_status} body={body[:200]}")
             else:
-                latest = local_events[-1].logical_ts
                 try:
                     push_ack = await response.json()
                     min_deferred = push_ack.get("min_deferred_ts")
                 except Exception:
                     min_deferred = None  # old receiver: no deferral report
-                advance_to = _capped_push_cursor(latest, min_deferred)
+                advance_to = _capped_push_seq(local_events, min_deferred)
                 async with async_session_maker() as db:
                     await sync_service.set_cursor(
                         db,
                         peer_node_id=cursor_key,
-                        direction="push",
+                        direction="push_seq",
                         logical_ts=advance_to,
                     )
                     await db.commit()
