@@ -168,6 +168,28 @@ class IngestResult:
     min_deferred_ts: Optional[int] = None
 
 
+async def _resolve_host(db: AsyncSession, public_id: str) -> Optional[Host]:
+    """Resolve a host by public_id for a child entity.
+
+    Two nodes can discover the same (project, ip) under different public_ids; the
+    live-host unique index keeps one and the other becomes a soft-deleted tombstone
+    (peer-host collision, or startup dedupe migration). A child that references the
+    tombstone's public_id must land on the live host, so redirect there.
+    """
+    host = (await db.execute(select(Host).where(Host.public_id == public_id))).scalar_one_or_none()
+    if host is not None and host.deleted_at is not None and host.ip_address:
+        live = (await db.execute(
+            select(Host).where(
+                Host.project_id == host.project_id,
+                Host.ip_address == host.ip_address,
+                Host.deleted_at.is_(None),
+            ).order_by(Host.id)
+        )).scalars().first()
+        if live is not None:
+            return live
+    return host
+
+
 class SyncService:
     """Event-log based sync helper."""
 
@@ -963,6 +985,41 @@ class SyncService:
 
         result = await db.execute(select(Host).where(Host.public_id == public_id))
         host = result.scalar_one_or_none()
+
+        # (project, ip) is unique among live hosts. An incoming live host that collides
+        # with a different live local host is the same machine discovered independently
+        # on another node: keep the local row, store the incoming one as a tombstone
+        # (so children keep resolving via _resolve_host) and only fill empty local fields.
+        incoming_ip = payload["ip_address"] if "ip_address" in payload else (
+            host.ip_address if host is not None else None
+        )
+        if (
+            (host is None or host.deleted_at is not None)
+            and incoming_ip
+            and _parse_dt(payload.get("deleted_at")) is None
+        ):
+            live = (await db.execute(
+                select(Host).where(
+                    Host.project_id == project_id,
+                    Host.ip_address == incoming_ip,
+                    Host.deleted_at.is_(None),
+                    Host.public_id != public_id,
+                ).order_by(Host.id)
+            )).scalars().first()
+            if live is not None:
+                for name in ("hostname", "fqdn", "os_info"):
+                    if not getattr(live, name, None) and payload.get(name):
+                        setattr(live, name, payload[name])
+                if host is None:
+                    host = Host(public_id=public_id, project_id=project_id, ip_address=incoming_ip)
+                    db.add(host)
+                host.deleted_at = host.deleted_at or utcnow()
+                logger.info(
+                    f"[Sync] Host {public_id} collides with live host {live.public_id} on "
+                    f"{incoming_ip}; stored as tombstone"
+                )
+                return
+
         if host is None:
             host = Host(public_id=public_id, project_id=project_id)
             db.add(host)
@@ -999,10 +1056,7 @@ class SyncService:
             project = project_result.scalar_one_or_none()
             project_id = project.id if project else None
         if payload.get("host_public_id"):
-            host_result = await db.execute(
-                select(Host).where(Host.public_id == payload["host_public_id"])
-            )
-            host = host_result.scalar_one_or_none()
+            host = await _resolve_host(db, payload["host_public_id"])
             host_id = host.id if host else None
             if host_id is None:
                 # Landing a host-scoped value as a global one would shadow the real
@@ -1084,10 +1138,7 @@ class SyncService:
             item_id = item.id if item else None
 
         if payload.get("host_public_id"):
-            host_result = await db.execute(
-                select(Host).where(Host.public_id == payload["host_public_id"])
-            )
-            host = host_result.scalar_one_or_none()
+            host = await _resolve_host(db, payload["host_public_id"])
             host_id = host.id if host else None
 
         result = await db.execute(select(Execution).where(Execution.public_id == public_id))
@@ -1156,10 +1207,7 @@ class SyncService:
             return
         host_id = None
         if payload.get("host_public_id"):
-            host_result = await db.execute(
-                select(Host).where(Host.public_id == payload["host_public_id"])
-            )
-            host = host_result.scalar_one_or_none()
+            host = await _resolve_host(db, payload["host_public_id"])
             host_id = host.id if host else None
             if host_id is None:
                 raise _FKNotReady(
@@ -1208,10 +1256,7 @@ class SyncService:
         host_id = None
         execution_id = None
         if payload.get("host_public_id"):
-            host_result = await db.execute(
-                select(Host).where(Host.public_id == payload["host_public_id"])
-            )
-            host = host_result.scalar_one_or_none()
+            host = await _resolve_host(db, payload["host_public_id"])
             host_id = host.id if host else None
         if payload.get("execution_public_id"):
             exec_result = await db.execute(
@@ -1419,10 +1464,7 @@ class SyncService:
             item_id = item.id if item else None
 
         if payload.get("host_public_id"):
-            host_result = await db.execute(
-                select(Host).where(Host.public_id == payload["host_public_id"])
-            )
-            host = host_result.scalar_one_or_none()
+            host = await _resolve_host(db, payload["host_public_id"])
             host_id = host.id if host else None
 
         if payload.get("claimed_by_user_public_id"):
@@ -1516,9 +1558,7 @@ class SyncService:
             return
         host_id = None
         if payload.get("host_public_id"):
-            host = (await db.execute(
-                select(Host).where(Host.public_id == payload["host_public_id"])
-            )).scalar_one_or_none()
+            host = await _resolve_host(db, payload["host_public_id"])
             host_id = host.id if host else None
         item_id = None
         if payload.get("item_public_id"):
