@@ -330,7 +330,7 @@ class ShareParser:
             # Parse file entries - format: [attributes] [size] [date] [name]
             # Example: fr--r--r--                3 Sun Dec 31 19:03:58 1600	InitShutdown
             file_match = re.match(
-                r'\s+([df]r[-rwx]{2}[-rwx]{2}[-rwx]{2}[-rwx]{2})\s+'  # Permissions
+                r'\s+([df][-rwx]{9})\s+'  # Permissions
                 r'(\d+)\s+'                                           # Size
                 r'(\w+\s+\w+\s+\d+\s+\d+:\d+:\d+\s+\d+)\s+'            # Date
                 r'(.+)$',                                             # Filename
@@ -413,8 +413,9 @@ class ShareParser:
             # Skip status messages: [*], [+], [-]
             if re.match(r'\[\*\]|\[\+\]|\[-\]', content):
                 # Check if this is the "Enumerated shares" line that starts share section
-                if "[*] Enumerated shares" in content:
-                    in_share_section = True
+                # Any other status line ends the table (e.g. "[*] Enumerated domain
+                # user(s)", "[+] Dumping password info") so its rows aren't shares.
+                in_share_section = "[*] Enumerated shares" in content
                 continue
             
             # Skip header line (Share, Permissions, Remark)
@@ -641,7 +642,7 @@ class ShareParser:
         entries = []
         
         pattern = re.compile(
-            r'^([dlcbps-][rwxsStT-]{9})\s+'  # Permissions (incl. l/c/b/p/s entry types)
+            r'^([dlcbps-][rwxsStT-]{9})[.+@]?\s+'  # Permissions (incl. l/c/b/p/s entry types; optional SELinux/ACL/xattr suffix)
             r'(\d+)\s+'                  # Links
             r'(\S+)\s+'                  # Owner
             r'(\S+)\s+'                  # Group
