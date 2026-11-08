@@ -1922,10 +1922,39 @@ class TaskOrchestrator:
         
         return prepared
 
+    async def _insert_host_or_existing(
+        self, db: AsyncSession, project_id: int, ip: str, discovery_method: str
+    ):
+        """Insert a Host; if a concurrent execution won the race (unique index on live
+        (project_id, ip_address)), return the existing row. Returns (host, created)."""
+        host = Host(
+            project_id=project_id,
+            ip_address=ip,
+            extra_data={"discovery_method": discovery_method},
+        )
+        try:
+            async with db.begin_nested():
+                db.add(host)
+                await db.flush()
+        except IntegrityError:
+            existing = (await db.execute(
+                select(Host).where(
+                    Host.project_id == project_id,
+                    Host.ip_address == ip,
+                    Host.deleted_at.is_(None),
+                )
+            )).scalars().first()
+            if existing is None:
+                raise
+            return existing, False
+        await db.refresh(host)
+        return host, True
+
     async def _process_asset_discovery(self, db: AsyncSession, execution: Execution):
         """Global scan for IP addresses in output to auto-create Hosts."""
         import re
         from app.models.host import Host
+        from app.core.notifications import notify_after_commit
         
         if not execution.stdout:
             return
@@ -1947,6 +1976,7 @@ class TaskOrchestrator:
             # Determine default_ip and execution_host (host this execution was run for)
             default_ip = None
             execution_host = None
+            handled_ips = set()  # IPs attributed to the execution host by hostname
             if execution.host_id:
                 if 'host' in execution.__dict__ and execution.host:
                     execution_host = execution.host
@@ -1957,6 +1987,8 @@ class TaskOrchestrator:
                     execution_host = res.scalar_one_or_none()
                     if execution_host:
                         default_ip = execution_host.ip_address
+                if execution_host is not None and execution_host.deleted_at is not None:
+                    execution_host = None
 
             parsed_data = service_parser.parse(execution.command, execution.stdout, default_ip=default_ip)
 
@@ -1968,14 +2000,15 @@ class TaskOrchestrator:
             existing_hosts_result = await db.execute(
                 select(Host).where(
                     Host.project_id == project_id,
-                    Host.ip_address.in_(all_ips)
+                    Host.ip_address.in_(all_ips),
+                    Host.deleted_at.is_(None),
                 )
             )
             hosts_map = {h.ip_address: h for h in existing_hosts_result.scalars().all()}
 
             # Include execution host so we load its services and prefer it when applying (same IP can exist on multiple hosts)
             known_host_ids = list({h.id for h in hosts_map.values()})
-            if execution_host and execution_host.ip_address in all_ips and execution_host.id not in known_host_ids:
+            if execution_host and execution_host.id not in known_host_ids:
                 known_host_ids.append(execution_host.id)
             services_map = {}
             if known_host_ids:
@@ -1987,22 +2020,29 @@ class TaskOrchestrator:
 
             # Process Hosts using pre-fetched maps; prefer execution host when scan was run for that host (same IP)
             for ip, host_info in parsed_data.hosts.items():
-                if execution_host and execution_host.ip_address == ip:
+                # "Nmap scan report for dc01 (10.0.0.5)": a batch child's Host may carry
+                # the hostname as its address, so match on hostname too.
+                reported = (host_info.hostname or "").lower()
+                if execution_host and (
+                    execution_host.ip_address == ip
+                    or (reported and reported in (
+                        (execution_host.ip_address or "").lower(),
+                        (execution_host.hostname or "").lower(),
+                    ))
+                ):
                     host = execution_host
+                    handled_ips.add(ip)
                 else:
                     host = hosts_map.get(ip)
 
+                created = False
                 if not host:
                     logger.info(f"Auto-discovering host from service parser: {ip}")
-                    host = Host(
-                        project_id=project_id,
-                        ip_address=ip,
-                        extra_data={"discovery_method": "auto_service_scan"}
+                    host, created = await self._insert_host_or_existing(
+                        db, project_id, ip, "auto_service_scan"
                     )
-                    db.add(host)
-                    await db.flush()
-                    await db.refresh(host)
                     hosts_map[ip] = host
+                if created:
                     try:
                         payload = await host_sync_payload(db, host)
                         await sync_service.record_event(
@@ -2014,20 +2054,33 @@ class TaskOrchestrator:
                         )
                     except Exception as e:
                         logger.error(f"[Orchestrator] Sync record (asset discovery host) failed: {e}")
-                    await notification_manager.send_project_update(
+                    notify_after_commit(
+                        db, notification_manager.send_project_update,
                         "host_created", project_id, {"ip_address": ip, "id": host.id}
                     )
                 
                 updated = False
-                if host_info.hostname and host.hostname != host_info.hostname:
+                # A real SMB banner carries both (name:) and (domain:); other [*] lines
+                # (and nmap) must not overwrite what is already known, and a user-set
+                # hostname is never clobbered.
+                is_banner = bool(host_info.hostname and host_info.domain)
+                if host_info.hostname and not host.hostname:
                     host.hostname = host_info.hostname
                     updated = True
-                if host_info.os_info and (not host.os_info or len(host_info.os_info) > len(host.os_info)):
+                if host_info.os_info and (
+                    not host.os_info or (is_banner and host_info.os_info != host.os_info)
+                ):
                     host.os_info = host_info.os_info
                     updated = True
                 if host_info.domain:
-                    if not host.fqdn:
-                        host.fqdn = host_info.domain
+                    # fqdn = name.domain, only for a DNS-style domain (NetBIOS "CORP" is not one);
+                    # also repairs the legacy value where fqdn was set to the bare domain.
+                    if (
+                        is_banner
+                        and "." in host_info.domain
+                        and (not host.fqdn or host.fqdn == host_info.domain)
+                    ):
+                        host.fqdn = f"{host_info.hostname}.{host_info.domain}"
                         updated = True
                     current_extra = host.extra_data.copy() if host.extra_data else {}
                     if current_extra.get('domain') != host_info.domain:
@@ -2062,7 +2115,8 @@ class TaskOrchestrator:
                         )
                     except Exception as e:
                         logger.error(f"[Orchestrator] Sync record (asset discovery host update) failed: {e}")
-                    await notification_manager.send_project_update(
+                    notify_after_commit(
+                        db, notification_manager.send_project_update,
                         "host_updated", project_id, {"id": host.id}
                     )
                 
@@ -2087,10 +2141,12 @@ class TaskOrchestrator:
                              updated_svc = True
                          script_out = getattr(svc, "script_output", None)
                          if script_out:
+                             # New nested dict: mutating the old one in place makes
+                             # old == new so SQLAlchemy emits no UPDATE.
                              current_extra = existing_svc.extra_data.copy() if existing_svc.extra_data else {}
-                             nse_scripts = current_extra.get("nse_scripts", {})
-                             nse_scripts.update(script_out)
-                             current_extra["nse_scripts"] = nse_scripts
+                             current_extra["nse_scripts"] = {
+                                 **(current_extra.get("nse_scripts") or {}), **script_out
+                             }
                              existing_svc.extra_data = current_extra
                              updated_svc = True
                          if updated_svc:
@@ -2141,9 +2197,10 @@ class TaskOrchestrator:
                          services_map[(host.id, new_svc.port, new_svc.protocol)] = new_svc
 
                 # Auto-tag host from its services (canonical tags for target filtering)
-                all_service_names = {s.name for s in services if s.name}
+                # Open ports only: "445/tcp filtered" must not tag the host `smb`.
+                all_service_names = {s.name for s in services if s.name and s.state == "open"}
                 for (hid, _p, _proto), s in services_map.items():
-                    if hid == host.id and s.name:
+                    if hid == host.id and s.name and s.state == "open":
                         all_service_names.add(s.name)
                 new_tags = set(host.tags or [])
                 for name in all_service_names:
@@ -2193,30 +2250,25 @@ class TaskOrchestrator:
         
         # Check existing hosts
         # Optimization: Fetch all IP hosts for project
-        existing_result = await db.execute(select(Host.ip_address).where(Host.project_id == project_id))
+        existing_result = await db.execute(
+            select(Host.ip_address).where(
+                Host.project_id == project_id, Host.deleted_at.is_(None)
+            )
+        )
         existing_ips = set(existing_result.scalars().all())
-        
-        new_ips = found_ips - existing_ips
-        
-        for ip in new_ips:
-            logger.info(f"Auto-discovering host: {ip}")
-            new_host = Host(
-                project_id=project_id,
-                ip_address=ip,
-                # display_name is a property
-                extra_data={"discovery_method": "auto_output_scan"}
-            )
-            db.add(new_host)
-        
+
+        new_ips = found_ips - existing_ips - handled_ips
+
         if new_ips:
-            await db.flush()
-            result = await db.execute(
-                select(Host).where(
-                    Host.project_id == project_id,
-                    Host.ip_address.in_(list(new_ips)),
+            created_hosts = []
+            for ip in sorted(new_ips):
+                logger.info(f"Auto-discovering host: {ip}")
+                new_host, created = await self._insert_host_or_existing(
+                    db, project_id, ip, "auto_output_scan"
                 )
-            )
-            for new_host in result.scalars().all():
+                if created:
+                    created_hosts.append(new_host)
+            for new_host in created_hosts:
                 try:
                     payload = await host_sync_payload(db, new_host)
                     await sync_service.record_event(
@@ -2229,7 +2281,9 @@ class TaskOrchestrator:
                 except Exception as e:
                     logger.error(f"[Orchestrator] Sync record (IPv4 discovery host) failed: {e}")
                 # Notify frontend (same payload shape as the other host_created emitters)
-                await notification_manager.send_project_update(
+                notify_after_commit(
+                    db,
+                    notification_manager.send_project_update,
                     "host_created",
                     project_id,
                     {"ip_address": new_host.ip_address, "id": new_host.id},
