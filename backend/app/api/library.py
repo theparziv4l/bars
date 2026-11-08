@@ -37,9 +37,11 @@ def _serialize_checklist_groups(groups) -> list:
                 "description": item.description,
                 "command_template": item.command_template,
                 "output_regex": item.output_regex,
+                "variables": item.variables,
                 "input_definitions": item.input_definitions,
                 "storage_policy": item.storage_policy,
                 "parameter_schema": item.parameter_schema,
+                "target_filter": item.target_filter,
                 "timeout": item.timeout,
                 "alert_patterns": item.alert_patterns,
                 "finding_template": item.finding_template,
@@ -72,6 +74,8 @@ def _serialize_flows(flows) -> list:
                 "condition": step.condition,
                 "on_failure": step.on_failure,
                 "timeout_override": step.timeout_override,
+                "target_mode": step.target_mode,
+                "target_filter": step.target_filter,
                 "ui_position": step.ui_position,
             })
         result.append(flow_data)
@@ -247,7 +251,9 @@ async def import_whole_library(
                 elif item_name:
                     fallback = await db.execute(
                         select(ChecklistItem)
-                        .where(ChecklistItem.name == item_name)
+                        .join(ChecklistGroup)
+                        .where(ChecklistItem.name == item_name,
+                               ChecklistGroup.project_id.is_(None))
                         .limit(1)
                     )
                     fb_item = fallback.scalar_one_or_none()
@@ -270,6 +276,8 @@ async def import_whole_library(
                         condition=step_data.get("condition"),
                         on_failure=step_data.get("on_failure", "stop"),
                         timeout_override=step_data.get("timeout_override"),
+                        target_mode=step_data.get("target_mode") or "inherit",
+                        target_filter=step_data.get("target_filter") or {},
                         ui_position=step_data.get("ui_position", {}),
                     )
                 )
