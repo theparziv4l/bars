@@ -1596,7 +1596,7 @@ class TaskOrchestrator:
             new_exec = Execution(
                 item_id=project_item.id,
                 host_id=execution.host_id,
-                version=project_item.next_version,
+                version=await self._next_version(db, project_item.id),
                 status=execution.status,
                 command=execution.command,
                 variables_used=execution.variables_used, # Keep same variables or filter? Keep.
