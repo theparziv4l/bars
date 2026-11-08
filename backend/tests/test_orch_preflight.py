@@ -100,18 +100,18 @@ def test_execute_bulk_applies_scope_exclusion_and_batching(tmp_path):
     asyncio.run(run())
 
 
-def test_batch_child_host_lookup_ignores_deleted_and_duplicates(tmp_path):
+def test_batch_child_host_lookup_ignores_deleted(tmp_path):
     async def run():
         engine, maker = await orch_lc.make_maker(tmp_path)
         proj_id, (item_id,) = await _seed_project(maker, template="scan {target}")
         async with maker() as db:
             dead = Host(project_id=proj_id, ip_address="10.0.0.5",
                         deleted_at=datetime(2020, 1, 1))
+            # Live duplicates are impossible now (ux_hosts_project_ip_live).
             live_a = Host(project_id=proj_id, ip_address="10.0.0.5")
-            live_b = Host(project_id=proj_id, ip_address="10.0.0.5")
             only_dead = Host(project_id=proj_id, ip_address="10.0.0.6",
                              deleted_at=datetime(2020, 1, 1))
-            db.add_all([dead, live_a, live_b, only_dead])
+            db.add_all([dead, live_a, only_dead])
             await db.flush()
             live_id, dead6_id = live_a.id, only_dead.id
             await db.commit()
