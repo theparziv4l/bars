@@ -1467,6 +1467,10 @@ class TaskOrchestrator:
             except Exception as df_err:
                 logger.error(f"[Orchestrator] Discovered-files on synced exec failed: {df_err}")
 
+            # Release the SQLite write lock before any `cmd:` extractor goes out over
+            # the host agent (HTTP); the clone + discovery rows are already complete.
+            await db.commit()
+
             try:
                 if new_exec.stdout and project_item.output_regex:
                     async def _executor(cmd: str, cwd: Optional[str] = None) -> Dict[str, Any]:
@@ -1503,11 +1507,14 @@ class TaskOrchestrator:
         """Process output for file system discoveries using ShareParser."""
         import re as _re
         from app.core.share_parser import share_parser, ShareType
+        from app.core.service_parser import strip_ansi
+        from app.core.notifications import notify_after_commit
         
         if not execution.stdout or not execution.host_id:
             return
         
-        stdout = execution.stdout
+        # detect_tool matches ^SMB / [+] IP anchors; colored output would read "unknown".
+        stdout = strip_ansi(execution.stdout)
         command_lower = execution.command.lower()
         
         # --- Tool detection ---
@@ -1546,21 +1553,51 @@ class TaskOrchestrator:
             # 1. Parse shares (SMBMap, NetExec, smbclient -L, showmount, enum4linux)
             if is_share_discovery:
                 detected_tool = share_parser.detect_tool(stdout)
-                shares = share_parser.parse_shares(stdout, tool=detected_tool)
-                
+                exec_host = (await db.execute(
+                    select(Host).where(Host.id == execution.host_id)
+                )).scalar_one_or_none()
+                shares = share_parser.parse_shares(
+                    stdout, tool=detected_tool,
+                    host_ip=(exec_host.ip_address or "") if exec_host else "",
+                )
+
+                # Multi-host (CIDR) output: attribute each share to the host named by
+                # its own IP; unknown IPs fall back to the execution host.
+                host_for_ip: Dict[str, int] = {}
+                wanted_ips = {sh.host_ip for sh in shares if sh.host_ip}
+                if exec_host and exec_host.ip_address:
+                    host_for_ip[exec_host.ip_address] = exec_host.id
+                    wanted_ips.discard(exec_host.ip_address)
+                if wanted_ips and exec_host:
+                    rows = await db.execute(
+                        select(Host).where(
+                            Host.project_id == exec_host.project_id,
+                            Host.ip_address.in_(wanted_ips),
+                            Host.deleted_at.is_(None),
+                        )
+                    )
+                    for h in rows.scalars().all():
+                        host_for_ip.setdefault(h.ip_address, h.id)
+
+                share_host_ids = {execution.host_id, *host_for_ip.values()}
                 existing_shares_result = await db.execute(
                     select(DiscoveredFile).where(
-                        DiscoveredFile.host_id == execution.host_id,
+                        DiscoveredFile.host_id.in_(share_host_ids),
                         DiscoveredFile.file_type == "share"
                     )
                 )
-                existing_shares = {s.share_name: s for s in existing_shares_result.scalars().all()}
+                existing_shares = {
+                    (s.host_id, s.share_name): s
+                    for s in existing_shares_result.scalars().all()
+                }
                 
                 for share_info in shares:
                     is_interesting, interest_reason = DiscoveredFile.is_interesting_file(share_info.share_name)
+                    share_host_id = host_for_ip.get(share_info.host_ip, execution.host_id)
+                    share_key = (share_host_id, share_info.share_name)
                     
-                    if share_info.share_name in existing_shares:
-                        existing = existing_shares[share_info.share_name]
+                    if share_key in existing_shares:
+                        existing = existing_shares[share_key]
                         new_access = share_info.access_level.value
                         existing_access = (existing.permissions or {}).get("access_level", "unknown")
 
@@ -1581,7 +1618,7 @@ class TaskOrchestrator:
                             }
                     else:
                         share_file = DiscoveredFile(
-                            host_id=execution.host_id,
+                            host_id=share_host_id,
                             execution_id=execution.id,
                             share_name=share_info.share_name,
                             path="/",
@@ -1605,7 +1642,7 @@ class TaskOrchestrator:
                         db.add(share_file)
                         await db.flush()
                         await db.refresh(share_file)
-                        existing_shares[share_info.share_name] = share_file
+                        existing_shares[share_key] = share_file
                         new_shares_count += 1
                         try:
                             payload = await discovered_file_sync_payload(db, share_file)
@@ -1695,15 +1732,36 @@ class TaskOrchestrator:
                 files = share_parser.parse_files(stdout, tool=detected_tool)
                 
                 share_name = "UNKNOWN"
-                if "share_name" in parsed_results:
-                    share_name = parsed_results["share_name"].value
+                parsed_share = parsed_results["share_name"].value if "share_name" in parsed_results else None
+                if isinstance(parsed_share, (list, tuple)):  # parse mode "all"
+                    parsed_share = parsed_share[0] if parsed_share else None
+                if parsed_share:
+                    share_name = str(parsed_share)
                 else:
                     share_match = _re.search(r'//[^/]+/(\S+)', execution.command)
                     if share_match:
                         share_name = share_match.group(1)
+
+                existing_listing_result = await db.execute(
+                    select(DiscoveredFile).where(
+                        DiscoveredFile.host_id == execution.host_id,
+                        DiscoveredFile.file_type != "share"
+                    )
+                )
+                existing_listing = {
+                    (f.share_name, f.path, f.name): f
+                    for f in existing_listing_result.scalars().all()
+                }
                 
                 for entry in files:
                     file_data = share_parser.to_discovered_file_data(entry, share_name, path="/")
+                    dedup_key = (file_data["share_name"], file_data["path"], file_data["name"])
+                    if dedup_key in existing_listing:
+                        existing_f = existing_listing[dedup_key]
+                        if entry.size is not None and entry.size != existing_f.size:
+                            existing_f.size = entry.size
+                            existing_f.execution_id = execution.id
+                        continue
                     
                     discovered_file = DiscoveredFile(
                         host_id=execution.host_id,
@@ -1713,6 +1771,7 @@ class TaskOrchestrator:
                     db.add(discovered_file)
                     await db.flush()
                     await db.refresh(discovered_file)
+                    existing_listing[dedup_key] = discovered_file
                     total_new_files += 1
                     try:
                         payload = await discovered_file_sync_payload(db, discovered_file)
@@ -1726,8 +1785,8 @@ class TaskOrchestrator:
                     except Exception as e:
                         logger.error(f"[Orchestrator] Sync record (discovered_file listing) failed: {e}")
                 
-                if files:
-                    logger.info(f"[ShareParser] Discovered {len(files)} files from execution {execution.id}")
+                if total_new_files:
+                    logger.info(f"[ShareParser] Discovered {total_new_files} new files from execution {execution.id}")
 
             # 4. Send WebSocket notification when shares/files were discovered
             if new_shares_count or updated_shares_count or total_new_files:
@@ -1739,7 +1798,9 @@ class TaskOrchestrator:
                     )
                     item_obj = item_result.scalar_one_or_none()
                     if item_obj and item_obj.group and item_obj.group.project_id:
-                        await notification_manager.send_project_update(
+                        notify_after_commit(
+                            db,
+                            notification_manager.send_project_update,
                             "shares_discovered",
                             item_obj.group.project_id,
                             {
@@ -2092,9 +2153,10 @@ class TaskOrchestrator:
                 host.tags = sorted(new_tags)
                 db.add(host)
                          
-            # Commit after processing service parser
+            # Flush only: callers run this inside begin_nested(); a commit here
+            # closes the savepoint and breaks the generic IPv4 discovery below.
             if parsed_data.hosts or parsed_data.services:
-                 await db.commit()
+                 await db.flush()
                  
         except Exception as e:
             logger.error(f"[Orchestrator] Service parsing failed: {e}")
