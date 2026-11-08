@@ -84,6 +84,10 @@ def _apply_present(obj, payload: Dict[str, Any], fields: tuple[str, ...]) -> Non
         setattr(obj, name, value)
 
 
+# extra_data keys owned by the local node: never overwritten by a peer's value.
+_LOCAL_ONLY_EXTRA_KEYS = ("project_path", "smb_credentials")
+
+
 class _FKNotReady(Exception):
     """Raised by an applier when a referenced parent row isn't present yet (cross-node
     clock skew). The ingest loop defers such events for retry instead of dropping them."""
@@ -104,6 +108,7 @@ _ENTITY_APPLY_ORDER = (
     "users",
     "projects",
     "project_members",
+    "ad_domains",
     "checklist_groups",
     "checklist_items",
     "flows",
@@ -138,6 +143,9 @@ async def get_peer_urls_from_db(db: AsyncSession) -> list[str]:
 
 
 from app.core.sync_payloads import (  # noqa: F401 — re-exported for compatibility
+    ad_domain_sync_payload,
+    checklist_group_sync_payload,
+    checklist_item_sync_payload,
     claim_sync_payload,
     discovered_file_sync_payload,
     execution_sync_payload,
@@ -547,6 +555,9 @@ class SyncService:
         if entity_type == "project_members":
             await self._apply_project_member(db, payload=payload)
             return
+        if entity_type == "ad_domains":
+            await self._apply_ad_domain(db, operation=operation, payload=payload)
+            return
         if entity_type == "checklist_groups":
             if operation == "delete":
                 await self._apply_checklist_group_delete(db, payload=payload)
@@ -652,8 +663,25 @@ class SyncService:
         except Exception:
             pass  # unknown status from a newer peer: keep existing, don't clobber
 
+        # Local-only extra_data keys survive a peer update: a wholesale replace wipes
+        # this node's SMB credentials and its own project_path.
+        local_extra = dict(project.extra_data or {})
+        local_path = local_extra.get("project_path")
+
         project.name = payload.get("name", project.name)
-        _apply_present(project, payload, ("description", "scope", "extra_data"))
+        _apply_present(project, payload, ("description", "scope"))
+        if "extra_data" in payload:
+            incoming_extra = payload["extra_data"] or {}
+            merged_extra = {
+                k: v for k, v in incoming_extra.items() if k not in _LOCAL_ONLY_EXTRA_KEYS
+            }
+            for k in _LOCAL_ONLY_EXTRA_KEYS:
+                if k in local_extra:
+                    merged_extra[k] = local_extra[k]
+                elif k != "project_path" and k in incoming_extra:
+                    merged_extra[k] = incoming_extra[k]  # first sight: adopt
+            local_extra = {**local_extra, **merged_extra}
+        project.extra_data = local_extra
         if payload.get("created_by_user_public_id"):
             user_result = await db.execute(
                 select(User).where(User.public_id == payload["created_by_user_public_id"])
@@ -669,9 +697,82 @@ class SyncService:
         # Record the project path (pure). The actual mkdir runs in the ingest
         # pre-pass, BEFORE the write txn, so a slow host agent never holds it.
         from app.core.utils import get_project_path
-        if project.extra_data is None:
-            project.extra_data = {}
-        project.extra_data["project_path"] = get_project_path(project.name)
+        # Keep this node's existing project_path across a rename (the directory
+        # already exists here); only a first-time sync derives it from the name.
+        project.extra_data = {
+            **(project.extra_data or {}),
+            "project_path": local_path or get_project_path(project.name),
+        }
+
+    async def _apply_ad_domain(
+        self, db: AsyncSession, *, operation: str, payload: Dict[str, Any]
+    ) -> None:
+        """Upsert an AD domain by public_id (delete = soft delete, detaching dependants)."""
+        from app.models.ad_domain import ADDomain
+        public_id = payload.get("public_id")
+        if not public_id:
+            return
+        result = await db.execute(select(ADDomain).where(ADDomain.public_id == public_id))
+        domain = result.scalar_one_or_none()
+
+        if operation == "delete":
+            if domain is not None and domain.deleted_at is None:
+                domain.deleted_at = _parse_dt(payload.get("deleted_at")) or utcnow()
+                # Mirror the local delete handler: dependants lose the domain, not their row.
+                from sqlalchemy import update
+                await db.execute(
+                    update(ProjectVariable)
+                    .where(ProjectVariable.ad_domain_id == domain.id)
+                    .values(ad_domain_id=None)
+                )
+                await db.execute(
+                    update(ChecklistGroup)
+                    .where(ChecklistGroup.ad_domain_id == domain.id)
+                    .values(ad_domain_id=None)
+                )
+            return
+
+        project_id = None
+        if payload.get("project_public_id"):
+            project = (await db.execute(
+                select(Project).where(Project.public_id == payload["project_public_id"])
+            )).scalar_one_or_none()
+            project_id = project.id if project else None
+            if project_id is None:
+                raise _FKNotReady(
+                    f"ad_domain {public_id}: project {payload['project_public_id']} not present yet"
+                )
+        if domain is None:
+            if project_id is None:
+                return  # legacy event without a project ref: cannot place the row
+            domain = ADDomain(
+                public_id=public_id,
+                project_id=project_id,
+                name=payload.get("name") or f"domain-{public_id[:8]}",
+            )
+            db.add(domain)
+        elif project_id is not None:
+            domain.project_id = project_id
+
+        if payload.get("name"):
+            domain.name = payload["name"]
+        for name in ("netbios_name", "dc_ip", "dc_fqdn", "description", "trust_type"):
+            if name in payload:
+                setattr(domain, name, payload[name])
+        _apply_present(domain, payload, ("extra_data",))
+        if payload.get("parent_domain_public_id"):
+            parent = (await db.execute(
+                select(ADDomain).where(ADDomain.public_id == payload["parent_domain_public_id"])
+            )).scalar_one_or_none()
+            if parent is None:
+                raise _FKNotReady(
+                    f"ad_domain {public_id}: parent {payload['parent_domain_public_id']} not present yet"
+                )
+            domain.parent_domain_id = parent.id
+        elif "parent_domain_public_id" in payload:
+            domain.parent_domain_id = None
+        domain.deleted_at = _parse_dt(payload.get("deleted_at"))
+        domain.updated_at = _parse_dt(payload.get("updated_at")) or utcnow()
 
     async def _apply_project_member(self, db: AsyncSession, *, payload: Dict[str, Any]) -> None:
         public_id = payload.get("public_id")
@@ -890,6 +991,7 @@ class SyncService:
 
         project_id = None
         host_id = None
+        ad_domain_id = None
         if payload.get("project_public_id"):
             project_result = await db.execute(
                 select(Project).where(Project.public_id == payload["project_public_id"])
@@ -902,6 +1004,23 @@ class SyncService:
             )
             host = host_result.scalar_one_or_none()
             host_id = host.id if host else None
+            if host_id is None:
+                # Landing a host-scoped value as a global one would shadow the real
+                # global variable on this node; wait for the host instead.
+                raise _FKNotReady(
+                    f"project_variable {public_id}: host {payload['host_public_id']} not present yet"
+                )
+        if payload.get("ad_domain_public_id"):
+            from app.models.ad_domain import ADDomain
+            dom_result = await db.execute(
+                select(ADDomain).where(ADDomain.public_id == payload["ad_domain_public_id"])
+            )
+            domain = dom_result.scalar_one_or_none()
+            ad_domain_id = domain.id if domain else None
+            if ad_domain_id is None:
+                raise _FKNotReady(
+                    f"project_variable {public_id}: ad_domain {payload['ad_domain_public_id']} not present yet"
+                )
         if project_id is None:
             if payload.get("project_public_id"):
                 raise _FKNotReady(
@@ -913,13 +1032,18 @@ class SyncService:
         variable = result.scalar_one_or_none()
         key = payload.get("key") or "synced"
         if variable is None:
-            existing_result = await db.execute(
-                select(ProjectVariable).where(
-                    ProjectVariable.project_id == project_id,
-                    ProjectVariable.key == key,
-                )
-            )
-            existing = existing_result.scalar_one_or_none()
+            # Adopt a row with the same natural key == the SAME SCOPE. The key alone
+            # is shared by a global var and its host/domain overrides, so matching on
+            # (project, key) either raised MultipleResultsFound or adopted the wrong row.
+            scope_query = select(ProjectVariable).where(
+                ProjectVariable.project_id == project_id,
+                ProjectVariable.key == key,
+                ProjectVariable.host_id.is_(None) if host_id is None
+                else ProjectVariable.host_id == host_id,
+                ProjectVariable.ad_domain_id.is_(None) if ad_domain_id is None
+                else ProjectVariable.ad_domain_id == ad_domain_id,
+            ).order_by(ProjectVariable.deleted_at.is_(None).desc(), ProjectVariable.id)
+            existing = (await db.execute(scope_query)).scalars().first()
             if existing is not None:
                 variable = existing
                 variable.public_id = public_id
@@ -935,7 +1059,9 @@ class SyncService:
                 db.add(variable)
 
         variable.project_id = project_id
-        variable.host_id = host_id or variable.host_id
+        variable.host_id = host_id
+        if "ad_domain_public_id" in payload:
+            variable.ad_domain_id = ad_domain_id
         variable.key = key
         if "value" in payload:
             variable.value = payload["value"]
