@@ -11,6 +11,7 @@ from app.database import get_db
 from app.models.ad_domain import ADDomain
 from app.models.user import User
 from app.core.sync import sync_service
+from app.core.sync_payloads import ad_domain_sync_payload
 from app.core.utils import utcnow
 
 logger = logging.getLogger(__name__)
@@ -109,7 +110,7 @@ async def create_ad_domain(
         entity_type="ad_domains",
         entity_public_id=domain.public_id,
         operation="create",
-        payload=_domain_to_dict(domain),
+        payload=await ad_domain_sync_payload(db, domain),
     )
 
     # Auto-import domain-based default templates for the new domain
@@ -149,7 +150,7 @@ async def update_ad_domain(
         entity_type="ad_domains",
         entity_public_id=domain.public_id,
         operation="update",
-        payload=_domain_to_dict(domain),
+        payload=await ad_domain_sync_payload(db, domain),
     )
     await db.commit()
     return _domain_to_dict(domain)
@@ -176,7 +177,7 @@ async def delete_ad_domain(
         entity_type="ad_domains",
         entity_public_id=domain.public_id,
         operation="delete",
-        payload={"public_id": domain.public_id},
+        payload=await ad_domain_sync_payload(db, domain),
     )
 
     from app.models.variable import ProjectVariable

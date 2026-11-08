@@ -17,6 +17,7 @@ from app.core.collaboration import (
 )
 from app.core.notifications import notification_manager
 from app.core.sync import sync_service
+from app.core.sync_payloads import checklist_group_sync_payload, checklist_item_sync_payload
 from app.config import settings
 from app.database import get_db
 from app.api.projects import _require_project_member
@@ -134,63 +135,6 @@ async def _load_active_claim_lookup(
     return result
 
 
-async def _group_sync_payload(db: AsyncSession, group: ChecklistGroup) -> dict:
-    project_public_id = None
-    if group.project_id is not None:
-        project_result = await db.execute(select(Project).where(Project.id == group.project_id))
-        project = project_result.scalar_one_or_none()
-        project_public_id = project.public_id if project else None
-    return {
-        "public_id": group.public_id,
-        "project_id": group.project_id,
-        "project_public_id": project_public_id,
-        "name": group.name,
-        "description": group.description,
-        "order_index": group.order_index,
-        "icon": group.icon,
-        "color": group.color,
-        "collapsed": group.collapsed,
-        "is_template": group.is_template,
-        "is_trashed": group.is_trashed,
-        "updated_at": group.updated_at.isoformat() if group.updated_at else None,
-        "deleted_at": group.deleted_at.isoformat() if group.deleted_at else None,
-    }
-
-
-async def _item_sync_payload(db: AsyncSession, item: ChecklistItem) -> dict:
-    group_result = await db.execute(select(ChecklistGroup).where(ChecklistGroup.id == item.group_id))
-    group = group_result.scalar_one_or_none()
-    project_public_id = None
-    if group and group.project_id is not None:
-        project_result = await db.execute(select(Project).where(Project.id == group.project_id))
-        project = project_result.scalar_one_or_none()
-        project_public_id = project.public_id if project else None
-    return {
-        "public_id": item.public_id,
-        "group_id": item.group_id,
-        "group_public_id": group.public_id if group else None,
-        "project_public_id": project_public_id,
-        "name": item.name,
-        "description": item.description,
-        "command_template": item.command_template,
-        "output_regex": item.output_regex,
-        "variables": item.variables,
-        "input_definitions": item.input_definitions,
-        "storage_policy": item.storage_policy,
-        "parameter_schema": item.parameter_schema,
-        "target_filter": item.target_filter,
-        "timeout": item.timeout,
-        "alert_patterns": item.alert_patterns,
-        "finding_template": item.finding_template,
-        "tags": item.tags,
-        "enabled": item.enabled,
-        "order_index": item.order_index,
-        "is_trashed": item.is_trashed,
-        "updated_at": item.updated_at.isoformat() if item.updated_at else None,
-        "deleted_at": item.deleted_at.isoformat() if item.deleted_at else None,
-    }
-
-
 @router.get("/groups", response_model=List[ChecklistGroupResponse])
 async def list_groups(
     project_id: Optional[int] = None,
@@ -295,7 +239,7 @@ async def create_group(
         entity_type="checklist_groups",
         entity_public_id=group.public_id,
         operation="create",
-        payload=await _group_sync_payload(db, group),
+        payload=await checklist_group_sync_payload(db, group),
     )
     return _group_to_response(group)
 
@@ -337,7 +281,7 @@ async def update_group(
         entity_type="checklist_groups",
         entity_public_id=group.public_id,
         operation="update",
-        payload=await _group_sync_payload(db, group),
+        payload=await checklist_group_sync_payload(db, group),
     )
     item_ids = [i.id for i in (group.items or [])]
     execution_stats = await _get_item_execution_stats(db, item_ids)
@@ -383,7 +327,7 @@ async def delete_group(
             entity_type="checklist_groups",
             entity_public_id=group.public_id,
             operation="update",
-            payload=await _group_sync_payload(db, group),
+            payload=await checklist_group_sync_payload(db, group),
         )
     else:
         group.deleted_at = utcnow()
@@ -392,7 +336,7 @@ async def delete_group(
             entity_type="checklist_groups",
             entity_public_id=group.public_id,
             operation="delete",
-            payload=await _group_sync_payload(db, group),
+            payload=await checklist_group_sync_payload(db, group),
         )
         await db.delete(group)
     
@@ -479,7 +423,7 @@ async def import_checklist(
             entity_type="checklist_groups",
             entity_public_id=new_group.public_id,
             operation="create",
-            payload=await _group_sync_payload(db, new_group),
+            payload=await checklist_group_sync_payload(db, new_group),
         )
         for new_item in new_items:
             await sync_service.record_event(
@@ -487,7 +431,7 @@ async def import_checklist(
                 entity_type="checklist_items",
                 entity_public_id=new_item.public_id,
                 operation="create",
-                payload=await _item_sync_payload(db, new_item),
+                payload=await checklist_item_sync_payload(db, new_item),
             )
         imported.append(new_group)
 
@@ -596,7 +540,7 @@ async def create_item(
         entity_type="checklist_items",
         entity_public_id=item.public_id,
         operation="create",
-        payload=await _item_sync_payload(db, item),
+        payload=await checklist_item_sync_payload(db, item),
     )
     return _item_to_response(item)
 
@@ -672,7 +616,7 @@ async def update_item(
         entity_type="checklist_items",
         entity_public_id=item.public_id,
         operation="update",
-        payload=await _item_sync_payload(db, item),
+        payload=await checklist_item_sync_payload(db, item),
     )
     execution_stats = await _get_item_execution_stats(db, [item.id])
     return _item_to_response(item, execution_stats=execution_stats)
@@ -711,7 +655,7 @@ async def delete_item(
             entity_type="checklist_items",
             entity_public_id=item.public_id,
             operation="update",
-            payload=await _item_sync_payload(db, item),
+            payload=await checklist_item_sync_payload(db, item),
         )
     else:
         item.deleted_at = utcnow()
@@ -720,7 +664,7 @@ async def delete_item(
             entity_type="checklist_items",
             entity_public_id=item.public_id,
             operation="delete",
-            payload=await _item_sync_payload(db, item),
+            payload=await checklist_item_sync_payload(db, item),
         )
         await db.delete(item)
         
@@ -1217,7 +1161,7 @@ async def import_checklists_file(
                 entity_type="checklist_groups",
                 entity_public_id=new_group.public_id,
                 operation="create",
-                payload=await _group_sync_payload(db, new_group),
+                payload=await checklist_group_sync_payload(db, new_group),
             )
             for new_item in new_items:
                 await sync_service.record_event(
@@ -1225,7 +1169,7 @@ async def import_checklists_file(
                     entity_type="checklist_items",
                     entity_public_id=new_item.public_id,
                     operation="create",
-                    payload=await _item_sync_payload(db, new_item),
+                    payload=await checklist_item_sync_payload(db, new_item),
                 )
             imported_count += 1
 
