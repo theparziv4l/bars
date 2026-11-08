@@ -113,6 +113,16 @@ async def _event_project_id(db, data: dict):
     return None
 
 
+def _has_scope_ref(data: dict) -> bool:
+    """Whether a payload references a project-owned entity (so it is NOT unscoped)."""
+    return (
+        isinstance(data.get("project_id"), int)
+        or isinstance(data.get("execution_id"), int)
+        or isinstance(data.get("flow_id"), int)
+        or data.get("flow_execution_id") is not None
+    )
+
+
 async def notification_listener(event_type: str, data: dict):
     """Listen for notifications and broadcast to WebSocket clients."""
     message = {"type": event_type, "data": data}
@@ -149,6 +159,21 @@ async def notification_listener(event_type: str, data: dict):
                     default_allowed = set(rows.scalars().all())
                 elif pid is not None:
                     default_allowed = set()
+                elif _has_scope_ref(data):
+                    # The event names a project-owned entity but its project could not
+                    # be resolved (row not visible yet, deleted, ...). Fail closed:
+                    # only admins may see it, never every connected user.
+                    admin_ids: set = set()
+                    if wanted_uids:
+                        from sqlalchemy import select
+                        from app.models.user import User
+                        rows = await db.execute(
+                            select(User.id).where(
+                                User.id.in_(wanted_uids), User.role == "admin"
+                            )
+                        )
+                        admin_ids = set(rows.scalars().all())
+                    default_allowed = admin_ids
 
     async def _broadcast_dedup(channel: str) -> None:
         async with manager._lock:
