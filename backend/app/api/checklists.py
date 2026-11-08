@@ -47,7 +47,7 @@ async def _get_item_execution_stats(
     # execution_count per item
     count_stmt = (
         select(Execution.item_id, func.count(Execution.id).label("cnt"))
-        .where(Execution.item_id.in_(item_ids))
+        .where(Execution.item_id.in_(item_ids), Execution.deleted_at.is_(None))
         .group_by(Execution.item_id)
     )
     count_rows = (await db.execute(count_stmt)).all()
@@ -58,6 +58,7 @@ async def _get_item_execution_stats(
         select(Execution.item_id)
         .where(
             Execution.item_id.in_(item_ids),
+            Execution.deleted_at.is_(None),
             Execution.status == ExecutionStatus.COMPLETED,
             Execution.exit_code == 0,
         )
@@ -71,13 +72,14 @@ async def _get_item_execution_stats(
             Execution.item_id,
             func.max(Execution.version).label("max_ver"),
         )
-        .where(Execution.item_id.in_(item_ids))
+        .where(Execution.item_id.in_(item_ids), Execution.deleted_at.is_(None))
         .group_by(Execution.item_id)
     ).subquery()
 
     latest_stmt = (
         select(Execution.item_id, Execution.status, Execution.completed_at, Execution.id)
         .join(latest_subq, (Execution.item_id == latest_subq.c.item_id) & (Execution.version == latest_subq.c.max_ver))
+        .where(Execution.deleted_at.is_(None))
     )
     latest_rows = (await db.execute(latest_stmt)).all()
     latest_map = {r[0]: {"status": r[1], "completed_at": r[2], "id": r[3]} for r in latest_rows}
@@ -326,6 +328,8 @@ async def update_group(
             raise HTTPException(status_code=403, detail="Project access denied")
 
     for field, value in data.model_dump(exclude_unset=True).items():
+        if value is None and field not in ("description", "icon", "color"):
+            continue  # explicit null on a NOT NULL column: ignore
         setattr(group, field, value)
     await db.flush()
     await sync_service.record_event(
@@ -659,6 +663,8 @@ async def update_item(
                 raise HTTPException(status_code=403, detail="Project access denied")
 
     for field, value in data.model_dump(exclude_unset=True).items():
+        if value is None and field != "description":
+            continue  # explicit null on a NOT NULL column: ignore
         setattr(item, field, value)
     await db.flush()
     await sync_service.record_event(
