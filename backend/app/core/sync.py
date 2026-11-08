@@ -97,6 +97,15 @@ class _FKNotReady(Exception):
 # (file -> execution -> item -> group -> project); one extra pass proves quiescence.
 _MAX_INGEST_PASSES = 6
 
+# A deferred event holds the pull/push cursor back so it is retried. One whose parent
+# never arrives (never recorded, deleted) would pin the cursor forever and, once a
+# whole batch of newer events piles up behind it, stop sync entirely. After this many
+# ingest cycles it is parked: no longer holds the cursor back, but still retried
+# (in memory) whenever a later ingest runs, so a late parent still resolves it.
+_MAX_DEFERRAL_CYCLES = 20
+_MAX_PARKED_EVENTS = 1000
+_MAX_TRACKED_DEFERRALS = 10000
+
 # Whole-batch ingest attempts on SQLITE_BUSY. Concurrent ingests can hit
 # BUSY_SNAPSHOT when upgrading a DEFERRED txn to a write (busy_timeout does
 # not cover snapshot conflicts); rollback + redo from a fresh snapshot.
@@ -196,6 +205,10 @@ class SyncService:
     def __init__(self) -> None:
         self._ingest_locks: dict[str, asyncio.Lock] = {}
         self._ingest_locks_guard = asyncio.Lock()
+        # event_id -> number of ingest cycles it ended up deferred (in memory only)
+        self._deferral_attempts: dict[str, int] = {}
+        # event_id -> event envelope given up on holding the cursor for, still retried
+        self._parked: dict[str, Dict[str, Any]] = {}
 
     async def _ingest_lock_for(self, peer_node_id: str) -> asyncio.Lock:
         """Per-peer ingest lock. Keyspace is bounded (one key per peer), so no eviction."""
@@ -348,6 +361,12 @@ class SyncService:
     ) -> IngestResult:
         """One ingest attempt: prefetch, locked multi-pass apply, cursor write."""
         result = IngestResult()
+        # Parked events ride along with every batch so a late parent still resolves them.
+        if self._parked:
+            batch_ids = {e.get("event_id") for e in sorted_events if isinstance(e, dict)}
+            extra = [e for eid, e in self._parked.items() if eid not in batch_ids]
+            if extra:
+                sorted_events = sorted(sorted_events + extra, key=_ingest_sort_key)
         # Two SELECTs replace the per-event dedupe + latest lookups below.
         prefetch = await self._prefetch_batch_state(db, sorted_events)
         # Smallest logical_ts of an event we had to DEFER (parent not synced yet). We
@@ -381,6 +400,7 @@ class SyncService:
                     break
                 pending = pass_deferred
 
+            min_deferred = self._settle_deferrals(sorted_events, pass_deferred)
             result.min_deferred_ts = min_deferred
             cursor_ts = result.latest_logical_ts
             if min_deferred is not None:
@@ -395,6 +415,44 @@ class SyncService:
                     logical_ts=cursor_ts,
                 )
         return result
+
+    def _settle_deferrals(
+        self, batch: list[Dict[str, Any]], still_deferred: list[Dict[str, Any]]
+    ) -> Optional[int]:
+        """Update per-event deferral bookkeeping; return the ts that may hold the cursor.
+
+        Events deferred for more than ``_MAX_DEFERRAL_CYCLES`` cycles are parked and no
+        longer contribute; events that applied are forgotten.
+        """
+        deferred_ids = {e["event_id"] for e in still_deferred}
+        for e in batch:
+            eid = e.get("event_id") if isinstance(e, dict) else None
+            if eid and eid not in deferred_ids:
+                self._deferral_attempts.pop(eid, None)
+                self._parked.pop(eid, None)
+        holding: Optional[int] = None
+        for e in still_deferred:
+            eid = e["event_id"]
+            if eid in self._parked:
+                continue
+            attempts = self._deferral_attempts.get(eid, 0) + 1
+            if attempts > _MAX_DEFERRAL_CYCLES:
+                self._deferral_attempts.pop(eid, None)
+                self._parked[eid] = e
+                while len(self._parked) > _MAX_PARKED_EVENTS:
+                    self._parked.pop(next(iter(self._parked)))
+                logger.warning(
+                    f"[Sync] Parking event {e.get('entity_type')} {e.get('entity_public_id')} "
+                    f"({eid}): parent still missing after {_MAX_DEFERRAL_CYCLES} cycles; "
+                    f"it no longer holds the sync cursor back"
+                )
+                continue
+            self._deferral_attempts[eid] = attempts
+            ts = int(e["logical_ts"])
+            holding = ts if holding is None else min(holding, ts)
+        if len(self._deferral_attempts) > _MAX_TRACKED_DEFERRALS:
+            self._deferral_attempts.clear()
+        return holding
 
     async def _prefetch_batch_state(
         self, db: AsyncSession, events: list[Dict[str, Any]]

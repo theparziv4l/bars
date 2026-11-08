@@ -10,6 +10,13 @@ from app.models.library_variable import LibraryVariable
 from app.models.variable import ProjectVariable
 from app.models.ad_domain import ADDomain
 from app.core.sync import sync_service
+from app.core.sync_payloads import (
+    checklist_group_sync_payload,
+    checklist_item_sync_payload,
+    flow_step_sync_payload,
+    flow_sync_payload,
+    project_variable_sync_payload,
+)
 
 
 async def _get_next_group_order(db: AsyncSession, project_id: int) -> int:
@@ -58,8 +65,9 @@ async def _clone_checklist_templates(
         db.add(new_group)
         await db.flush()
 
+        new_items = []
         for item in tmpl.items:
-            db.add(ChecklistItem(
+            new_item = ChecklistItem(
                 group_id=new_group.id,
                 name=item.name,
                 description=item.description,
@@ -75,8 +83,28 @@ async def _clone_checklist_templates(
                 tags=item.tags,
                 parameter_schema=getattr(item, "parameter_schema", None) or {},
                 target_filter=getattr(item, "target_filter", None) or {},
-            ))
+                finding_template=getattr(item, "finding_template", None) or {},
+            )
+            db.add(new_item)
+            new_items.append(new_item)
         await db.flush()
+        # Same events the API import records; without them peers never learn these rows
+        # and every later flow step / execution / claim on them defers forever.
+        await sync_service.record_event(
+            db,
+            entity_type="checklist_groups",
+            entity_public_id=new_group.public_id,
+            operation="create",
+            payload=await checklist_group_sync_payload(db, new_group),
+        )
+        for new_item in new_items:
+            await sync_service.record_event(
+                db,
+                entity_type="checklist_items",
+                entity_public_id=new_item.public_id,
+                operation="create",
+                payload=await checklist_item_sync_payload(db, new_item),
+            )
         imported += 1
 
     return imported
@@ -89,18 +117,25 @@ async def _clone_flow_templates(
     ad_domain_id: Optional[int],
 ) -> int:
     """Clone flow templates into a project. Returns count imported."""
-    domain_item_map = {}
-    if ad_domain_id:
-        domain_items_result = await db.execute(
-            select(ChecklistItem)
-            .join(ChecklistGroup)
-            .where(
-                ChecklistGroup.project_id == project_id,
-                ChecklistGroup.ad_domain_id == ad_domain_id,
-            )
+    # The project's own cloned items (same domain scope) by name. A step must point at
+    # the project's clone, never the library template item: template items are not
+    # project-scoped, never sync, and a step referencing one can never apply on a peer.
+    project_items_query = (
+        select(ChecklistItem)
+        .join(ChecklistGroup)
+        .where(
+            ChecklistGroup.project_id == project_id,
+            ChecklistGroup.is_template == False,  # noqa: E712
+            ChecklistItem.deleted_at.is_(None),
+            ChecklistGroup.ad_domain_id == ad_domain_id
+            if ad_domain_id else ChecklistGroup.ad_domain_id.is_(None),
         )
-        for item in domain_items_result.scalars().all():
-            domain_item_map[item.name] = item.id
+        .order_by(ChecklistGroup.order_index, ChecklistItem.order_index, ChecklistItem.id)
+    )
+    domain_item_map: dict = {}
+    for item in (await db.execute(project_items_query)).scalars().all():
+        domain_item_map.setdefault(item.name, item.id)
+    project_item_ids = set(domain_item_map.values())
 
     imported = 0
     for tmpl in templates:
@@ -116,14 +151,15 @@ async def _clone_flow_templates(
         db.add(new_flow)
         await db.flush()
 
+        new_steps = []
         for step in tmpl.steps:
             resolved_item_id = step.checklist_item_id
-            if ad_domain_id and step.checklist_item:
+            if step.checklist_item:
                 domain_match = domain_item_map.get(step.checklist_item.name)
                 if domain_match:
                     resolved_item_id = domain_match
 
-            db.add(FlowStep(
+            new_step = FlowStep(
                 flow_id=new_flow.id,
                 checklist_item_id=resolved_item_id,
                 order_index=step.order_index,
@@ -134,8 +170,27 @@ async def _clone_flow_templates(
                 target_mode=getattr(step, "target_mode", "inherit") or "inherit",
                 target_filter=getattr(step, "target_filter", {}) or {},
                 ui_position=step.ui_position,
-            ))
+            )
+            db.add(new_step)
+            new_steps.append(new_step)
         await db.flush()
+        await sync_service.record_event(
+            db,
+            entity_type="flows",
+            entity_public_id=new_flow.public_id,
+            operation="create",
+            payload=await flow_sync_payload(db, new_flow),
+        )
+        for new_step in new_steps:
+            if new_step.checklist_item_id not in project_item_ids:
+                continue  # still points at a library template item: local-only, can't sync
+            await sync_service.record_event(
+                db,
+                entity_type="flow_steps",
+                entity_public_id=new_step.public_id,
+                operation="create",
+                payload=await flow_step_sync_payload(db, new_step),
+            )
         imported += 1
 
     return imported
@@ -158,22 +213,32 @@ async def _clone_default_variables(
             select(ProjectVariable)
             .where(ProjectVariable.project_id == project_id)
             .where(ProjectVariable.key == lib_var.key)
+            .where(ProjectVariable.host_id.is_(None))
+            .where(ProjectVariable.deleted_at.is_(None))
         )
         if ad_domain_id is not None:
             lookup = lookup.where(ProjectVariable.ad_domain_id == ad_domain_id)
         else:
             lookup = lookup.where(ProjectVariable.ad_domain_id.is_(None))
-        existing = (await db.execute(lookup)).scalar_one_or_none()
+        existing = (await db.execute(lookup)).scalars().first()
 
         if not existing:
-            db.add(ProjectVariable(
+            new_var = ProjectVariable(
                 project_id=project_id,
                 key=lib_var.key,
                 value=lib_var.value,
                 var_type=lib_var.var_type,
                 ad_domain_id=ad_domain_id,
-            ))
+            )
+            db.add(new_var)
             await db.flush()
+            await sync_service.record_event(
+                db,
+                entity_type="project_variables",
+                entity_public_id=new_var.public_id,
+                operation="create",
+                payload=await project_variable_sync_payload(db, new_var),
+            )
             imported += 1
 
     return imported
