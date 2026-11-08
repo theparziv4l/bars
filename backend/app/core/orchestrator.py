@@ -1657,6 +1657,10 @@ class TaskOrchestrator:
             except Exception as df_err:
                 logger.error(f"[Orchestrator] Discovered-files on synced exec failed: {df_err}")
 
+            # Release the SQLite write lock before any `cmd:` extractor goes out over
+            # the host agent (HTTP); the clone + discovery rows are already complete.
+            await db.commit()
+
             try:
                 if new_exec.stdout and project_item.output_regex:
                     async def _executor(cmd: str, cwd: Optional[str] = None) -> Dict[str, Any]:
@@ -1693,11 +1697,14 @@ class TaskOrchestrator:
         """Process output for file system discoveries using ShareParser."""
         import re as _re
         from app.core.share_parser import share_parser, ShareType
+        from app.core.service_parser import strip_ansi
+        from app.core.notifications import notify_after_commit
         
         if not execution.stdout or not execution.host_id:
             return
         
-        stdout = execution.stdout
+        # detect_tool matches ^SMB / [+] IP anchors; colored output would read "unknown".
+        stdout = strip_ansi(execution.stdout)
         command_lower = execution.command.lower()
         
         # --- Tool detection ---
@@ -1736,21 +1743,51 @@ class TaskOrchestrator:
             # 1. Parse shares (SMBMap, NetExec, smbclient -L, showmount, enum4linux)
             if is_share_discovery:
                 detected_tool = share_parser.detect_tool(stdout)
-                shares = share_parser.parse_shares(stdout, tool=detected_tool)
-                
+                exec_host = (await db.execute(
+                    select(Host).where(Host.id == execution.host_id)
+                )).scalar_one_or_none()
+                shares = share_parser.parse_shares(
+                    stdout, tool=detected_tool,
+                    host_ip=(exec_host.ip_address or "") if exec_host else "",
+                )
+
+                # Multi-host (CIDR) output: attribute each share to the host named by
+                # its own IP; unknown IPs fall back to the execution host.
+                host_for_ip: Dict[str, int] = {}
+                wanted_ips = {sh.host_ip for sh in shares if sh.host_ip}
+                if exec_host and exec_host.ip_address:
+                    host_for_ip[exec_host.ip_address] = exec_host.id
+                    wanted_ips.discard(exec_host.ip_address)
+                if wanted_ips and exec_host:
+                    rows = await db.execute(
+                        select(Host).where(
+                            Host.project_id == exec_host.project_id,
+                            Host.ip_address.in_(wanted_ips),
+                            Host.deleted_at.is_(None),
+                        )
+                    )
+                    for h in rows.scalars().all():
+                        host_for_ip.setdefault(h.ip_address, h.id)
+
+                share_host_ids = {execution.host_id, *host_for_ip.values()}
                 existing_shares_result = await db.execute(
                     select(DiscoveredFile).where(
-                        DiscoveredFile.host_id == execution.host_id,
+                        DiscoveredFile.host_id.in_(share_host_ids),
                         DiscoveredFile.file_type == "share"
                     )
                 )
-                existing_shares = {s.share_name: s for s in existing_shares_result.scalars().all()}
+                existing_shares = {
+                    (s.host_id, s.share_name): s
+                    for s in existing_shares_result.scalars().all()
+                }
                 
                 for share_info in shares:
                     is_interesting, interest_reason = DiscoveredFile.is_interesting_file(share_info.share_name)
+                    share_host_id = host_for_ip.get(share_info.host_ip, execution.host_id)
+                    share_key = (share_host_id, share_info.share_name)
                     
-                    if share_info.share_name in existing_shares:
-                        existing = existing_shares[share_info.share_name]
+                    if share_key in existing_shares:
+                        existing = existing_shares[share_key]
                         new_access = share_info.access_level.value
                         existing_access = (existing.permissions or {}).get("access_level", "unknown")
 
@@ -1771,7 +1808,7 @@ class TaskOrchestrator:
                             }
                     else:
                         share_file = DiscoveredFile(
-                            host_id=execution.host_id,
+                            host_id=share_host_id,
                             execution_id=execution.id,
                             share_name=share_info.share_name,
                             path="/",
@@ -1795,7 +1832,7 @@ class TaskOrchestrator:
                         db.add(share_file)
                         await db.flush()
                         await db.refresh(share_file)
-                        existing_shares[share_info.share_name] = share_file
+                        existing_shares[share_key] = share_file
                         new_shares_count += 1
                         try:
                             payload = await discovered_file_sync_payload(db, share_file)
@@ -1885,15 +1922,36 @@ class TaskOrchestrator:
                 files = share_parser.parse_files(stdout, tool=detected_tool)
                 
                 share_name = "UNKNOWN"
-                if "share_name" in parsed_results:
-                    share_name = parsed_results["share_name"].value
+                parsed_share = parsed_results["share_name"].value if "share_name" in parsed_results else None
+                if isinstance(parsed_share, (list, tuple)):  # parse mode "all"
+                    parsed_share = parsed_share[0] if parsed_share else None
+                if parsed_share:
+                    share_name = str(parsed_share)
                 else:
                     share_match = _re.search(r'//[^/]+/(\S+)', execution.command)
                     if share_match:
                         share_name = share_match.group(1)
+
+                existing_listing_result = await db.execute(
+                    select(DiscoveredFile).where(
+                        DiscoveredFile.host_id == execution.host_id,
+                        DiscoveredFile.file_type != "share"
+                    )
+                )
+                existing_listing = {
+                    (f.share_name, f.path, f.name): f
+                    for f in existing_listing_result.scalars().all()
+                }
                 
                 for entry in files:
                     file_data = share_parser.to_discovered_file_data(entry, share_name, path="/")
+                    dedup_key = (file_data["share_name"], file_data["path"], file_data["name"])
+                    if dedup_key in existing_listing:
+                        existing_f = existing_listing[dedup_key]
+                        if entry.size is not None and entry.size != existing_f.size:
+                            existing_f.size = entry.size
+                            existing_f.execution_id = execution.id
+                        continue
                     
                     discovered_file = DiscoveredFile(
                         host_id=execution.host_id,
@@ -1903,6 +1961,7 @@ class TaskOrchestrator:
                     db.add(discovered_file)
                     await db.flush()
                     await db.refresh(discovered_file)
+                    existing_listing[dedup_key] = discovered_file
                     total_new_files += 1
                     try:
                         payload = await discovered_file_sync_payload(db, discovered_file)
@@ -1916,8 +1975,8 @@ class TaskOrchestrator:
                     except Exception as e:
                         logger.error(f"[Orchestrator] Sync record (discovered_file listing) failed: {e}")
                 
-                if files:
-                    logger.info(f"[ShareParser] Discovered {len(files)} files from execution {execution.id}")
+                if total_new_files:
+                    logger.info(f"[ShareParser] Discovered {total_new_files} new files from execution {execution.id}")
 
             # 4. Send WebSocket notification when shares/files were discovered
             if new_shares_count or updated_shares_count or total_new_files:
@@ -1929,7 +1988,9 @@ class TaskOrchestrator:
                     )
                     item_obj = item_result.scalar_one_or_none()
                     if item_obj and item_obj.group and item_obj.group.project_id:
-                        await notification_manager.send_project_update(
+                        notify_after_commit(
+                            db,
+                            notification_manager.send_project_update,
                             "shares_discovered",
                             item_obj.group.project_id,
                             {
@@ -2051,10 +2112,39 @@ class TaskOrchestrator:
         
         return prepared
 
+    async def _insert_host_or_existing(
+        self, db: AsyncSession, project_id: int, ip: str, discovery_method: str
+    ):
+        """Insert a Host; if a concurrent execution won the race (unique index on live
+        (project_id, ip_address)), return the existing row. Returns (host, created)."""
+        host = Host(
+            project_id=project_id,
+            ip_address=ip,
+            extra_data={"discovery_method": discovery_method},
+        )
+        try:
+            async with db.begin_nested():
+                db.add(host)
+                await db.flush()
+        except IntegrityError:
+            existing = (await db.execute(
+                select(Host).where(
+                    Host.project_id == project_id,
+                    Host.ip_address == ip,
+                    Host.deleted_at.is_(None),
+                )
+            )).scalars().first()
+            if existing is None:
+                raise
+            return existing, False
+        await db.refresh(host)
+        return host, True
+
     async def _process_asset_discovery(self, db: AsyncSession, execution: Execution):
         """Global scan for IP addresses in output to auto-create Hosts."""
         import re
         from app.models.host import Host
+        from app.core.notifications import notify_after_commit
         
         if not execution.stdout:
             return
@@ -2076,6 +2166,7 @@ class TaskOrchestrator:
             # Determine default_ip and execution_host (host this execution was run for)
             default_ip = None
             execution_host = None
+            handled_ips = set()  # IPs attributed to the execution host by hostname
             if execution.host_id:
                 if 'host' in execution.__dict__ and execution.host:
                     execution_host = execution.host
@@ -2086,6 +2177,8 @@ class TaskOrchestrator:
                     execution_host = res.scalar_one_or_none()
                     if execution_host:
                         default_ip = execution_host.ip_address
+                if execution_host is not None and execution_host.deleted_at is not None:
+                    execution_host = None
 
             parsed_data = service_parser.parse(execution.command, execution.stdout, default_ip=default_ip)
 
@@ -2097,14 +2190,15 @@ class TaskOrchestrator:
             existing_hosts_result = await db.execute(
                 select(Host).where(
                     Host.project_id == project_id,
-                    Host.ip_address.in_(all_ips)
+                    Host.ip_address.in_(all_ips),
+                    Host.deleted_at.is_(None),
                 )
             )
             hosts_map = {h.ip_address: h for h in existing_hosts_result.scalars().all()}
 
             # Include execution host so we load its services and prefer it when applying (same IP can exist on multiple hosts)
             known_host_ids = list({h.id for h in hosts_map.values()})
-            if execution_host and execution_host.ip_address in all_ips and execution_host.id not in known_host_ids:
+            if execution_host and execution_host.id not in known_host_ids:
                 known_host_ids.append(execution_host.id)
             services_map = {}
             if known_host_ids:
@@ -2116,22 +2210,29 @@ class TaskOrchestrator:
 
             # Process Hosts using pre-fetched maps; prefer execution host when scan was run for that host (same IP)
             for ip, host_info in parsed_data.hosts.items():
-                if execution_host and execution_host.ip_address == ip:
+                # "Nmap scan report for dc01 (10.0.0.5)": a batch child's Host may carry
+                # the hostname as its address, so match on hostname too.
+                reported = (host_info.hostname or "").lower()
+                if execution_host and (
+                    execution_host.ip_address == ip
+                    or (reported and reported in (
+                        (execution_host.ip_address or "").lower(),
+                        (execution_host.hostname or "").lower(),
+                    ))
+                ):
                     host = execution_host
+                    handled_ips.add(ip)
                 else:
                     host = hosts_map.get(ip)
 
+                created = False
                 if not host:
                     logger.info(f"Auto-discovering host from service parser: {ip}")
-                    host = Host(
-                        project_id=project_id,
-                        ip_address=ip,
-                        extra_data={"discovery_method": "auto_service_scan"}
+                    host, created = await self._insert_host_or_existing(
+                        db, project_id, ip, "auto_service_scan"
                     )
-                    db.add(host)
-                    await db.flush()
-                    await db.refresh(host)
                     hosts_map[ip] = host
+                if created:
                     try:
                         payload = await host_sync_payload(db, host)
                         await sync_service.record_event(
@@ -2143,20 +2244,33 @@ class TaskOrchestrator:
                         )
                     except Exception as e:
                         logger.error(f"[Orchestrator] Sync record (asset discovery host) failed: {e}")
-                    await notification_manager.send_project_update(
+                    notify_after_commit(
+                        db, notification_manager.send_project_update,
                         "host_created", project_id, {"ip_address": ip, "id": host.id}
                     )
                 
                 updated = False
-                if host_info.hostname and host.hostname != host_info.hostname:
+                # A real SMB banner carries both (name:) and (domain:); other [*] lines
+                # (and nmap) must not overwrite what is already known, and a user-set
+                # hostname is never clobbered.
+                is_banner = bool(host_info.hostname and host_info.domain)
+                if host_info.hostname and not host.hostname:
                     host.hostname = host_info.hostname
                     updated = True
-                if host_info.os_info and (not host.os_info or len(host_info.os_info) > len(host.os_info)):
+                if host_info.os_info and (
+                    not host.os_info or (is_banner and host_info.os_info != host.os_info)
+                ):
                     host.os_info = host_info.os_info
                     updated = True
                 if host_info.domain:
-                    if not host.fqdn:
-                        host.fqdn = host_info.domain
+                    # fqdn = name.domain, only for a DNS-style domain (NetBIOS "CORP" is not one);
+                    # also repairs the legacy value where fqdn was set to the bare domain.
+                    if (
+                        is_banner
+                        and "." in host_info.domain
+                        and (not host.fqdn or host.fqdn == host_info.domain)
+                    ):
+                        host.fqdn = f"{host_info.hostname}.{host_info.domain}"
                         updated = True
                     current_extra = host.extra_data.copy() if host.extra_data else {}
                     if current_extra.get('domain') != host_info.domain:
@@ -2191,7 +2305,8 @@ class TaskOrchestrator:
                         )
                     except Exception as e:
                         logger.error(f"[Orchestrator] Sync record (asset discovery host update) failed: {e}")
-                    await notification_manager.send_project_update(
+                    notify_after_commit(
+                        db, notification_manager.send_project_update,
                         "host_updated", project_id, {"id": host.id}
                     )
                 
@@ -2216,10 +2331,12 @@ class TaskOrchestrator:
                              updated_svc = True
                          script_out = getattr(svc, "script_output", None)
                          if script_out:
+                             # New nested dict: mutating the old one in place makes
+                             # old == new so SQLAlchemy emits no UPDATE.
                              current_extra = existing_svc.extra_data.copy() if existing_svc.extra_data else {}
-                             nse_scripts = current_extra.get("nse_scripts", {})
-                             nse_scripts.update(script_out)
-                             current_extra["nse_scripts"] = nse_scripts
+                             current_extra["nse_scripts"] = {
+                                 **(current_extra.get("nse_scripts") or {}), **script_out
+                             }
                              existing_svc.extra_data = current_extra
                              updated_svc = True
                          if updated_svc:
@@ -2270,9 +2387,10 @@ class TaskOrchestrator:
                          services_map[(host.id, new_svc.port, new_svc.protocol)] = new_svc
 
                 # Auto-tag host from its services (canonical tags for target filtering)
-                all_service_names = {s.name for s in services if s.name}
+                # Open ports only: "445/tcp filtered" must not tag the host `smb`.
+                all_service_names = {s.name for s in services if s.name and s.state == "open"}
                 for (hid, _p, _proto), s in services_map.items():
-                    if hid == host.id and s.name:
+                    if hid == host.id and s.name and s.state == "open":
                         all_service_names.add(s.name)
                 new_tags = set(host.tags or [])
                 for name in all_service_names:
@@ -2282,9 +2400,10 @@ class TaskOrchestrator:
                 host.tags = sorted(new_tags)
                 db.add(host)
                          
-            # Commit after processing service parser
+            # Flush only: callers run this inside begin_nested(); a commit here
+            # closes the savepoint and breaks the generic IPv4 discovery below.
             if parsed_data.hosts or parsed_data.services:
-                 await db.commit()
+                 await db.flush()
                  
         except Exception as e:
             logger.error(f"[Orchestrator] Service parsing failed: {e}")
@@ -2321,30 +2440,25 @@ class TaskOrchestrator:
         
         # Check existing hosts
         # Optimization: Fetch all IP hosts for project
-        existing_result = await db.execute(select(Host.ip_address).where(Host.project_id == project_id))
+        existing_result = await db.execute(
+            select(Host.ip_address).where(
+                Host.project_id == project_id, Host.deleted_at.is_(None)
+            )
+        )
         existing_ips = set(existing_result.scalars().all())
-        
-        new_ips = found_ips - existing_ips
-        
-        for ip in new_ips:
-            logger.info(f"Auto-discovering host: {ip}")
-            new_host = Host(
-                project_id=project_id,
-                ip_address=ip,
-                # display_name is a property
-                extra_data={"discovery_method": "auto_output_scan"}
-            )
-            db.add(new_host)
-        
+
+        new_ips = found_ips - existing_ips - handled_ips
+
         if new_ips:
-            await db.flush()
-            result = await db.execute(
-                select(Host).where(
-                    Host.project_id == project_id,
-                    Host.ip_address.in_(list(new_ips)),
+            created_hosts = []
+            for ip in sorted(new_ips):
+                logger.info(f"Auto-discovering host: {ip}")
+                new_host, created = await self._insert_host_or_existing(
+                    db, project_id, ip, "auto_output_scan"
                 )
-            )
-            for new_host in result.scalars().all():
+                if created:
+                    created_hosts.append(new_host)
+            for new_host in created_hosts:
                 try:
                     payload = await host_sync_payload(db, new_host)
                     await sync_service.record_event(
@@ -2357,7 +2471,9 @@ class TaskOrchestrator:
                 except Exception as e:
                     logger.error(f"[Orchestrator] Sync record (IPv4 discovery host) failed: {e}")
                 # Notify frontend (same payload shape as the other host_created emitters)
-                await notification_manager.send_project_update(
+                notify_after_commit(
+                    db,
+                    notification_manager.send_project_update,
                     "host_created",
                     project_id,
                     {"ip_address": new_host.ip_address, "id": new_host.id},
