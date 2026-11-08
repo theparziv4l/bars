@@ -17,12 +17,12 @@ from app.models.user import ProjectMember, User
 
 
 @asynccontextmanager
-async def api_env():
+async def api_env(db_url="sqlite+aiosqlite:///:memory:"):
     from app.config import settings
     from app.core.auth import create_access_token
     from app.database import get_db
 
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    engine = create_async_engine(db_url)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     maker = async_sessionmaker(engine, expire_on_commit=False)
@@ -42,8 +42,13 @@ async def api_env():
             await db.commit()
 
     async def _override():
-        async with maker() as db:
-            yield db
+        async with maker() as db:  # mirrors app.database.get_db
+            try:
+                yield db
+                await db.commit()
+            except Exception:
+                await db.rollback()
+                raise
 
     app.dependency_overrides[get_db] = _override
     old = settings.AUTH_REQUIRED
