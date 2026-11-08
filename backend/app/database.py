@@ -20,6 +20,11 @@ engine = create_async_engine(
 def set_sqlite_pragma(dbapi_connection, connection_record):
     """Set SQLite pragmas and register custom functions on each new connection."""
     import re as re_module
+    # Disable the driver's legacy implicit BEGIN; pysqlite/aiosqlite otherwise
+    # break SAVEPOINT semantics (a leading SAVEPOINT's RELEASE commits).
+    # Transactions are started explicitly in do_begin below. Must be set before
+    # the PRAGMAs so journal_mode runs in autocommit.
+    dbapi_connection.isolation_level = None
     cursor = dbapi_connection.cursor()
     cursor.execute("PRAGMA journal_mode=WAL")
     cursor.execute("PRAGMA busy_timeout=30000")
@@ -42,6 +47,12 @@ def set_sqlite_pragma(dbapi_connection, connection_record):
             return False
 
     dbapi_connection.create_function("regexp", 2, _regexp)
+
+
+@event.listens_for(engine.sync_engine, "begin")
+def do_begin(conn):
+    """Emit BEGIN ourselves (see isolation_level=None in set_sqlite_pragma)."""
+    conn.exec_driver_sql("BEGIN")
 
 
 # Session factory
