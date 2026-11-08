@@ -5,9 +5,53 @@ from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Set
 from dataclasses import dataclass, field
 from enum import Enum
+from sqlalchemy import event
+from sqlalchemy.orm import Session
+
 from app.core.utils import utcnow
 
 logger = logging.getLogger(__name__)
+
+_AFTER_COMMIT = "_notify_after_commit"
+_after_commit_tasks: Set[asyncio.Task] = set()
+
+
+def notify_after_commit(db, coro_fn: Callable, *args, **kwargs) -> None:
+    """Run ``await coro_fn(*args, **kwargs)`` once *db*'s outer transaction commits.
+
+    Awaiting websocket fan-out inside an open write transaction holds SQLite's single
+    write lock for up to 5 s per listener, and listeners that look the row up in their
+    own session can't see it yet. Queue the call instead; it is dropped on rollback.
+    ponytail: a savepoint rollback does not drop calls queued inside it.
+    """
+    sess = getattr(db, "sync_session", db)
+    sess.info.setdefault(_AFTER_COMMIT, []).append((coro_fn, args, kwargs))
+
+
+async def _run_deferred(coro_fn, args, kwargs) -> None:
+    try:
+        await coro_fn(*args, **kwargs)
+    except Exception as e:
+        logger.error(f"Deferred notification failed: {e}")
+
+
+@event.listens_for(Session, "after_commit")
+def _flush_after_commit(session) -> None:
+    if session.in_nested_transaction():
+        return  # SQLAlchemy fires this on SAVEPOINT release too; wait for the outer commit
+    pending = session.info.pop(_AFTER_COMMIT, None)
+    if not pending:
+        return
+    loop = asyncio.get_running_loop()
+    for coro_fn, args, kwargs in pending:
+        task = loop.create_task(_run_deferred(coro_fn, args, kwargs))
+        _after_commit_tasks.add(task)
+        task.add_done_callback(_after_commit_tasks.discard)
+
+
+@event.listens_for(Session, "after_rollback")
+def _drop_after_rollback(session) -> None:
+    session.info.pop(_AFTER_COMMIT, None)
 
 
 class AlertSeverity(str, Enum):
