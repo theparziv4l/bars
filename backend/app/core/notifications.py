@@ -61,6 +61,28 @@ class AlertSeverity(str, Enum):
     CRITICAL = "critical"
 
 
+_SEVERITY_ALIASES = {
+    "critical": AlertSeverity.CRITICAL, "high": AlertSeverity.CRITICAL,
+    "medium": AlertSeverity.WARNING, "warning": AlertSeverity.WARNING,
+    "warn": AlertSeverity.WARNING,
+    "low": AlertSeverity.INFO, "info": AlertSeverity.INFO,
+}
+_unknown_severities_logged: Set[str] = set()
+
+
+def coerce_alert_severity(value: Any) -> AlertSeverity:
+    """Map user-defined alert_patterns keys (high/medium/low/warn/...) to an
+    AlertSeverity, case-insensitively. Unknown keys become WARNING (logged once)."""
+    key = str(value or "").strip().lower()
+    sev = _SEVERITY_ALIASES.get(key)
+    if sev is None:
+        if key not in _unknown_severities_logged:
+            _unknown_severities_logged.add(key)
+            logger.warning(f"Unknown alert severity {value!r}; treating as warning")
+        return AlertSeverity.WARNING
+    return sev
+
+
 @dataclass
 class Alert:
     """Alert triggered by pattern match."""
@@ -194,7 +216,7 @@ class NotificationManager:
         detected = output_parser.detect_alerts(output_chunk, alert_patterns)
         
         for detection in detected:
-            severity = AlertSeverity(detection["severity"])
+            severity = coerce_alert_severity(detection["severity"])
             alert = await self.create_alert(
                 execution_id=execution_id,
                 severity=severity,
