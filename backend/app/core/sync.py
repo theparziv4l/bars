@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 import uuid
 from typing import Any, Dict, Iterable, Optional
 
-from sqlalchemy import delete, or_, select, tuple_
+from sqlalchemy import delete, func, or_, select, tuple_
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -84,6 +84,10 @@ def _apply_present(obj, payload: Dict[str, Any], fields: tuple[str, ...]) -> Non
         setattr(obj, name, value)
 
 
+# extra_data keys owned by the local node: never overwritten by a peer's value.
+_LOCAL_ONLY_EXTRA_KEYS = ("project_path", "smb_credentials")
+
+
 class _FKNotReady(Exception):
     """Raised by an applier when a referenced parent row isn't present yet (cross-node
     clock skew). The ingest loop defers such events for retry instead of dropping them."""
@@ -92,6 +96,15 @@ class _FKNotReady(Exception):
 # Max passes over a batch for deferred events. FK chains here are at most ~5 deep
 # (file -> execution -> item -> group -> project); one extra pass proves quiescence.
 _MAX_INGEST_PASSES = 6
+
+# A deferred event holds the pull/push cursor back so it is retried. One whose parent
+# never arrives (never recorded, deleted) would pin the cursor forever and, once a
+# whole batch of newer events piles up behind it, stop sync entirely. After this many
+# ingest cycles it is parked: no longer holds the cursor back, but still retried
+# (in memory) whenever a later ingest runs, so a late parent still resolves it.
+_MAX_DEFERRAL_CYCLES = 20
+_MAX_PARKED_EVENTS = 1000
+_MAX_TRACKED_DEFERRALS = 10000
 
 # Whole-batch ingest attempts on SQLITE_BUSY. Concurrent ingests can hit
 # BUSY_SNAPSHOT when upgrading a DEFERRED txn to a write (busy_timeout does
@@ -104,6 +117,7 @@ _ENTITY_APPLY_ORDER = (
     "users",
     "projects",
     "project_members",
+    "ad_domains",
     "checklist_groups",
     "checklist_items",
     "flows",
@@ -138,6 +152,9 @@ async def get_peer_urls_from_db(db: AsyncSession) -> list[str]:
 
 
 from app.core.sync_payloads import (  # noqa: F401 — re-exported for compatibility
+    ad_domain_sync_payload,
+    checklist_group_sync_payload,
+    checklist_item_sync_payload,
     claim_sync_payload,
     discovered_file_sync_payload,
     execution_sync_payload,
@@ -160,12 +177,38 @@ class IngestResult:
     min_deferred_ts: Optional[int] = None
 
 
+async def _resolve_host(db: AsyncSession, public_id: str) -> Optional[Host]:
+    """Resolve a host by public_id for a child entity.
+
+    Two nodes can discover the same (project, ip) under different public_ids; the
+    live-host unique index keeps one and the other becomes a soft-deleted tombstone
+    (peer-host collision, or startup dedupe migration). A child that references the
+    tombstone's public_id must land on the live host, so redirect there.
+    """
+    host = (await db.execute(select(Host).where(Host.public_id == public_id))).scalar_one_or_none()
+    if host is not None and host.deleted_at is not None and host.ip_address:
+        live = (await db.execute(
+            select(Host).where(
+                Host.project_id == host.project_id,
+                Host.ip_address == host.ip_address,
+                Host.deleted_at.is_(None),
+            ).order_by(Host.id)
+        )).scalars().first()
+        if live is not None:
+            return live
+    return host
+
+
 class SyncService:
     """Event-log based sync helper."""
 
     def __init__(self) -> None:
         self._ingest_locks: dict[str, asyncio.Lock] = {}
         self._ingest_locks_guard = asyncio.Lock()
+        # event_id -> number of ingest cycles it ended up deferred (in memory only)
+        self._deferral_attempts: dict[str, int] = {}
+        # event_id -> event envelope given up on holding the cursor for, still retried
+        self._parked: dict[str, Dict[str, Any]] = {}
 
     async def _ingest_lock_for(self, peer_node_id: str) -> asyncio.Lock:
         """Per-peer ingest lock. Keyspace is bounded (one key per peer), so no eviction."""
@@ -193,7 +236,13 @@ class SyncService:
         peer_node_id: str,
         direction: str,
         logical_ts: int,
+        allow_decrease: bool = False,
     ) -> None:
+        """Advance (never rewind, unless ``allow_decrease``) a cursor.
+
+        The value is a logical_ts for directions "pull"/"push" and a local/remote
+        event sequence (SyncEvent.id) for "pull_seq"/"push_seq".
+        """
         result = await db.execute(
             select(SyncCursor).where(
                 SyncCursor.peer_node_id == peer_node_id,
@@ -209,7 +258,9 @@ class SyncService:
             )
             db.add(row)
         else:
-            row.last_logical_ts = max(row.last_logical_ts, logical_ts)
+            row.last_logical_ts = (
+                logical_ts if allow_decrease else max(row.last_logical_ts, logical_ts)
+            )
         await db.flush()
 
     async def record_event(
@@ -242,12 +293,23 @@ class SyncService:
         self,
         db: AsyncSession,
         *,
-        since_logical_ts: int,
+        since_logical_ts: int = 0,
         limit: int,
         project_public_id: Optional[str] = None,
+        since_seq: Optional[int] = None,
     ) -> list[SyncEvent]:
-        """Return local events newer than cursor, optionally filtered by project."""
-        stmt = select(SyncEvent).where(SyncEvent.logical_ts > since_logical_ts)
+        """Return local events newer than a cursor, optionally filtered by project.
+
+        ``since_seq`` selects by local insertion order (SyncEvent.id, assigned under the
+        single SQLite write lock so it follows commit order). That is the cursor to use:
+        logical_ts is stamped before the write lock is taken and relayed events carry
+        their origin's timestamp, so a logical_ts cursor silently skips events that
+        commit late or arrive from a third node. ``since_logical_ts`` stays for old peers.
+        """
+        if since_seq is not None:
+            stmt = select(SyncEvent).where(SyncEvent.id > since_seq)
+        else:
+            stmt = select(SyncEvent).where(SyncEvent.logical_ts > since_logical_ts)
         if project_public_id:
             stmt = stmt.where(
                 or_(
@@ -256,10 +318,16 @@ class SyncService:
                     SyncEvent.payload["project_public_id"].as_string() == project_public_id,
                 )
             )
-        result = await db.execute(
-            stmt.order_by(SyncEvent.logical_ts.asc(), SyncEvent.source_node_id.asc()).limit(limit)
+        order = (
+            (SyncEvent.id.asc(),) if since_seq is not None
+            else (SyncEvent.logical_ts.asc(), SyncEvent.source_node_id.asc())
         )
+        result = await db.execute(stmt.order_by(*order).limit(limit))
         return list(result.scalars().all())
+
+    async def max_seq(self, db: AsyncSession) -> int:
+        """Highest local event sequence (0 when the log is empty)."""
+        return (await db.execute(select(func.max(SyncEvent.id)))).scalar() or 0
 
     async def ingest_remote_events(
         self,
@@ -267,8 +335,17 @@ class SyncService:
         *,
         peer_node_id: str,
         events: Iterable[Dict[str, Any]],
+        cursor_key: Optional[str] = None,
+        update_cursor: bool = True,
     ) -> IngestResult:
         """Ingest remote events with dedupe and deterministic apply ordering.
+
+        ``peer_node_id`` is the per-peer serialization key (the peer's node id, so a
+        push from it and our pull of it share one lock). ``cursor_key`` is where the
+        pull cursor is stored (the worker keys it by peer URL); it defaults to
+        ``peer_node_id``. A push receiver passes ``update_cursor=False``: it has no
+        pull position to advance.
+
         Events are sorted by logical_ts, source_node_id, and entity type so that
         FK dependencies are respected (e.g. projects before project_members).
         """
@@ -284,7 +361,11 @@ class SyncService:
         for attempt in range(_MAX_INGEST_ATTEMPTS):
             try:
                 return await self._ingest_attempt(
-                    db, peer_node_id=peer_node_id, sorted_events=sorted_events
+                    db,
+                    peer_node_id=peer_node_id,
+                    sorted_events=sorted_events,
+                    cursor_key=cursor_key or peer_node_id,
+                    update_cursor=update_cursor,
                 )
             except OperationalError as exc:
                 last_exc = exc
@@ -300,9 +381,23 @@ class SyncService:
         *,
         peer_node_id: str,
         sorted_events: list[Dict[str, Any]],
+        cursor_key: str,
+        update_cursor: bool = True,
     ) -> IngestResult:
         """One ingest attempt: prefetch, locked multi-pass apply, cursor write."""
         result = IngestResult()
+        # Sequence stats come from THIS batch only: parked events injected below belong
+        # to whichever peer sent them and live in that peer's sequence space.
+        batch_seqs = [
+            e["seq"] for e in sorted_events
+            if isinstance(e, dict) and isinstance(e.get("seq"), int)
+        ]
+        # Parked events ride along with every batch so a late parent still resolves them.
+        if self._parked:
+            batch_ids = {e.get("event_id") for e in sorted_events if isinstance(e, dict)}
+            extra = [e for eid, e in self._parked.items() if eid not in batch_ids]
+            if extra:
+                sorted_events = sorted(sorted_events + extra, key=_ingest_sort_key)
         # Two SELECTs replace the per-event dedupe + latest lookups below.
         prefetch = await self._prefetch_batch_state(db, sorted_events)
         # Smallest logical_ts of an event we had to DEFER (parent not synced yet). We
@@ -336,19 +431,75 @@ class SyncService:
                     break
                 pending = pass_deferred
 
+            min_deferred, min_deferred_seq = self._settle_deferrals(sorted_events, pass_deferred)
             result.min_deferred_ts = min_deferred
             cursor_ts = result.latest_logical_ts
             if min_deferred is not None:
                 # Don't advance past the earliest deferred event, so it (and everything after)
                 # is retried once its parent has synced.
                 cursor_ts = min(cursor_ts, min_deferred - 1)
-            await self.set_cursor(
-                db,
-                peer_node_id=peer_node_id,
-                direction="pull",
-                logical_ts=cursor_ts,
-            )
+            if update_cursor:
+                await self.set_cursor(
+                    db,
+                    peer_node_id=cursor_key,
+                    direction="pull",
+                    logical_ts=cursor_ts,
+                )
+                if batch_seqs:
+                    cursor_seq = max(batch_seqs)
+                    if min_deferred_seq is not None:
+                        cursor_seq = min(cursor_seq, min_deferred_seq - 1)
+                    await self.set_cursor(
+                        db,
+                        peer_node_id=cursor_key,
+                        direction="pull_seq",
+                        logical_ts=cursor_seq,
+                    )
         return result
+
+    def _settle_deferrals(
+        self, batch: list[Dict[str, Any]], still_deferred: list[Dict[str, Any]]
+    ) -> tuple[Optional[int], Optional[int]]:
+        """Update per-event deferral bookkeeping.
+
+        Returns (logical_ts, seq) of the earliest event that may still hold the cursor
+        (seq None when none of them carries a remote sequence).
+
+        Events deferred for more than ``_MAX_DEFERRAL_CYCLES`` cycles are parked and no
+        longer contribute; events that applied are forgotten.
+        """
+        deferred_ids = {e["event_id"] for e in still_deferred}
+        for e in batch:
+            eid = e.get("event_id") if isinstance(e, dict) else None
+            if eid and eid not in deferred_ids:
+                self._deferral_attempts.pop(eid, None)
+                self._parked.pop(eid, None)
+        holding: Optional[int] = None
+        holding_seq: Optional[int] = None
+        for e in still_deferred:
+            eid = e["event_id"]
+            if eid in self._parked:
+                continue
+            attempts = self._deferral_attempts.get(eid, 0) + 1
+            if attempts > _MAX_DEFERRAL_CYCLES:
+                self._deferral_attempts.pop(eid, None)
+                self._parked[eid] = e
+                while len(self._parked) > _MAX_PARKED_EVENTS:
+                    self._parked.pop(next(iter(self._parked)))
+                logger.warning(
+                    f"[Sync] Parking event {e.get('entity_type')} {e.get('entity_public_id')} "
+                    f"({eid}): parent still missing after {_MAX_DEFERRAL_CYCLES} cycles; "
+                    f"it no longer holds the sync cursor back"
+                )
+                continue
+            self._deferral_attempts[eid] = attempts
+            ts = int(e["logical_ts"])
+            holding = ts if holding is None else min(holding, ts)
+            if isinstance(e.get("seq"), int):
+                holding_seq = e["seq"] if holding_seq is None else min(holding_seq, e["seq"])
+        if len(self._deferral_attempts) > _MAX_TRACKED_DEFERRALS:
+            self._deferral_attempts.clear()
+        return holding, holding_seq
 
     async def _prefetch_batch_state(
         self, db: AsyncSession, events: list[Dict[str, Any]]
@@ -547,6 +698,9 @@ class SyncService:
         if entity_type == "project_members":
             await self._apply_project_member(db, payload=payload)
             return
+        if entity_type == "ad_domains":
+            await self._apply_ad_domain(db, operation=operation, payload=payload)
+            return
         if entity_type == "checklist_groups":
             if operation == "delete":
                 await self._apply_checklist_group_delete(db, payload=payload)
@@ -652,8 +806,25 @@ class SyncService:
         except Exception:
             pass  # unknown status from a newer peer: keep existing, don't clobber
 
+        # Local-only extra_data keys survive a peer update: a wholesale replace wipes
+        # this node's SMB credentials and its own project_path.
+        local_extra = dict(project.extra_data or {})
+        local_path = local_extra.get("project_path")
+
         project.name = payload.get("name", project.name)
-        _apply_present(project, payload, ("description", "scope", "extra_data"))
+        _apply_present(project, payload, ("description", "scope"))
+        if "extra_data" in payload:
+            incoming_extra = payload["extra_data"] or {}
+            merged_extra = {
+                k: v for k, v in incoming_extra.items() if k not in _LOCAL_ONLY_EXTRA_KEYS
+            }
+            for k in _LOCAL_ONLY_EXTRA_KEYS:
+                if k in local_extra:
+                    merged_extra[k] = local_extra[k]
+                elif k != "project_path" and k in incoming_extra:
+                    merged_extra[k] = incoming_extra[k]  # first sight: adopt
+            local_extra = {**local_extra, **merged_extra}
+        project.extra_data = local_extra
         if payload.get("created_by_user_public_id"):
             user_result = await db.execute(
                 select(User).where(User.public_id == payload["created_by_user_public_id"])
@@ -669,9 +840,82 @@ class SyncService:
         # Record the project path (pure). The actual mkdir runs in the ingest
         # pre-pass, BEFORE the write txn, so a slow host agent never holds it.
         from app.core.utils import get_project_path
-        if project.extra_data is None:
-            project.extra_data = {}
-        project.extra_data["project_path"] = get_project_path(project.name)
+        # Keep this node's existing project_path across a rename (the directory
+        # already exists here); only a first-time sync derives it from the name.
+        project.extra_data = {
+            **(project.extra_data or {}),
+            "project_path": local_path or get_project_path(project.name),
+        }
+
+    async def _apply_ad_domain(
+        self, db: AsyncSession, *, operation: str, payload: Dict[str, Any]
+    ) -> None:
+        """Upsert an AD domain by public_id (delete = soft delete, detaching dependants)."""
+        from app.models.ad_domain import ADDomain
+        public_id = payload.get("public_id")
+        if not public_id:
+            return
+        result = await db.execute(select(ADDomain).where(ADDomain.public_id == public_id))
+        domain = result.scalar_one_or_none()
+
+        if operation == "delete":
+            if domain is not None and domain.deleted_at is None:
+                domain.deleted_at = _parse_dt(payload.get("deleted_at")) or utcnow()
+                # Mirror the local delete handler: dependants lose the domain, not their row.
+                from sqlalchemy import update
+                await db.execute(
+                    update(ProjectVariable)
+                    .where(ProjectVariable.ad_domain_id == domain.id)
+                    .values(ad_domain_id=None)
+                )
+                await db.execute(
+                    update(ChecklistGroup)
+                    .where(ChecklistGroup.ad_domain_id == domain.id)
+                    .values(ad_domain_id=None)
+                )
+            return
+
+        project_id = None
+        if payload.get("project_public_id"):
+            project = (await db.execute(
+                select(Project).where(Project.public_id == payload["project_public_id"])
+            )).scalar_one_or_none()
+            project_id = project.id if project else None
+            if project_id is None:
+                raise _FKNotReady(
+                    f"ad_domain {public_id}: project {payload['project_public_id']} not present yet"
+                )
+        if domain is None:
+            if project_id is None:
+                return  # legacy event without a project ref: cannot place the row
+            domain = ADDomain(
+                public_id=public_id,
+                project_id=project_id,
+                name=payload.get("name") or f"domain-{public_id[:8]}",
+            )
+            db.add(domain)
+        elif project_id is not None:
+            domain.project_id = project_id
+
+        if payload.get("name"):
+            domain.name = payload["name"]
+        for name in ("netbios_name", "dc_ip", "dc_fqdn", "description", "trust_type"):
+            if name in payload:
+                setattr(domain, name, payload[name])
+        _apply_present(domain, payload, ("extra_data",))
+        if payload.get("parent_domain_public_id"):
+            parent = (await db.execute(
+                select(ADDomain).where(ADDomain.public_id == payload["parent_domain_public_id"])
+            )).scalar_one_or_none()
+            if parent is None:
+                raise _FKNotReady(
+                    f"ad_domain {public_id}: parent {payload['parent_domain_public_id']} not present yet"
+                )
+            domain.parent_domain_id = parent.id
+        elif "parent_domain_public_id" in payload:
+            domain.parent_domain_id = None
+        domain.deleted_at = _parse_dt(payload.get("deleted_at"))
+        domain.updated_at = _parse_dt(payload.get("updated_at")) or utcnow()
 
     async def _apply_project_member(self, db: AsyncSession, *, payload: Dict[str, Any]) -> None:
         public_id = payload.get("public_id")
@@ -862,6 +1106,41 @@ class SyncService:
 
         result = await db.execute(select(Host).where(Host.public_id == public_id))
         host = result.scalar_one_or_none()
+
+        # (project, ip) is unique among live hosts. An incoming live host that collides
+        # with a different live local host is the same machine discovered independently
+        # on another node: keep the local row, store the incoming one as a tombstone
+        # (so children keep resolving via _resolve_host) and only fill empty local fields.
+        incoming_ip = payload["ip_address"] if "ip_address" in payload else (
+            host.ip_address if host is not None else None
+        )
+        if (
+            (host is None or host.deleted_at is not None)
+            and incoming_ip
+            and _parse_dt(payload.get("deleted_at")) is None
+        ):
+            live = (await db.execute(
+                select(Host).where(
+                    Host.project_id == project_id,
+                    Host.ip_address == incoming_ip,
+                    Host.deleted_at.is_(None),
+                    Host.public_id != public_id,
+                ).order_by(Host.id)
+            )).scalars().first()
+            if live is not None:
+                for name in ("hostname", "fqdn", "os_info"):
+                    if not getattr(live, name, None) and payload.get(name):
+                        setattr(live, name, payload[name])
+                if host is None:
+                    host = Host(public_id=public_id, project_id=project_id, ip_address=incoming_ip)
+                    db.add(host)
+                host.deleted_at = host.deleted_at or utcnow()
+                logger.info(
+                    f"[Sync] Host {public_id} collides with live host {live.public_id} on "
+                    f"{incoming_ip}; stored as tombstone"
+                )
+                return
+
         if host is None:
             host = Host(public_id=public_id, project_id=project_id)
             db.add(host)
@@ -890,6 +1169,7 @@ class SyncService:
 
         project_id = None
         host_id = None
+        ad_domain_id = None
         if payload.get("project_public_id"):
             project_result = await db.execute(
                 select(Project).where(Project.public_id == payload["project_public_id"])
@@ -897,11 +1177,25 @@ class SyncService:
             project = project_result.scalar_one_or_none()
             project_id = project.id if project else None
         if payload.get("host_public_id"):
-            host_result = await db.execute(
-                select(Host).where(Host.public_id == payload["host_public_id"])
-            )
-            host = host_result.scalar_one_or_none()
+            host = await _resolve_host(db, payload["host_public_id"])
             host_id = host.id if host else None
+            if host_id is None:
+                # Landing a host-scoped value as a global one would shadow the real
+                # global variable on this node; wait for the host instead.
+                raise _FKNotReady(
+                    f"project_variable {public_id}: host {payload['host_public_id']} not present yet"
+                )
+        if payload.get("ad_domain_public_id"):
+            from app.models.ad_domain import ADDomain
+            dom_result = await db.execute(
+                select(ADDomain).where(ADDomain.public_id == payload["ad_domain_public_id"])
+            )
+            domain = dom_result.scalar_one_or_none()
+            ad_domain_id = domain.id if domain else None
+            if ad_domain_id is None:
+                raise _FKNotReady(
+                    f"project_variable {public_id}: ad_domain {payload['ad_domain_public_id']} not present yet"
+                )
         if project_id is None:
             if payload.get("project_public_id"):
                 raise _FKNotReady(
@@ -913,13 +1207,18 @@ class SyncService:
         variable = result.scalar_one_or_none()
         key = payload.get("key") or "synced"
         if variable is None:
-            existing_result = await db.execute(
-                select(ProjectVariable).where(
-                    ProjectVariable.project_id == project_id,
-                    ProjectVariable.key == key,
-                )
-            )
-            existing = existing_result.scalar_one_or_none()
+            # Adopt a row with the same natural key == the SAME SCOPE. The key alone
+            # is shared by a global var and its host/domain overrides, so matching on
+            # (project, key) either raised MultipleResultsFound or adopted the wrong row.
+            scope_query = select(ProjectVariable).where(
+                ProjectVariable.project_id == project_id,
+                ProjectVariable.key == key,
+                ProjectVariable.host_id.is_(None) if host_id is None
+                else ProjectVariable.host_id == host_id,
+                ProjectVariable.ad_domain_id.is_(None) if ad_domain_id is None
+                else ProjectVariable.ad_domain_id == ad_domain_id,
+            ).order_by(ProjectVariable.deleted_at.is_(None).desc(), ProjectVariable.id)
+            existing = (await db.execute(scope_query)).scalars().first()
             if existing is not None:
                 variable = existing
                 variable.public_id = public_id
@@ -935,7 +1234,9 @@ class SyncService:
                 db.add(variable)
 
         variable.project_id = project_id
-        variable.host_id = host_id or variable.host_id
+        variable.host_id = host_id
+        if "ad_domain_public_id" in payload:
+            variable.ad_domain_id = ad_domain_id
         variable.key = key
         if "value" in payload:
             variable.value = payload["value"]
@@ -958,10 +1259,7 @@ class SyncService:
             item_id = item.id if item else None
 
         if payload.get("host_public_id"):
-            host_result = await db.execute(
-                select(Host).where(Host.public_id == payload["host_public_id"])
-            )
-            host = host_result.scalar_one_or_none()
+            host = await _resolve_host(db, payload["host_public_id"])
             host_id = host.id if host else None
 
         result = await db.execute(select(Execution).where(Execution.public_id == public_id))
@@ -1030,10 +1328,7 @@ class SyncService:
             return
         host_id = None
         if payload.get("host_public_id"):
-            host_result = await db.execute(
-                select(Host).where(Host.public_id == payload["host_public_id"])
-            )
-            host = host_result.scalar_one_or_none()
+            host = await _resolve_host(db, payload["host_public_id"])
             host_id = host.id if host else None
             if host_id is None:
                 raise _FKNotReady(
@@ -1079,13 +1374,13 @@ class SyncService:
         public_id = payload.get("public_id")
         if not public_id:
             return
+        # SECURITY: never read local_path (or any on-disk path) from a peer payload.
+        # api/files serves DiscoveredFile.local_path verbatim, so a peer-supplied value
+        # would be an arbitrary file read on this node. It is only ever set locally.
         host_id = None
         execution_id = None
         if payload.get("host_public_id"):
-            host_result = await db.execute(
-                select(Host).where(Host.public_id == payload["host_public_id"])
-            )
-            host = host_result.scalar_one_or_none()
+            host = await _resolve_host(db, payload["host_public_id"])
             host_id = host.id if host else None
         if payload.get("execution_public_id"):
             exec_result = await db.execute(
@@ -1293,10 +1588,7 @@ class SyncService:
             item_id = item.id if item else None
 
         if payload.get("host_public_id"):
-            host_result = await db.execute(
-                select(Host).where(Host.public_id == payload["host_public_id"])
-            )
-            host = host_result.scalar_one_or_none()
+            host = await _resolve_host(db, payload["host_public_id"])
             host_id = host.id if host else None
 
         if payload.get("claimed_by_user_public_id"):
@@ -1317,6 +1609,16 @@ class SyncService:
             raise _FKNotReady(f"checklist_claim {claim_public_id}: {', '.join(missing)} not present yet")
 
         host_scope_key = payload.get("host_scope_key", "global")
+        legacy_keys = {host_scope_key}
+        host_public_id = payload.get("host_public_id")
+        if host_public_id and str(host_scope_key).startswith("host:"):
+            # Older senders keyed the scope by their LOCAL int host id, which names
+            # a different host (or none) here. Normalise to the cross-node key and
+            # still match a legacy-keyed local row for the same host.
+            host_scope_key = f"host:{host_public_id}"
+            legacy_keys = {host_scope_key}
+            if host_id is not None:
+                legacy_keys.add(f"host:{host_id}")
         incoming_version = int(payload.get("version", 1))
         claim_result = await db.execute(
             select(ChecklistClaim).where(ChecklistClaim.public_id == claim_public_id)
@@ -1331,10 +1633,10 @@ class SyncService:
                 select(ChecklistClaim).where(
                     ChecklistClaim.project_id == project_id,
                     ChecklistClaim.item_id == item_id,
-                    ChecklistClaim.host_scope_key == host_scope_key,
+                    ChecklistClaim.host_scope_key.in_(legacy_keys),
                 )
             )
-            existing = nk_result.scalar_one_or_none()
+            existing = nk_result.scalars().first()
             if existing is not None:
                 if incoming_version < (existing.version or 0):
                     return  # our copy is newer; ignore the stale duplicate
@@ -1354,6 +1656,7 @@ class SyncService:
         claim.project_id = project_id
         claim.item_id = item_id
         claim.host_id = host_id
+        claim.host_scope_key = host_scope_key
         claim.claimed_by_user_id = claimed_by_user_id
         claim.claimed_at = _parse_dt(payload.get("claimed_at"))
         claim.lease_expires_at = _parse_dt(payload.get("lease_expires_at"))
@@ -1379,9 +1682,7 @@ class SyncService:
             return
         host_id = None
         if payload.get("host_public_id"):
-            host = (await db.execute(
-                select(Host).where(Host.public_id == payload["host_public_id"])
-            )).scalar_one_or_none()
+            host = await _resolve_host(db, payload["host_public_id"])
             host_id = host.id if host else None
         item_id = None
         if payload.get("item_public_id"):

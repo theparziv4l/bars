@@ -30,6 +30,20 @@ def _capped_push_cursor(latest: int, min_deferred_ts: int | None) -> int:
     return min(latest, min_deferred_ts - 1)
 
 
+def _capped_push_seq(events: list, min_deferred_ts: int | None) -> int:
+    """Push-cursor (local seq) advance after a batch, capped below deferred events.
+
+    The receiver reports only the smallest logical_ts it deferred, so hold the cursor
+    just below the first sent event (in seq order) at or after that ts. Re-pushing
+    already-applied events in between is harmless (dedup by event_id).
+    """
+    latest = events[-1].id
+    if min_deferred_ts is None:
+        return latest
+    held = [e.id for e in events if e.logical_ts >= min_deferred_ts]
+    return min(latest, min(held) - 1) if held else latest
+
+
 class SyncWorker:
     """Runs best-effort peer synchronization in background."""
 
@@ -38,6 +52,10 @@ class SyncWorker:
         self._stopped = asyncio.Event()
         self._session: aiohttp.ClientSession | None = None
         self._peer_fail_count: dict[str, int] = {}
+        # Monotonic time before which a failing peer is skipped. A per-peer timestamp
+        # (not a sleep inside the cycle) so one dead peer never delays the others or
+        # a manual /sync/run.
+        self._peer_next_attempt: dict[str, float] = {}
         self._max_backoff_seconds = 300
         self._last_db_peer_check: float = 0.0
         self._cached_db_peers: list[str] = []
@@ -103,18 +121,39 @@ class SyncWorker:
                 peers.append(u)
         return peers
 
-    async def run_once(self, project_public_id: str | None = None) -> bool:
-        """Run one full sync cycle. Returns True if peers were found."""
+    def _note_peer_failure(self, peer: str) -> float:
+        """Record a failure, schedule the next attempt, return the backoff seconds."""
+        fails = self._peer_fail_count.get(peer, 0) + 1
+        self._peer_fail_count[peer] = fails
+        backoff = min(
+            settings.SYNC_PULL_INTERVAL_SECONDS * (2 ** (fails - 1)),
+            self._max_backoff_seconds,
+        )
+        self._peer_next_attempt[peer] = time.monotonic() + backoff
+        return backoff
+
+    async def run_once(
+        self, project_public_id: str | None = None, force: bool = False
+    ) -> bool:
+        """Run one full sync cycle. Returns True if peers were found.
+
+        Peers still inside their failure backoff are skipped unless ``force`` (manual run).
+        """
         if not settings.SYNC_ENABLED:
             return False
         peers = await self._resolve_peers()
         if not peers:
             return False
         for peer in peers:
+            if not force and time.monotonic() < self._peer_next_attempt.get(peer, 0.0):
+                continue
             try:
                 await self._sync_peer(peer, project_public_id=project_public_id)
             except Exception as exc:
-                logger.error(f"[SyncWorker] Peer sync failed for {peer}: {exc}")
+                backoff = self._note_peer_failure(peer)
+                logger.error(
+                    f"[SyncWorker] Peer sync failed for {peer}: {exc} (backoff {backoff}s)"
+                )
         if settings.SYNC_EVENT_RETENTION_DAYS:
             try:
                 async with async_session_maker() as db:
@@ -155,26 +194,26 @@ class SyncWorker:
 
         # 1) Pull remote events and ingest locally
         async with async_session_maker() as db:
-            pull_cursor = await sync_service.get_cursor(db, cursor_key, "pull")
-        pull_url = f"{sync_base}/pull?since_logical_ts={pull_cursor}&limit={settings.SYNC_BATCH_SIZE}"
+            pull_cursor = await sync_service.get_cursor(db, cursor_key, "pull_seq")
+        remote_node_id = None
+        remote_max_seq = None
+        # since_seq: the peer's own insertion order. logical_ts cursors lose events that
+        # commit late or are relayed with an old timestamp.
+        pull_url = f"{sync_base}/pull?since_seq={pull_cursor}&limit={settings.SYNC_BATCH_SIZE}"
         if project_public_id:
             pull_url += f"&project_public_id={project_public_id}"
         async with session.get(pull_url, headers=self._peer_headers()) as response:
             if response.status != 200:
                 body = await response.text()
-                self._peer_fail_count[peer_base_url] = self._peer_fail_count.get(peer_base_url, 0) + 1
-                backoff = min(
-                    settings.SYNC_PULL_INTERVAL_SECONDS * (2 ** (self._peer_fail_count[peer_base_url] - 1)),
-                    self._max_backoff_seconds,
-                )
+                backoff = self._note_peer_failure(peer_base_url)
                 logger.error(
                     f"[SyncWorker] Pull from {peer_base_url} failed: status={response.status} "
                     f"body={body[:200]} (backoff {backoff}s)"
                 )
-                await asyncio.sleep(backoff)
                 return
             else:
                 self._peer_fail_count[peer_base_url] = 0
+                self._peer_next_attempt.pop(peer_base_url, None)
                 try:
                     payload = await response.json()
                 except Exception as parse_err:
@@ -184,23 +223,40 @@ class SyncWorker:
                     events = []
                 else:
                     events = payload.get("events", [])
+                    remote_node_id = payload.get("node_id")
+                    remote_max_seq = payload.get("max_seq")
+        if isinstance(remote_max_seq, int) and pull_cursor > remote_max_seq:
+            # The peer's log is behind our cursor (purged/recreated): its sequence
+            # restarted. Re-pull from the start; ingest dedupes by event_id.
+            logger.warning(
+                f"[SyncWorker] {peer_base_url} max_seq={remote_max_seq} < cursor={pull_cursor}; resetting"
+            )
+            async with async_session_maker() as db:
+                await sync_service.set_cursor(
+                    db, peer_node_id=cursor_key, direction="pull_seq",
+                    logical_ts=0, allow_decrease=True,
+                )
+                await db.commit()
+            events = []
         # Ingest AFTER the response is drained and closed: no DB session spans HTTP.
         if events:
             async with async_session_maker() as db:
                 await sync_service.ingest_remote_events(
                     db,
+                    # lock on the peer's node id: the same key its pushes to us use
+                    peer_node_id=remote_node_id or cursor_key,
                     # write the pull cursor under the SAME key we read it with
-                    peer_node_id=cursor_key,
+                    cursor_key=cursor_key,
                     events=events,
                 )
                 await db.commit()
 
         # 2) Push local events to peer
         async with async_session_maker() as db:
-            push_cursor = await sync_service.get_cursor(db, cursor_key, "push")
+            push_cursor = await sync_service.get_cursor(db, cursor_key, "push_seq")
             local_events = await sync_service.pull_events(
                 db,
-                since_logical_ts=push_cursor,
+                since_seq=push_cursor,
                 limit=settings.SYNC_BATCH_SIZE,
                 project_public_id=project_public_id,
             )
@@ -231,18 +287,17 @@ class SyncWorker:
                 body = await response.text()
                 logger.error(f"[SyncWorker] Push to {peer_base_url} failed: status={push_status} body={body[:200]}")
             else:
-                latest = local_events[-1].logical_ts
                 try:
                     push_ack = await response.json()
                     min_deferred = push_ack.get("min_deferred_ts")
                 except Exception:
                     min_deferred = None  # old receiver: no deferral report
-                advance_to = _capped_push_cursor(latest, min_deferred)
+                advance_to = _capped_push_seq(local_events, min_deferred)
                 async with async_session_maker() as db:
                     await sync_service.set_cursor(
                         db,
                         peer_node_id=cursor_key,
-                        direction="push",
+                        direction="push_seq",
                         logical_ts=advance_to,
                     )
                     await db.commit()
