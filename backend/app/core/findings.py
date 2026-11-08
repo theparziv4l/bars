@@ -37,7 +37,7 @@ async def ingest_execution_findings(db: AsyncSession, execution: Execution, item
     Uses the item's optional ``finding_template`` (title/severity/cwe/remediation/...)
     for a good finding; else falls back to the item name + alert severity bucket.
     Deduped by (project_id, item_id, host_id, title) — repeat hits bump ``occurrences``
-    and escalate severity rather than spawning duplicates.
+    rather than spawning duplicates (severity is set on creation only).
     """
     alerts = execution.alerts_triggered or []
     if not alerts:
@@ -51,6 +51,12 @@ async def ingest_execution_findings(db: AsyncSession, execution: Execution, item
     created = 0
     seen: set[str] = set()
     touched: list = []
+
+    # One finding per title; it must carry the WORST alert, not the first in output
+    # order. Stable sort keeps output order among equal severities.
+    alerts = sorted(
+        alerts,
+        key=lambda a: -SEVERITY_ORDER[_severity(tmpl.get("severity") or a.get("severity"))])
 
     for alert in alerts:
         title = tmpl_title or (item.name or "Finding").strip()
@@ -77,8 +83,8 @@ async def ingest_execution_findings(db: AsyncSession, execution: Execution, item
             if matched:
                 existing.evidence_text = matched
             existing.updated_at = utcnow()
-            if SEVERITY_ORDER[severity] > SEVERITY_ORDER[existing.severity]:
-                existing.severity = severity
+            # Severity is only set on creation: the model has no "user-edited"
+            # marker, so re-runs must not raise a severity an operator lowered.
             touched.append(existing)
         else:
             new_finding = Finding(
