@@ -102,6 +102,43 @@ async def _multi_target_still_batches():
     assert seen.get("targets") == ["1.1.1.1", "2.2.2.2"], f"batch not split: {seen!r}"
 
 
+async def _unresolved_variable_fails_fast():
+    """A command with a dangling placeholder is FAILED and never sent to the agent."""
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    Session = async_sessionmaker(engine, expire_on_commit=False)
+    orch = TaskOrchestrator()
+    ran = []
+
+    async def _spy_subprocess(execution, context, item, db, timeout, output_callback=None, cwd=None):
+        ran.append(execution.command)
+        execution.exit_code = 0
+
+    orch._run_subprocess = _spy_subprocess
+
+    async with Session() as db:
+        project = Project(name="Engagement")
+        db.add(project)
+        await db.flush()
+        group = ChecklistGroup(project_id=project.id, name="G")
+        db.add(group)
+        await db.flush()
+        item = ChecklistItem(group_id=group.id, name="scan", command_template="nmap -iL {targets} {flag}")
+        db.add(item)
+        await db.flush()
+
+        execution = await orch.execute_item(db=db, item_id=item.id, variables={"targets": "10.0.0.5"})
+
+        assert not ran, f"command with unresolved variables reached the agent: {ran!r}"
+        assert execution.status == ExecutionStatus.FAILED, execution.status
+        assert execution.stderr == "Unresolved variables: {flag}", execution.stderr
+        assert execution.completed_at is not None
+        assert execution.id not in orch._running_tasks
+
+    await engine.dispose()
+
+
 def _unresolved_placeholders_are_reported():
     """An unbound variable stays visible instead of silently vanishing."""
     unresolved = []
@@ -128,7 +165,8 @@ def test_target_resolution():
     _unresolved_placeholders_are_reported()
     asyncio.run(_tag_resolution_survives_empty_targets())
     asyncio.run(_multi_target_still_batches())
-    print("PASS test_target_resolution: tag resolution + batching + unresolved reporting")
+    asyncio.run(_unresolved_variable_fails_fast())
+    print("PASS test_target_resolution: tag resolution + batching + unresolved reporting + fail-fast")
 
 
 if __name__ == "__main__":
