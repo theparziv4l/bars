@@ -14,7 +14,7 @@ import app.models  # noqa: F401
 from app.models.project import Project
 from app.models.checklist import ChecklistGroup, ChecklistItem
 from app.models.execution import Execution, ExecutionStatus
-from app.models.finding import Finding, FindingSeverity
+from app.models.finding import Finding, FindingSeverity, FindingStatus
 from app.core.findings import ingest_execution_findings
 from app.core.notifications import AlertSeverity, notification_manager
 
@@ -44,12 +44,23 @@ async def _findings():
                        {"severity": "critical", "matched_text": "VULNERABLE"}])
         assert f.severity == FindingSeverity.CRITICAL
 
-        # user lowers it; a re-run must not raise it back
+        # OPEN finding escalates on a later, worse run (and never lowers)
+        f.severity = FindingSeverity.INFO
+        await db.flush()
+        f = await run([{"severity": "warning", "matched_text": "Anonymous"}])
+        assert f.severity == FindingSeverity.MEDIUM
+        f = await run([{"severity": "info", "matched_text": "meh"}])
+        assert f.severity == FindingSeverity.MEDIUM
+        f = await run([{"severity": "critical", "matched_text": "VULNERABLE"}])
+        assert f.severity == FindingSeverity.CRITICAL
+
+        # triaged (non-OPEN) finding: operator lowered it, re-run must not touch severity
+        f.status = FindingStatus.ACCEPTED
         f.severity = FindingSeverity.LOW
         await db.flush()
         f = await run([{"severity": "critical", "matched_text": "VULNERABLE"}])
         assert f.severity == FindingSeverity.LOW
-        assert f.occurrences == 2
+        assert f.occurrences == 5
     await engine.dispose()
 
 

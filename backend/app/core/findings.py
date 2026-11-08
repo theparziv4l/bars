@@ -37,7 +37,8 @@ async def ingest_execution_findings(db: AsyncSession, execution: Execution, item
     Uses the item's optional ``finding_template`` (title/severity/cwe/remediation/...)
     for a good finding; else falls back to the item name + alert severity bucket.
     Deduped by (project_id, item_id, host_id, title) — repeat hits bump ``occurrences``
-    rather than spawning duplicates (severity is set on creation only).
+    rather than spawning duplicates. An existing finding's severity is only ever raised,
+    and only while its status is OPEN (triaged findings keep the operator's severity).
     """
     alerts = execution.alerts_triggered or []
     if not alerts:
@@ -83,8 +84,10 @@ async def ingest_execution_findings(db: AsyncSession, execution: Execution, item
             if matched:
                 existing.evidence_text = matched
             existing.updated_at = utcnow()
-            # Severity is only set on creation: the model has no "user-edited"
-            # marker, so re-runs must not raise a severity an operator lowered.
+            # Escalate only while still OPEN; once triaged, severity is the operator's.
+            if (existing.status == FindingStatus.OPEN
+                    and SEVERITY_ORDER[severity] > SEVERITY_ORDER[existing.severity]):
+                existing.severity = severity
             touched.append(existing)
         else:
             new_finding = Finding(
