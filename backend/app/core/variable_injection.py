@@ -11,7 +11,8 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.notifications import notification_manager
+from app.core.notifications import notification_manager, notify_after_commit
+from app.core.utils import is_unset
 from app.core.sync import project_variable_sync_payload, sync_service
 from app.models.checklist import ChecklistItem
 from app.models.execution import Execution
@@ -116,6 +117,9 @@ async def process_variable_injection(db: AsyncSession, execution: Execution, ite
             var_key = var_key.replace("{host_id}", str(execution.host_id))
 
         val = result_obj.value
+        # Extraction errors / empty values must not overwrite a good stored value.
+        if getattr(result_obj, "data_type", None) == "error" or is_unset(val):
+            continue
 
         # Logic: 
         # 1. ALWAYS valid global/project-wide variable (host_id=None)
@@ -159,9 +163,10 @@ async def process_variable_injection(db: AsyncSession, execution: Execution, ite
     if updates_to_notify:
         await db.flush()
 
+        # Deferred to the outer commit: awaiting listeners here would hold the write
+        # lock, and they couldn't see the uncommitted rows anyway.
         for vk in updates_to_notify:
-             await notification_manager.send_project_update(
-                 "variable_updated",
-                 project_id,
-                 {"key": vk, "host_id": execution.host_id}
-             )
+            notify_after_commit(
+                db, notification_manager.send_project_update,
+                "variable_updated", project_id,
+                {"key": vk, "host_id": execution.host_id})

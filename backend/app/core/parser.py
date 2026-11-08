@@ -4,6 +4,8 @@ import json
 from typing import Any, Dict, List, Optional, Tuple, Callable, Awaitable
 from dataclasses import dataclass, field
 
+from app.core.service_parser import strip_ansi
+
 
 @dataclass 
 class ParsedResult:
@@ -95,6 +97,8 @@ class OutputParser:
             Dict of key -> ParsedResult
         """
         results = {}
+        # User patterns see plain text; ANSI colour codes would break anchors like $.
+        clean_output = strip_ansi(output)
         
         for key, pattern in patterns.items():
             if pattern.startswith("cmd:"):
@@ -134,7 +138,10 @@ class OutputParser:
                             else:
                                 value = f"Extraction Failed: {stderr.decode('utf-8', errors='replace').strip()}"
                     
-                    data_type = self._infer_type(value)
+                    # A failed extraction is an error result, not a "string" value, so
+                    # variable injection can skip it instead of overwriting good values.
+                    data_type = ("error" if value.startswith("Extraction Failed:")
+                                 else self._infer_type(value))
                     results[key] = ParsedResult(
                         key=key,
                         value=value,
@@ -149,9 +156,13 @@ class OutputParser:
                     )
                 continue
 
-            # Regex extraction
-            compiled = self._get_pattern(pattern)
-            matches = compiled.findall(output)
+            # Regex extraction. One invalid user regex must only lose its own key.
+            try:
+                compiled = self._get_pattern(pattern)
+            except ValueError as e:
+                results[key] = ParsedResult(key=key, value=f"Error: {e}", data_type="error")
+                continue
+            matches = compiled.findall(clean_output)
             
             if not matches:
                 continue
@@ -284,7 +295,7 @@ class OutputParser:
         # Pattern for ls -la output
         # "-rw-r--r-- 1 user group 1234 Jan 20 10:00 filename"
         pattern = re.compile(
-            r"^([drwxlsS-]{10})\s+"  # Permissions
+            r"^([drwxlsS-]{10})[.+@]?\s+"  # Permissions (+ optional SELinux/ACL suffix)
             r"(\d+)\s+"               # Links
             r"(\S+)\s+"               # Owner
             r"(\S+)\s+"               # Group
