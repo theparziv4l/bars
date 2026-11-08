@@ -46,6 +46,25 @@ async def _reject_excluded_host(db: AsyncSession, host_id: Optional[int]) -> Non
         )
 
 
+async def _check_host_scope(
+    db: AsyncSession, host_id: Optional[int], item_project_id: Optional[int], user: Optional[User]
+) -> None:
+    """The host must be live and belong to the item's project (template items: the
+    caller must be a member of the host's project)."""
+    if not host_id:
+        return
+    row = (await db.execute(
+        select(Host.project_id).where(Host.id == host_id, Host.deleted_at.is_(None))
+    )).first()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Host not found")
+    if item_project_id is None:
+        from app.api.projects import _require_project_member
+        await _require_project_member(db, row[0], user)
+    elif row[0] != item_project_id:
+        raise HTTPException(status_code=400, detail="Host does not belong to the item's project")
+
+
 async def _project_for_item(db: AsyncSession, item_id: int) -> Optional[int]:
     """Project owning a checklist item (None when item/group missing)."""
     row = (await db.execute(
@@ -138,6 +157,7 @@ async def start_execution(
     if _start_pid is not None:
         from app.api.projects import _require_project_member
         await _require_project_member(db, _start_pid, current_user)
+    await _check_host_scope(db, data.host_id, _start_pid, current_user)
 
     if settings.CLAIMS_ENABLED and current_user is not None:
         try:
@@ -239,6 +259,7 @@ async def start_bulk_execution(
         _pid = await _project_for_item(db, _iid)
         if _pid is not None:
             await _require_project_member(db, _pid, current_user)
+        await _check_host_scope(db, data.host_id, _pid, current_user)
 
     executions = await task_orchestrator.execute_bulk(
         db=db,
