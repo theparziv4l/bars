@@ -295,6 +295,8 @@ async def import_library_variables(
             select(ProjectVariable)
             .where(ProjectVariable.project_id == project_id)
             .where(ProjectVariable.key == lib_var.key)
+            .where(ProjectVariable.host_id.is_(None))
+            .where(ProjectVariable.deleted_at.is_(None))
         )
         if ad_domain_id is not None:
             lookup = lookup.where(ProjectVariable.ad_domain_id == ad_domain_id)

@@ -805,6 +805,8 @@ async def create_project_variable(
         select(ProjectVariable)
         .where(ProjectVariable.project_id == project_id)
         .where(ProjectVariable.key == key)
+        .where(ProjectVariable.host_id.is_(None))
+        .where(ProjectVariable.deleted_at.is_(None))
     )
     if ad_domain_id is not None:
         lookup = lookup.where(ProjectVariable.ad_domain_id == ad_domain_id)
