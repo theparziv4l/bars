@@ -257,9 +257,46 @@ async def create_project(
     await db.flush()
     await db.refresh(project)
 
+    # Project event first so every later event (member, variables, domains,
+    # auto-imported groups/items) sorts after it for peers.
+    await sync_service.record_event(
+        db,
+        entity_type="projects",
+        entity_public_id=project.public_id,
+        operation="create",
+        payload={
+            "public_id": project.public_id,
+            "name": project.name,
+            "description": project.description,
+            "scope": project.scope,
+            "status": project.status.value,
+            "extra_data": project.extra_data,
+            "start_date": project.start_date.isoformat() if project.start_date else None,
+            "end_date": project.end_date.isoformat() if project.end_date else None,
+            "created_by_user_id": project.created_by_user_id,
+            "created_by_user_public_id": current_user.public_id if current_user else None,
+            "updated_at": project.updated_at.isoformat() if project.updated_at else None,
+            "deleted_at": project.deleted_at.isoformat() if project.deleted_at else None,
+        },
+    )
+
     if current_user:
-        db.add(ProjectMember(project_id=project.id, user_id=current_user.id))
-    
+        member = ProjectMember(project_id=project.id, user_id=current_user.id)
+        db.add(member)
+        await db.flush()
+        await sync_service.record_event(
+            db,
+            entity_type="project_members",
+            entity_public_id=member.public_id,
+            operation="create",
+            payload={
+                "public_id": member.public_id,
+                "project_public_id": project.public_id,
+                "user_public_id": current_user.public_id,
+                "deleted_at": None,
+            },
+        )
+
     # Auto-create start-date variable
     from app.models.variable import ProjectVariable
     start_date = data.start_date.isoformat() if data.start_date else project.created_at.isoformat()
@@ -307,6 +344,7 @@ async def create_project(
     # Create AD domains from request
     from app.models.ad_domain import ADDomain
     from app.core.project_setup import auto_import_for_project
+    from app.core.sync_payloads import ad_domain_sync_payload
     domain_ids = []
     for domain_name in (data.domains or []):
         domain_name = domain_name.strip()
@@ -321,11 +359,7 @@ async def create_project(
             entity_type="ad_domains",
             entity_public_id=ad_domain.public_id,
             operation="create",
-            payload={
-                "public_id": ad_domain.public_id,
-                "project_id": project.id,
-                "name": ad_domain.name,
-            },
+            payload=await ad_domain_sync_payload(db, ad_domain),
         )
 
     # Auto-import default library templates
@@ -334,26 +368,6 @@ async def create_project(
     except Exception as e:
         logger.error(f"[ProjectSetup] Auto-import failed: {e}")
 
-    await sync_service.record_event(
-        db,
-        entity_type="projects",
-        entity_public_id=project.public_id,
-        operation="create",
-        payload={
-            "public_id": project.public_id,
-            "name": project.name,
-            "description": project.description,
-            "scope": project.scope,
-            "status": project.status.value,
-            "extra_data": project.extra_data,
-            "start_date": project.start_date.isoformat() if project.start_date else None,
-            "end_date": project.end_date.isoformat() if project.end_date else None,
-            "created_by_user_id": project.created_by_user_id,
-            "created_by_user_public_id": current_user.public_id if current_user else None,
-            "updated_at": project.updated_at.isoformat() if project.updated_at else None,
-            "deleted_at": project.deleted_at.isoformat() if project.deleted_at else None,
-        },
-    )
     counts_map = await _get_project_counts(db, [project.id])
     return _project_to_response(project, counts=counts_map.get(project.id))
 
