@@ -301,17 +301,6 @@ async def _seed_default_admin():
             must_change_password=True,
         )
         session.add(admin)
-        await session.flush()
-        # Same event shape api/users.py emits on user creation, so peers get the admin.
-        from app.core.sync import sync_service
-        from app.api.users import _user_sync_payload
-        await sync_service.record_event(
-            session,
-            entity_type="users",
-            entity_public_id=admin.public_id,
-            operation="create",
-            payload=_user_sync_payload(admin),
-        )
         await session.commit()
         logger.info("Default admin account created (admin / admin). Password change required on first login.")
 

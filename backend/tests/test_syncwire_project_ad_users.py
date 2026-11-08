@@ -132,25 +132,3 @@ def test_ad_domain_api_events_carry_project_public_id():
                 assert d.deleted_at is not None
             await engine2.dispose()
     asyncio.run(run())
-
-
-def test_seed_default_admin_records_user_event_once():
-    async def run():
-        engine, maker = await _peer()
-        import app.database as dbmod
-        with patch.object(dbmod, "async_session_maker", maker):
-            await dbmod._seed_default_admin()
-            await dbmod._seed_default_admin()  # second boot: no new event
-        evs = [e for e in await _events(maker) if e.entity_type == "users"]
-        assert len(evs) == 1
-        e = evs[0]
-        assert e.operation == "create"
-        for k in ("public_id", "username", "email", "password_hash", "is_active",
-                  "role", "must_change_password", "updated_at"):
-            assert k in e.payload, k
-        assert e.payload["username"] == "admin" and e.payload["role"] == "admin"
-        async with maker() as db:
-            admin = (await db.execute(select(User))).scalars().one()
-            assert e.entity_public_id == admin.public_id == e.payload["public_id"]
-        await engine.dispose()
-    asyncio.run(run())
