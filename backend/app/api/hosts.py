@@ -4,6 +4,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, inspect as sa_inspect, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
 from app.core.auth import get_current_user_optional
@@ -29,6 +30,29 @@ from app.core import script_scanner
 from app.core.utils import utcnow
 
 router = APIRouter()
+
+
+def _dup_ip_error(ip: Optional[str]) -> HTTPException:
+    return HTTPException(
+        status_code=409,
+        detail=f"A host with IP address {ip} already exists in this project",
+    )
+
+
+async def _ensure_ip_free(db: AsyncSession, project_id: int, ip: Optional[str],
+                          exclude_id: Optional[int] = None) -> None:
+    """409 when a live host in the project already owns ``ip`` (unique index guard)."""
+    if not ip:
+        return
+    q = select(Host.id).where(
+        Host.project_id == project_id,
+        Host.ip_address == ip,
+        Host.deleted_at.is_(None),
+    )
+    if exclude_id is not None:
+        q = q.where(Host.id != exclude_id)
+    if (await db.execute(q.limit(1))).scalar_one_or_none() is not None:
+        raise _dup_ip_error(ip)
 
 
 def _like_escape(s: str) -> str:
@@ -246,9 +270,14 @@ async def create_host(
     from app.api.projects import _require_project_member
     await _require_project_member(db, data.project_id, current_user)
 
+    await _ensure_ip_free(db, data.project_id, data.ip_address)
     host = Host(**data.model_dump())
-    db.add(host)
-    await db.flush()
+    try:
+        async with db.begin_nested():
+            db.add(host)
+            await db.flush()
+    except IntegrityError as err:
+        raise _dup_ip_error(data.ip_address) from err
     await db.refresh(host)
     set_committed_value(host, 'services', [])
     set_committed_value(host, 'executions', [])
@@ -338,12 +367,20 @@ async def update_host(
     
     # Explicit null on a NOT NULL column would 500 at flush: ignore it.
     not_null = {"status", "extra_data", "tags", "excluded"}
-    for field, value in data.model_dump(exclude_unset=True).items():
+    changes = data.model_dump(exclude_unset=True)
+    new_ip = changes.get("ip_address")
+    if new_ip and new_ip != host.ip_address and host.deleted_at is None:
+        await _ensure_ip_free(db, host.project_id, new_ip, exclude_id=host.id)
+    for field, value in changes.items():
         if value is None and field in not_null:
             continue
         setattr(host, field, value)
-    
-    await db.flush()
+
+    try:
+        async with db.begin_nested():
+            await db.flush()
+    except IntegrityError as err:
+        raise _dup_ip_error(new_ip) from err
     await sync_service.record_event(
         db,
         entity_type="hosts",

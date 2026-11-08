@@ -261,13 +261,28 @@ async def start_bulk_execution(
             await _require_project_member(db, _pid, current_user)
         await _check_host_scope(db, data.host_id, _pid, current_user)
 
-    executions = await task_orchestrator.execute_bulk(
-        db=db,
-        item_ids=data.item_ids,
-        host_id=data.host_id,
-        variables=data.variables,
-        sequential=data.sequential
-    )
+    try:
+        executions = await task_orchestrator.execute_bulk(
+            db=db,
+            item_ids=data.item_ids,
+            host_id=data.host_id,
+            variables=data.variables,
+            sequential=data.sequential
+        )
+    except ValueError as err:
+        if "already active for item/host scope" in str(err):
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "reason": "duplicate_running_execution",
+                    "message": str(err),
+                    "item_ids": data.item_ids,
+                    "host_id": data.host_id,
+                },
+            ) from err
+        if "not found" in str(err):
+            raise HTTPException(status_code=404, detail=str(err)) from err
+        raise
     return {"executions": [_execution_to_response(e) for e in executions]}
 
 
