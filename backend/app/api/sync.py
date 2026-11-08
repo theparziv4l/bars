@@ -175,7 +175,7 @@ async def run_sync_now(
         if not project:
             raise HTTPException(status_code=404, detail="Project not found")
         project_public_id = project.public_id
-    await sync_worker.run_once(project_public_id=project_public_id)
+    await sync_worker.run_once(project_public_id=project_public_id, force=True)
     return {"ok": True, "message": "Sync completed", "project_public_id": project_public_id}
 
 

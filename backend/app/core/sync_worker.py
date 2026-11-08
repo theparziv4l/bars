@@ -38,6 +38,10 @@ class SyncWorker:
         self._stopped = asyncio.Event()
         self._session: aiohttp.ClientSession | None = None
         self._peer_fail_count: dict[str, int] = {}
+        # Monotonic time before which a failing peer is skipped. A per-peer timestamp
+        # (not a sleep inside the cycle) so one dead peer never delays the others or
+        # a manual /sync/run.
+        self._peer_next_attempt: dict[str, float] = {}
         self._max_backoff_seconds = 300
         self._last_db_peer_check: float = 0.0
         self._cached_db_peers: list[str] = []
@@ -103,18 +107,39 @@ class SyncWorker:
                 peers.append(u)
         return peers
 
-    async def run_once(self, project_public_id: str | None = None) -> bool:
-        """Run one full sync cycle. Returns True if peers were found."""
+    def _note_peer_failure(self, peer: str) -> float:
+        """Record a failure, schedule the next attempt, return the backoff seconds."""
+        fails = self._peer_fail_count.get(peer, 0) + 1
+        self._peer_fail_count[peer] = fails
+        backoff = min(
+            settings.SYNC_PULL_INTERVAL_SECONDS * (2 ** (fails - 1)),
+            self._max_backoff_seconds,
+        )
+        self._peer_next_attempt[peer] = time.monotonic() + backoff
+        return backoff
+
+    async def run_once(
+        self, project_public_id: str | None = None, force: bool = False
+    ) -> bool:
+        """Run one full sync cycle. Returns True if peers were found.
+
+        Peers still inside their failure backoff are skipped unless ``force`` (manual run).
+        """
         if not settings.SYNC_ENABLED:
             return False
         peers = await self._resolve_peers()
         if not peers:
             return False
         for peer in peers:
+            if not force and time.monotonic() < self._peer_next_attempt.get(peer, 0.0):
+                continue
             try:
                 await self._sync_peer(peer, project_public_id=project_public_id)
             except Exception as exc:
-                logger.error(f"[SyncWorker] Peer sync failed for {peer}: {exc}")
+                backoff = self._note_peer_failure(peer)
+                logger.error(
+                    f"[SyncWorker] Peer sync failed for {peer}: {exc} (backoff {backoff}s)"
+                )
         if settings.SYNC_EVENT_RETENTION_DAYS:
             try:
                 async with async_session_maker() as db:
@@ -162,19 +187,15 @@ class SyncWorker:
         async with session.get(pull_url, headers=self._peer_headers()) as response:
             if response.status != 200:
                 body = await response.text()
-                self._peer_fail_count[peer_base_url] = self._peer_fail_count.get(peer_base_url, 0) + 1
-                backoff = min(
-                    settings.SYNC_PULL_INTERVAL_SECONDS * (2 ** (self._peer_fail_count[peer_base_url] - 1)),
-                    self._max_backoff_seconds,
-                )
+                backoff = self._note_peer_failure(peer_base_url)
                 logger.error(
                     f"[SyncWorker] Pull from {peer_base_url} failed: status={response.status} "
                     f"body={body[:200]} (backoff {backoff}s)"
                 )
-                await asyncio.sleep(backoff)
                 return
             else:
                 self._peer_fail_count[peer_base_url] = 0
+                self._peer_next_attempt.pop(peer_base_url, None)
                 try:
                     payload = await response.json()
                 except Exception as parse_err:
