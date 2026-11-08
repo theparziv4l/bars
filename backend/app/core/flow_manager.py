@@ -8,7 +8,7 @@ import traceback
 from datetime import datetime
 from typing import Dict, Any, List, Optional, Tuple
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, text
+from sqlalchemy import select, text, or_
 from sqlalchemy.orm import selectinload
 
 logger = logging.getLogger(__name__)
@@ -67,6 +67,10 @@ def safe_eval_condition(expr: str) -> bool:
         raise ValueError(f"unsupported expression node: {type(n).__name__}")
 
     return bool(ev(tree.body))
+
+# Set by the orchestrator's batch code on batch parents/children; never flow context.
+_INTERNAL_BATCH_VARS = frozenset({"parent_execution_id", "is_batch_parent", "target_count"})
+
 
 def _unwrap_output_value(v):
     """Inner value of a parsed-output wrapper (mirrors orchestrator)."""
@@ -306,11 +310,28 @@ class FlowManager:
         await db.commit()
 
         if not pending_tasks:
-            # Every initial step was condition-skipped: nothing will fire a completion
-            # event to advance this flow, so finalize now instead of hanging "running".
-            logger.info("[FlowManager] No initial steps ran (all skipped). Finalizing flow.")
-            await self._finalize_flow_execution(db, flow_exec, "completed")
-            return flow_exec, started_executions
+            # Every initial step was skipped (condition/disabled): nothing will fire
+            # a completion event, so advance past the stage here (finalizes only
+            # when no later stage remains).
+            logger.info("[FlowManager] No initial steps ran (all skipped). Advancing to next stage.")
+            await self._advance_from_cursor(
+                db,
+                flow_execution_id=flow_execution_id,
+                flow=flow,
+                cursor_index=initial_order_index,
+                base_vars=base_vars,
+                execution_outputs={},
+                item_name_to_exe={},
+                latest_item_name_to_exe={},
+                flow_exec=flow_exec,
+                flow_host_id=host_id,
+                flow_targets=merged_targets,
+                flow_target=target,
+            )
+            advanced = (await db.execute(
+                select(Execution).where(Execution.flow_execution_id == flow_execution_id)
+            )).scalars().all()
+            return flow_exec, list(advanced)
 
         # Spawn background tasks
         for execution, step, step_vars, step_host_id in pending_tasks:
@@ -494,6 +515,44 @@ class FlowManager:
             logger.info(f"[FlowManager] Stage {next_index} fully skipped; advancing past it.")
             cursor_index = next_index
 
+    @staticmethod
+    async def _aggregate_batch_outputs(db: AsyncSession, parent_id: int) -> Dict[str, list]:
+        """Merge a batch parent's children parsed_output into {key: [values]}.
+
+        parent_execution_id is stored as a JSON integer (older rows may hold a
+        string), so match both. Children's parsed values are often lists
+        (mode "all"); flatten one level and drop duplicates, keeping order.
+        """
+        pid = Execution.variables_used["parent_execution_id"]
+        children = (await db.execute(
+            select(Execution).where(
+                or_(pid.as_integer() == parent_id, pid.as_string() == str(parent_id)),
+                Execution.deleted_at.is_(None),
+            ).order_by(Execution.id)
+        )).scalars().all()
+        agg: Dict[str, list] = {}
+        for child in children:
+            for k, v in (child.parsed_output or {}).items():
+                bucket = agg.setdefault(k, [])
+                inner = _unwrap_output_value(v)
+                for item in (inner if isinstance(inner, list) else [inner]):
+                    if item not in bucket:
+                        bucket.append(item)
+        return agg
+
+    @staticmethod
+    def _merge_stage_vars(base_vars: Dict[str, Any], variables: Optional[Dict[str, Any]]) -> bool:
+        """Merge an execution's variables into the flow context, minus orchestrator
+        bookkeeping. Batch children (single-target rows) are skipped entirely so
+        one child's target can't leak into later stages. Returns False if skipped."""
+        variables = variables or {}
+        if "parent_execution_id" in variables:
+            return False
+        merge_set_values(base_vars, {
+            k: v for k, v in variables.items() if k not in _INTERNAL_BATCH_VARS
+        })
+        return True
+
     async def _schedule_next_steps_locked(self, db: AsyncSession, flow_execution_id: str, last_execution: Execution):
         # Load FlowExecution record
         fe_result = await db.execute(
@@ -595,15 +654,7 @@ class FlowManager:
         # Batch parent: aggregate children parsed_output
         for exc in current_stage_execs:
             if (exc.variables_used or {}).get("is_batch_parent"):
-                child_q = select(Execution).where(
-                    Execution.variables_used["parent_execution_id"].as_string() == str(exc.id)
-                )
-                children = (await db.execute(child_q)).scalars().all()
-                agg: Dict[str, list] = {}
-                for child in children:
-                    if child.parsed_output:
-                        for k, v in child.parsed_output.items():
-                            agg.setdefault(k, []).append(_unwrap_output_value(v))
+                agg = await self._aggregate_batch_outputs(db, exc.id)
                 if agg:
                     key = exc.flow_step_index if exc.flow_step_index is not None else exc.id
                     execution_outputs[f"step_{key}"] = agg
@@ -637,7 +688,7 @@ class FlowManager:
             min_idx = min(valid_indices)
             # C6: merge ALL initial-stage siblings' variables, not just the first one.
             for e in (ex for ex in executions if ex.flow_step_index == min_idx):
-                merge_set_values(base_vars, e.variables_used)
+                self._merge_stage_vars(base_vars, e.variables_used)
         base_vars["flow_id"] = flow_id
 
         # Re-inject flow-level targets from FlowExecution

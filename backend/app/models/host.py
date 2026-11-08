@@ -10,6 +10,7 @@ from sqlalchemy import (
     Integer,
     ForeignKey,
     Index,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -43,6 +44,15 @@ class Host(Base):
             "ix_hosts_project_ip",
             "project_id",
             "ip_address",
+        ),
+        # One live host per (project, ip): concurrent discovery otherwise
+        # inserts duplicates. Mirrored by a startup migration in database.py.
+        Index(
+            "ux_hosts_project_ip_live",
+            "project_id",
+            "ip_address",
+            unique=True,
+            sqlite_where=text("deleted_at IS NULL AND ip_address IS NOT NULL"),
         ),
     )
     

@@ -1,4 +1,5 @@
-"""Restart sweep leaves PENDING queued, cancels RUNNING, emits sync events."""
+"""Restart sweep cancels local PENDING/RUNNING executions and live flow runs,
+leaves peer-originated rows alone, emits sync events for swept rows."""
 import asyncio
 import os
 import sys
@@ -13,6 +14,8 @@ from app.database import Base
 import app.models  # noqa: F401
 from app.models.checklist import ChecklistGroup, ChecklistItem
 from app.models.execution import Execution, ExecutionStatus
+from app.models.flow import Flow
+from app.models.flow_execution import FlowExecution
 from app.models.project import Project
 from app.models.sync import SyncEvent
 
@@ -31,7 +34,17 @@ async def _run():
                          status=ExecutionStatus.PENDING)
         run = Execution(public_id="ex-run", item_id=item.id, command="true",
                         status=ExecutionStatus.RUNNING, started_at=datetime.utcnow())
-        db.add_all([pend, run]); await db.commit()
+        # Peer-originated RUNNING row: earliest recorded event is from a peer.
+        peer = Execution(public_id="ex-peer", item_id=item.id, command="true",
+                         status=ExecutionStatus.RUNNING, started_at=datetime.utcnow())
+        db.add_all([pend, run, peer]); await db.flush()
+        db.add(SyncEvent(event_id="ev-peer", entity_type="executions",
+                         entity_public_id="ex-peer", operation="create",
+                         payload={}, logical_ts=1, source_node_id="peer-node"))
+        flow = Flow(name="F"); db.add(flow); await db.flush()
+        fl = {s: FlowExecution(flow_id=flow.id, status=s)
+              for s in ("running", "pending", "paused", "completed")}
+        db.add_all(fl.values()); await db.commit()
 
         from app.main import _cleanup_orphan_executions
         maker = async_sessionmaker(engine, expire_on_commit=False)
@@ -39,18 +52,24 @@ async def _run():
         db.expire_all()  # sweep committed via another session; drop identity-map cache
 
         st = {e.public_id: e.status for e in (await db.execute(select(Execution))).scalars()}
-        assert st["ex-pend"] == ExecutionStatus.PENDING, f"PENDING must stay queued: {st}"
+        assert st["ex-pend"] == ExecutionStatus.CANCELLED, f"PENDING must be swept: {st}"
+        assert st["ex-peer"] == ExecutionStatus.RUNNING, f"peer row must be untouched: {st}"
         assert st["ex-run"] == ExecutionStatus.CANCELLED, f"RUNNING must cancel: {st}"
         n = (await db.execute(select(func.count()).select_from(SyncEvent).where(
             SyncEvent.entity_type == "executions"))).scalar()
-        assert n == 1, f"one sync event for the swept run, got {n}"
+        assert n == 3, f"2 swept local rows + 1 peer create event, got {n}"
+        fst = {x.id: x.status for x in (await db.execute(select(FlowExecution))).scalars()}
+        assert fst[fl["running"].id] == "cancelled", fst
+        assert fst[fl["pending"].id] == "cancelled", fst
+        assert fst[fl["paused"].id] == "paused", fst
+        assert fst[fl["completed"].id] == "completed", fst
     await engine.dispose()
     print("PASS sweep")
 
 
-def test_restart_sweep_running_only_with_event():
+def test_restart_sweep_local_active_with_event():
     asyncio.run(_run())
 
 
 if __name__ == "__main__":
-    test_restart_sweep_running_only_with_event()
+    test_restart_sweep_local_active_with_event()
