@@ -7,11 +7,11 @@ import signal
 import uuid
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, text, inspect as sa_inspect
+from sqlalchemy import func, select, text, inspect as sa_inspect
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import selectinload
 
@@ -21,7 +21,7 @@ from app.models.checklist import ChecklistItem, ChecklistGroup
 from app.models.flow import Flow
 from app.core.parser import output_parser
 from app.core.templating import template_engine
-from app.core.notifications import notification_manager
+from app.core.notifications import notification_manager, notify_after_commit
 from app.core.host_runner import host_runner
 from app.core.utils import is_unset, as_target_list, excluded_targets, utcnow
 from app.core.sync import (
@@ -150,11 +150,29 @@ class TaskContext:
     """Context for a running task."""
     execution_id: int
     process: Optional[asyncio.subprocess.Process] = None
-    stdout_buffer: str = ""
-    stderr_buffer: str = ""
+    # Chunk lists: appending is O(1); `x += text` on a str re-copies the whole buffer per
+    # line (O(n^2) on the event loop for large outputs). Readers use the joined properties.
+    stdout_parts: List[str] = field(default_factory=list)
+    stderr_parts: List[str] = field(default_factory=list)
     cancelled: bool = False
     started_at: Optional[datetime] = None
     parent_execution_id: Optional[int] = None
+
+    @property
+    def stdout_buffer(self) -> str:
+        return "".join(self.stdout_parts)
+
+    @stdout_buffer.setter
+    def stdout_buffer(self, value: str) -> None:
+        self.stdout_parts = [value] if value else []
+
+    @property
+    def stderr_buffer(self) -> str:
+        return "".join(self.stderr_parts)
+
+    @stderr_buffer.setter
+    def stderr_buffer(self, value: str) -> None:
+        self.stderr_parts = [value] if value else []
 
 
 class TaskOrchestrator:
@@ -191,10 +209,7 @@ class TaskOrchestrator:
         result = await db.execute(
             select(ChecklistItem)
             .where(ChecklistItem.id == item_id)
-            .options(
-                selectinload(ChecklistItem.group),
-                selectinload(ChecklistItem.executions),
-            )
+            .options(selectinload(ChecklistItem.group))
         )
         item = result.scalar_one_or_none()
         if not item:
@@ -217,7 +232,7 @@ class TaskOrchestrator:
             if existing_id:
                 raise ValueError(f"Execution already active for item/host scope: {existing_id}")
 
-            version = item.next_version
+            version = await self._next_version(db, item_id)
 
             # Create execution with PENDING status
             execution = Execution(
@@ -231,15 +246,27 @@ class TaskOrchestrator:
             db.add(execution)
             await db.flush()
         
-        # Send initial status notification
-        await notification_manager.send_execution_status(
-            execution.id, 
-            "pending", 
+        # Send the initial status notification once the caller commits: awaiting WS
+        # fan-out here would hold the write txn open, and listeners that look the row
+        # up in their own session can't see it before the commit anyway.
+        notify_after_commit(
+            db,
+            notification_manager.send_execution_status,
+            execution.id,
+            "pending",
             details={"item_name": item.name},
-            item_id=item_id
+            item_id=item_id,
         )
-        
+
         return execution
+
+    @staticmethod
+    async def _next_version(db: AsyncSession, item_id: int) -> int:
+        """Next execution version for an item without loading past executions."""
+        latest = (await db.execute(
+            select(func.max(Execution.version)).where(Execution.item_id == item_id)
+        )).scalar_one_or_none()
+        return (latest or 0) + 1
     
     async def _fail_execution(self, execution_id: int, item_id: int, message: str) -> None:
         """Mark a pre-created execution FAILED without ever launching a command."""
@@ -263,15 +290,18 @@ class TaskOrchestrator:
         except Exception as e:
             logger.error(f"[Orchestrator] Failed to record refusal for {execution_id}: {e}")
 
-    async def run_execution_background(
-        self, execution_id: int, item_id: int, host_id: Optional[int] = None,
-        variables: Optional[Dict[str, Any]] = None,
-        flow_execution_id: Optional[str] = None, flow_step_index: Optional[int] = None,
-        command_override: Optional[str] = None
-    ):
-        """Run execution in background with its own database session."""
+    async def _preflight(
+        self, execution_id: int, item_id: int, host_id: Optional[int],
+        variables: Optional[Dict[str, Any]], command_override: Optional[str],
+    ) -> Optional[tuple]:
+        """Scope/ROE guards and target normalisation shared by every entry point.
+
+        Returns ``(variables, targets_list)`` — a non-empty ``targets_list`` of length
+        > 1 means "run iterative batch" — or ``None`` when the execution was refused
+        (already marked FAILED via ``_fail_execution``).
+        """
         from app.database import async_session_maker
-        
+
         # Drop keys whose value carries nothing ("" / [] / {} / None). The UI submits the
         # item's declared variable defaults verbatim, so a declared-but-empty key would
         # otherwise satisfy every ``"x" in variables`` guard below and suppress target
@@ -391,7 +421,36 @@ class TaskOrchestrator:
             
             # SUPPRESS Iterative Batching by clearing the trigger list
             targets_list = []
-        
+
+        return variables, targets_list
+
+    async def run_execution_background(
+        self, execution_id: int, item_id: int, host_id: Optional[int] = None,
+        variables: Optional[Dict[str, Any]] = None,
+        flow_execution_id: Optional[str] = None, flow_step_index: Optional[int] = None,
+        command_override: Optional[str] = None,
+        execution_outputs: Optional[Dict[int, Dict[str, Any]]] = None,
+    ):
+        """Run execution in background with its own database session."""
+        from app.database import async_session_maker
+
+        # Any DB/logic error in the pre-flight must not leave the row PENDING forever
+        # (the item would 409 and a flow waiting on it would hang).
+        try:
+            preflight = await self._preflight(
+                execution_id, item_id, host_id, variables, command_override
+            )
+        except Exception as e:
+            logger.error(f"[Orchestrator] Pre-flight failed for execution {execution_id}: {e}",
+                         exc_info=True)
+            await self._fail_execution(
+                execution_id, item_id, f"Pre-flight error: {e}"
+            )
+            return
+        if preflight is None:
+            return
+        variables, targets_list = preflight
+
         # If we have multiple targets, run in Iterative Mode (Batch)
         if len(targets_list) > 1:
             await self._run_batch_execution(
@@ -416,7 +475,8 @@ class TaskOrchestrator:
                     flow_step_index=flow_step_index,
                     execution_id_override=execution_id,  # Use the pre-created execution
                     # RUNNING is committed inside execute_item before streaming
-                    command_override=command_override
+                    command_override=command_override,
+                    execution_outputs=execution_outputs,
                 )
                 await db.commit()
             except Exception as e:
@@ -579,12 +639,19 @@ class TaskOrchestrator:
                         async with async_session_maker() as child_db:
                             target_host_id = None
                             if project_id:
-                                stmt = select(Host).where(
-                                    Host.project_id == project_id,
-                                    Host.ip_address == target,
+                                # Never bind a soft-deleted host; tolerate duplicate live
+                                # rows (oldest wins) instead of MultipleResultsFound.
+                                stmt = (
+                                    select(Host)
+                                    .where(
+                                        Host.project_id == project_id,
+                                        Host.ip_address == target,
+                                        Host.deleted_at.is_(None),
+                                    )
+                                    .order_by(Host.id)
                                 )
                                 result = await child_db.execute(stmt)
-                                existing_host = result.scalar_one_or_none()
+                                existing_host = result.scalars().first()
 
                                 if existing_host:
                                     target_host_id = existing_host.id
@@ -612,7 +679,10 @@ class TaskOrchestrator:
                                     except Exception as e:
                                         logger.error(f"[Orchestrator] Sync record (batch host) failed: {e}")
 
-                                    await notification_manager.send_project_update(
+                                    # After commit: not while this txn holds the write lock.
+                                    notify_after_commit(
+                                        child_db,
+                                        notification_manager.send_project_update,
                                         "host_created",
                                         project_id,
                                         {"ip_address": target, "id": target_host_id},
@@ -629,18 +699,24 @@ class TaskOrchestrator:
                                 exclude_execution_id=execution_id,  # ignore the running batch parent
                             )
 
-                            completed_exec = await self.execute_item(
-                                db=child_db,
-                                item_id=item_id,
-                                host_id=target_host_id,
-                                variables=child_vars,
-                                execution_id_override=child_exec.id,
-                                # RUNNING committed inside execute_item
-                                command_override=command_override,
-                            )
+                            if context.cancelled:
+                                # Cancel landed while this child was still in setup (not
+                                # yet in _running_tasks, so cancel_execution couldn't flag
+                                # it). Nothing was committed: drop the half-made rows.
+                                await child_db.rollback()
+                            else:
+                                completed_exec = await self.execute_item(
+                                    db=child_db,
+                                    item_id=item_id,
+                                    host_id=target_host_id,
+                                    variables=child_vars,
+                                    execution_id_override=child_exec.id,
+                                    # RUNNING committed inside execute_item
+                                    command_override=command_override,
+                                )
 
-                            if completed_exec.status == ExecutionStatus.COMPLETED:
-                                child_succeeded = True
+                                if completed_exec.status == ExecutionStatus.COMPLETED:
+                                    child_succeeded = True
 
                     except Exception as e:
                         logger.error(f"[Batch] Child execution failed for {target}: {e}")
@@ -978,7 +1054,13 @@ class TaskOrchestrator:
                 .join(Execution)
                 .join(ChecklistItem)
                 .join(ChecklistGroup)
-                .where(ChecklistGroup.project_id == project_id)
+                .where(
+                    ChecklistGroup.project_id == project_id,
+                    Execution.deleted_at.is_(None),
+                )
+                # Oldest first, so the newest run overwrites below (no ORDER BY used to
+                # make the *oldest* row win, and soft-deleted runs counted).
+                .order_by(Execution.created_at, Execution.id, ExecutionOutput.id)
             )
 
             if host_id:
@@ -987,17 +1069,25 @@ class TaskOrchestrator:
                 out_stmt = out_stmt.where(Execution.host_id.is_(None))
 
             ex_outputs = await db.execute(out_stmt)
+            from_outputs: set = set()  # global keys filled by a stored output (not the caller)
+            alias_written: set = set()
             for output, exec_id, exec_item_id, exec_item_name in ex_outputs.all():
                 typed = output.get_typed_value()
-                # Global namespace: only fill keys the caller did NOT already provide, so
+                # Global namespace: never override a key the caller already provided, so
                 # a stale stored output can't silently override an operator-supplied
-                # {target}/{port} for this run. Namespaced {item_id.key} stays authoritative.
-                variables.setdefault(output.key, typed)
+                # {target}/{port} for this run; among stored outputs the latest wins.
+                # Namespaced {item_id.key} stays authoritative.
+                if output.key not in variables or output.key in from_outputs:
+                    variables[output.key] = typed
+                    from_outputs.add(output.key)
                 # Key by execution id — that is what templating.py resolves {12.key} against
                 # (and what flow_manager passes). The item-id alias is kept so templates
                 # written against the older numbering keep working.
                 execution_outputs.setdefault(exec_id, {})[output.key] = typed
-                execution_outputs.setdefault(exec_item_id, {}).setdefault(output.key, typed)
+                alias = execution_outputs.setdefault(exec_item_id, {})
+                if output.key not in alias or (exec_item_id, output.key) in alias_written:
+                    alias[output.key] = typed
+                    alias_written.add((exec_item_id, output.key))
                 # {Item Name.key} / {latest:Item Name.key}: newest execution per item name wins.
                 if exec_item_name and exec_id >= item_name_to_execution.get(exec_item_name, 0):
                     item_name_to_execution[exec_item_name] = exec_id
@@ -1033,8 +1123,9 @@ class TaskOrchestrator:
 
 
         # Prepare arguments based on schema (File vs String enforcement)
-        version = item.next_version
-        
+        # Only needed when this call creates the record itself.
+        version = 1 if execution_id_override else await self._next_version(db, item_id)
+
         # We need the execution ID for unique filenames, but execution is created after command is rendered?
         # Actually execution needs command to be created.
         # So we'll use a placeholder or pre-generate ID logic? OR just use randomness.
@@ -1074,6 +1165,14 @@ class TaskOrchestrator:
             execution = result.scalar_one_or_none()
             if not execution:
                 raise ValueError(f"Execution {execution_id_override} not found")
+            if execution.status not in (ExecutionStatus.PENDING, ExecutionStatus.RUNNING):
+                # Cancelled (or otherwise finished) in the DB while queued — a DB-only
+                # cancel must not be resurrected into a run.
+                logger.info(
+                    f"[Orchestrator] Execution {execution.id} is already "
+                    f"{execution.status.value}; not running it"
+                )
+                return execution
             # Update the existing record
             execution.variables_used = variables
         else:
@@ -1085,90 +1184,138 @@ class TaskOrchestrator:
             db.add(execution)
             await db.flush()  # Get ID
         
-        # Prepare variables using COMBINED schema
-        prepared_vars = await self._prepare_command_arguments(variables, combined_schema, execution.id)
-        
-        # Render command with PREPARED variables (paths replaced)
-        # Use override if provided, else use item template
-        template_str = command_override if command_override else item.command_template
-        
-        if not template_str:
-             # Fallback or error?
-             template_str = ""
-             
-        unresolved: List[str] = []
-        command = template_engine.render(
-            template_str,
-            variables=prepared_vars,
-            execution_outputs=execution_outputs,
-            item_name_to_execution=item_name_to_execution,
-            latest_item_name_to_execution=item_name_to_execution,
-            unresolved=unresolved,
-            shell=True,  # host_agent runs this via sh; passwords may hold $ ! ' " ` ;
-        )
-
-        execution.command = command
-        # Update variables_used to show resolved values? Or keep original?
-        # Keeping original in variables_used is better for audit, but maybe store effective in logs.
-
-        # execution already added
-
         context = TaskContext(
             execution_id=execution.id,
             parent_execution_id=(variables or {}).get("parent_execution_id"),
         )
-        if unresolved:
-            # A visible warning beats a command that quietly runs with a dangling flag.
-            # Primed on the buffer (not execution.stderr) because _run_subprocess assigns
-            # execution.stderr = context.stderr_buffer when the run finishes.
-            note = f"Unresolved variables: {', '.join(unresolved)}"
-            logger.info(f"[Orchestrator] {note} (execution {execution.id})")
-            context.stderr_buffer = f"[Warning] {note}\n"
-            execution.stderr = context.stderr_buffer
-        async with self._lock:
-            self._running_tasks[execution.id] = context
-
-        # Set RUNNING and persist before acquiring semaphore so the UI updates even when
-        # we are queued behind other executions (avoids executions stuck in PENDING).
-        execution.status = ExecutionStatus.RUNNING
-        execution.started_at = utcnow()
-
-        # Always commit RUNNING before the agent stream starts: holding a write
-        # txn across an hours-long SSE stream would serialize all WAL writers.
-        await db.commit()
-        await db.refresh(execution)
-
+        # Everything between creating temp files / registering the context and handing
+        # over to the run's own try/finally below must clean up after itself: an
+        # exception here used to leak the _running_tasks entry (GET /running listed it,
+        # cancel returned True) and the temp files.
         try:
-            payload = await execution_sync_payload(db, execution)
-            await sync_service.record_event(
-                db,
-                entity_type="executions",
-                entity_public_id=execution.public_id,
-                operation="update",
-                payload=payload,
+            # Prepare variables using COMBINED schema
+            prepared_vars = await self._prepare_command_arguments(variables, combined_schema, execution.id)
+
+            # Render command with PREPARED variables (paths replaced)
+            # Use override if provided, else use item template
+            template_str = command_override if command_override else item.command_template
+
+            if not template_str:
+                template_str = ""
+
+            unresolved: List[str] = []
+            command = template_engine.render(
+                template_str,
+                variables=prepared_vars,
+                execution_outputs=execution_outputs,
+                item_name_to_execution=item_name_to_execution,
+                latest_item_name_to_execution=item_name_to_execution,
+                unresolved=unresolved,
+                shell=True,  # host_agent runs this via sh; passwords may hold $ ! ' " ` ;
             )
+
+            execution.command = command
+            # Keeping the original variables in variables_used is better for audit.
+
+            if unresolved:
+                # Fail fast: a command with a dangling placeholder (`nmap -iL {targets}`)
+                # is never what the operator meant, so it must not reach the agent.
+                note = f"Unresolved variables: {', '.join(unresolved)}"
+                logger.info(f"[Orchestrator] {note} (execution {execution.id}); not running it")
+                now = utcnow()
+                execution.status = ExecutionStatus.FAILED
+                execution.stderr = note
+                execution.exit_code = -1
+                execution.started_at = execution.started_at or now
+                execution.completed_at = now
+                await db.commit()
+                await db.refresh(execution)
+                try:
+                    payload = await execution_sync_payload(db, execution)
+                    await sync_service.record_event(
+                        db,
+                        entity_type="executions",
+                        entity_public_id=execution.public_id,
+                        operation="update",
+                        payload=payload,
+                    )
+                    await db.commit()
+                except Exception as e:
+                    logger.error(f"[Orchestrator] Sync record (unresolved) failed: {e}")
+                await self._cleanup_temp_files(execution.id)
+                await notification_manager.send_execution_status(
+                    execution.id,
+                    "failed",
+                    details={"exit_code": -1, "error": note},
+                    item_id=item_id,
+                )
+                return execution
+
+            async with self._lock:
+                self._running_tasks[execution.id] = context
+
+            # A DB-only cancel (stale path, flow stop, cancel-batch on PENDING rows) may
+            # have landed while we were resolving variables: don't flip it to RUNNING.
+            try:
+                with db.no_autoflush:
+                    await db.refresh(execution, attribute_names=["status"])
+            except Exception as e:
+                logger.warning(f"[Orchestrator] Status re-check failed for {execution.id}: {e}")
+            if execution.status == ExecutionStatus.CANCELLED:
+                logger.info(f"[Orchestrator] Execution {execution.id} cancelled before start")
+                async with self._lock:
+                    self._running_tasks.pop(execution.id, None)
+                await self._cleanup_temp_files(execution.id)
+                await db.commit()
+                return execution
+
+            # Set RUNNING and persist before acquiring semaphore so the UI updates even when
+            # we are queued behind other executions (avoids executions stuck in PENDING).
+            execution.status = ExecutionStatus.RUNNING
+            execution.started_at = utcnow()
+
+            # Always commit RUNNING before the agent stream starts: holding a write
+            # txn across an hours-long SSE stream would serialize all WAL writers.
             await db.commit()
-        except Exception as e:
-            logger.error(f"[Orchestrator] Sync record (running) failed: {e}")
+            await db.refresh(execution)
 
-        await notification_manager.send_execution_status(
-            execution.id,
-            "running",
-            details={"command": command},
-            item_id=item_id
-        )
+            try:
+                payload = await execution_sync_payload(db, execution)
+                await sync_service.record_event(
+                    db,
+                    entity_type="executions",
+                    entity_public_id=execution.public_id,
+                    operation="update",
+                    payload=payload,
+                )
+                await db.commit()
+            except Exception as e:
+                logger.error(f"[Orchestrator] Sync record (running) failed: {e}")
 
-        # Determine CWD before entering semaphore (used by _run_subprocess)
-        cwd = None
-        if item.group and item.group.project:
-            from app.core.utils import resolve_project_path
-            cwd = resolve_project_path(item.group.project)
+            await notification_manager.send_execution_status(
+                execution.id,
+                "running",
+                details={"command": command},
+                item_id=item_id
+            )
+
+            # Determine CWD before entering semaphore (used by _run_subprocess)
+            cwd = None
+            if item.group and item.group.project:
+                from app.core.utils import resolve_project_path
+                cwd = resolve_project_path(item.group.project)
+        except BaseException:
+            async with self._lock:
+                self._running_tasks.pop(execution.id, None)
+            await self._cleanup_temp_files(execution.id)
+            raise
 
         try:
             async with self._semaphore:
                 await self._run_subprocess(execution, context, item, db, item.timeout, output_callback, cwd=cwd)
         except asyncio.CancelledError:
             execution.status = ExecutionStatus.CANCELLED
+            raise  # finalize below still runs; swallowing it would break task cancellation
         except asyncio.TimeoutError:
             execution.status = ExecutionStatus.TIMEOUT
         except Exception as e:
@@ -1176,7 +1323,27 @@ class TaskOrchestrator:
             execution.stderr = (execution.stderr or "") + f"\nError: {str(e)}"
         finally:
             try:
-                execution.completed_at = utcnow()
+                # The row may have been cancelled in the DB only (pause, flow stop, stale
+                # path) while we ran. Re-read it so finalize never downgrades CANCELLED to
+                # COMPLETED/FAILED, and keep the canceller's completed_at — a later
+                # timestamp makes flow_manager treat this old row as the live stage run.
+                local_status, local_completed = execution.status, execution.completed_at
+                db_cancelled_at = None
+                db_cancelled = False
+                try:
+                    with db.no_autoflush:
+                        await db.refresh(execution, attribute_names=["status", "completed_at"])
+                    db_cancelled = execution.status == ExecutionStatus.CANCELLED
+                    db_cancelled_at = execution.completed_at
+                except Exception as e:
+                    logger.warning(f"[Orchestrator] Status re-read failed for {execution.id}: {e}")
+                execution.status, execution.completed_at = local_status, local_completed
+
+                if db_cancelled:
+                    execution.status = ExecutionStatus.CANCELLED
+                    execution.completed_at = db_cancelled_at or utcnow()
+                else:
+                    execution.completed_at = utcnow()
                 if execution.status == ExecutionStatus.RUNNING:
                     # User cancel breaks the stream without raising CancelledError, and the
                     # agent reports timeouts via a "[Timeout]" stderr marker + exit -1.
@@ -1210,23 +1377,46 @@ class TaskOrchestrator:
                     for _k, _v in _terminal.items():
                         setattr(execution, _k, _v)
 
+                # Persist the terminal state now, in its own short txn: nothing below may
+                # hold the SQLite write lock across agent HTTP calls (`cmd:` extractors).
+                try:
+                    await db.commit()
+                except Exception as e:
+                    logger.error(f"[Orchestrator] Early terminal commit failed (retried below): {e}")
+
                 # Enrichment blocks run in savepoints: a failure rolls back ONLY
                 # its own block, then _reaffirm_execution() restores `execution`.
                 parsed = {}
+                parse_ok = False
                 if execution.stdout and item.output_regex:
+                    # Extraction (incl. `cmd:` extractors on the agent, up to 60 s each)
+                    # touches no DB state, so it runs before any savepoint/flush opens a
+                    # write txn.
+                    stdout_text = execution.stdout
+
+                    async def executor_wrapper(cmd: str, cwd: Optional[str]) -> Dict[str, Any]:
+                        # The execution output goes to the extractor's stdin.
+                        return await host_runner.execute_sync(cmd, cwd=cwd, stdin=stdout_text)
+
+                    try:
+                        parsed = await output_parser.parse_output(
+                            stdout_text,
+                            item.output_regex,
+                            cwd=cwd,
+                            command_executor=executor_wrapper,
+                        )
+                        execution.parsed_output = output_parser.to_json(parsed)
+                        # Refresh the snapshot: a later savepoint failure re-applies it, and
+                        # the stale (pre-parse) value would wipe parsed_output.
+                        _terminal["parsed_output"] = execution.parsed_output
+                        _terminal["alerts_triggered"] = execution.alerts_triggered
+                        parse_ok = True
+                    except Exception as e:
+                        logger.error(f"[Orchestrator] Output parse failed (non-critical): {e}")
+                        parsed = {}
+                if parse_ok:
                     try:
                         async with db.begin_nested():
-                            # Use HostRunner for command extraction
-                            async def executor_wrapper(cmd: str, cwd: Optional[str]) -> Dict[str, Any]:
-                                return await host_runner.execute_sync(cmd, cwd=cwd)
-
-                            parsed = await output_parser.parse_output(
-                                execution.stdout,
-                                item.output_regex,
-                                cwd=cwd,
-                                command_executor=executor_wrapper,
-                            )
-                            execution.parsed_output = output_parser.to_json(parsed)
                             for key, res in parsed.items():
                                 import json
                                 stored_value = res.value
@@ -1240,7 +1430,7 @@ class TaskOrchestrator:
                             # Variable Injection requires parsed output
                             await self._process_variable_injection(db, execution, item, parsed)
                     except Exception as e:
-                        logger.error(f"[Orchestrator] Output parse/injection failed (non-critical): {e}")
+                        logger.error(f"[Orchestrator] Output injection failed (non-critical): {e}")
                         _reaffirm_execution()
 
                 if execution.stdout:
@@ -1324,32 +1514,32 @@ class TaskOrchestrator:
             finally:
                 # Clean up temp files (inner finally: runs even when
                 # finalize above raises).
-                try:
-                    import os
-                    import glob
+                await self._cleanup_temp_files(execution.id)
 
-                    temp_dir = settings.STORAGE_PATH / "tmp"
-                    temp_dir_str = str(temp_dir)
-
-                    batch_file = os.path.join(
-                        temp_dir_str, f"batch_{execution.id}_targets.txt"
-                    )
-                    if await asyncio.to_thread(os.path.exists, batch_file):
-                        await asyncio.to_thread(os.remove, batch_file)
-                        logger.info(f"[Orchestrator] Cleaned up batch file: {batch_file}")
-
-                    pattern_str = os.path.join(temp_dir_str, f"exec_{execution.id}_*")
-                    matching_files = await asyncio.to_thread(glob.glob, pattern_str)
-                    for fpath in matching_files:
-                        try:
-                            await asyncio.to_thread(os.remove, fpath)
-                            logger.info(f"[Orchestrator] Cleaned up temp variable file: {fpath}")
-                        except Exception as e:
-                            logger.error(f"[Orchestrator] Error deleting {fpath}: {e}")
-                except Exception as e:
-                    logger.error(f"[Orchestrator] Error during file cleanup: {e}")
-        
         return execution
+
+    async def _cleanup_temp_files(self, execution_id: int) -> None:
+        """Remove the batch-targets file and per-variable temp files of an execution."""
+        try:
+            import glob
+
+            temp_dir_str = str(settings.STORAGE_PATH / "tmp")
+
+            batch_file = os.path.join(temp_dir_str, f"batch_{execution_id}_targets.txt")
+            if await asyncio.to_thread(os.path.exists, batch_file):
+                await asyncio.to_thread(os.remove, batch_file)
+                logger.info(f"[Orchestrator] Cleaned up batch file: {batch_file}")
+
+            pattern_str = os.path.join(temp_dir_str, f"exec_{execution_id}_*")
+            matching_files = await asyncio.to_thread(glob.glob, pattern_str)
+            for fpath in matching_files:
+                try:
+                    await asyncio.to_thread(os.remove, fpath)
+                    logger.info(f"[Orchestrator] Cleaned up temp variable file: {fpath}")
+                except Exception as e:
+                    logger.error(f"[Orchestrator] Error deleting {fpath}: {e}")
+        except Exception as e:
+            logger.error(f"[Orchestrator] Error during file cleanup: {e}")
 
     async def _sync_execution_to_project_item(self, db: AsyncSession, execution: Execution, original_item: ChecklistItem):
         """
@@ -2187,6 +2377,20 @@ class TaskOrchestrator:
 
         effective_timeout = timeout or settings.TASK_TIMEOUT
 
+        # Cancelled while queued on the semaphore (or while its batch was still in setup,
+        # before cancel_execution could see this context): never open the agent stream.
+        parent_ctx = (
+            self._running_tasks.get(context.parent_execution_id)
+            if context.parent_execution_id else None
+        )
+        if parent_ctx is not None and parent_ctx.cancelled:
+            context.cancelled = True
+        if context.cancelled:
+            execution.exit_code = -1
+            execution.stdout = context.stdout_buffer
+            execution.stderr = "[Cancelled] Execution cancelled by user."
+            return
+
         try:
             async for event in host_runner.execute_and_stream(
                 execution.command,
@@ -2205,9 +2409,8 @@ class TaskOrchestrator:
                 text = event.get("text", "") + "\n"  # Add newline as SSE strips it often or we send lines
                 
                 if stream == "stdout":
-                    context.stdout_buffer += text
-                    execution.stdout = context.stdout_buffer # Real-time update? Expensive to write DB every line.
-                    # Buffering optimized: write context, flush to DB periodically or at end.
+                    # Chunks only; execution.stdout is assigned once, after the loop.
+                    context.stdout_parts.append(text)
                     # We only alert and notify here.
                     
                     if item.alert_patterns:
@@ -2222,7 +2425,7 @@ class TaskOrchestrator:
                             execution.alerts_triggered = current
 
                 elif stream == "stderr":
-                    context.stderr_buffer += text
+                    context.stderr_parts.append(text)
                 
                 if output_callback:
                     output_callback(text)
@@ -2250,7 +2453,12 @@ class TaskOrchestrator:
 
         except Exception as e:
             execution.exit_code = -1
-            execution.stderr = (execution.stderr or "") + f"\n[Internal Error] {str(e)}"
+            # Keep the partial output that streamed before the failure.
+            execution.stdout = context.stdout_buffer
+            execution.stderr = context.stderr_buffer + f"\n[Internal Error] {str(e)}"
+            raise
+        except BaseException:
+            execution.stdout = context.stdout_buffer  # task cancelled mid-stream
             raise
 
     async def cancel_execution(self, execution_id: int) -> bool:
@@ -2310,31 +2518,53 @@ class TaskOrchestrator:
                 logger.warning(f"[Orchestrator] Failed to record cancel warning: {e}")
         return True
     
+    async def _bulk_run_one(
+        self, item_id: int, host_id: Optional[int], variables: Optional[Dict[str, Any]],
+        outputs: Optional[Dict[int, Dict[str, Any]]] = None,
+    ) -> Execution:
+        """Create + run one bulk item through the normal pre-flight, in its own sessions.
+
+        Going through ``run_execution_background`` (not ``execute_item`` directly) applies
+        the same out-of-scope/excluded-target filtering, iterative batch split and
+        duplicate-active guard as every other entry point.
+        """
+        from app.database import async_session_maker
+
+        async with async_session_maker() as session:
+            execution = await self.create_execution_record(
+                session, item_id=item_id, host_id=host_id,
+                variables={k: v for k, v in (variables or {}).items() if not is_unset(v)},
+            )
+            await session.commit()  # the pre-flight/run use their own sessions
+            execution_id = execution.id
+
+        await self.run_execution_background(
+            execution_id, item_id, host_id, variables, execution_outputs=outputs,
+        )
+
+        async with async_session_maker() as session:
+            return (await session.execute(
+                select(Execution).where(Execution.id == execution_id)
+            )).scalar_one()
+
     async def execute_bulk(self, db: AsyncSession, item_ids: List[int], host_id: Optional[int] = None,
                            variables: Optional[Dict[str, Any]] = None, sequential: bool = False) -> List[Execution]:
+        # ``db`` is unused: each item gets its own sessions (kept for the caller's contract).
         if sequential:
             executions, outputs = [], {}
             for item_id in item_ids:
-                exec = await self.execute_item(db, item_id, host_id, variables, outputs)
+                exec = await self._bulk_run_one(item_id, host_id, variables, outputs)
                 executions.append(exec)
                 if exec.parsed_output:
                     outputs[exec.id] = exec.parsed_output
             return executions
         else:
-            from app.database import async_session_maker
             from app.config import settings
             bulk_sem = asyncio.Semaphore(settings.BULK_CONCURRENCY)
 
             async def _execute_with_own_session(item_id: int) -> Execution:
                 async with bulk_sem:
-                    async with async_session_maker() as session:
-                        try:
-                            result = await self.execute_item(session, item_id, host_id, variables)
-                            await session.commit()
-                            return result
-                        except Exception:
-                            await session.rollback()
-                            raise
+                    return await self._bulk_run_one(item_id, host_id, variables)
 
             # Wait for every sibling before surfacing failures: no detached
             # tasks, no never-retrieved exceptions. First error still raises
@@ -2347,7 +2577,7 @@ class TaskOrchestrator:
             if errors:
                 raise errors[0]
             return list(results)
-    
+
     async def get_running_executions(self) -> List[int]:
         async with self._lock:
             return list(self._running_tasks.keys())
