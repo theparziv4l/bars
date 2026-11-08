@@ -83,6 +83,42 @@ async def get_db() -> AsyncSession:
             await session.close()
 
 
+def _dedupe_live_hosts(connection):
+    """Merge live duplicate hosts per (project, ip) BEFORE the unique index.
+
+    Keeps the oldest row, re-points child rows to it and soft-deletes the rest.
+    Host-scoped variables that would collide with the keeper's are dropped
+    (keeper wins). Checklist claims keep their host_scope_key; they are leases.
+    """
+    dupes = connection.execute(text(
+        "SELECT h.id, (SELECT MIN(k.id) FROM hosts k WHERE k.project_id = h.project_id"
+        " AND k.ip_address = h.ip_address AND k.deleted_at IS NULL) AS keeper"
+        " FROM hosts h WHERE h.deleted_at IS NULL AND h.ip_address IS NOT NULL"
+    )).fetchall()
+    dupes = [(hid, keeper) for hid, keeper in dupes if hid != keeper]
+    if not dupes:
+        return
+    tables = {r[0] for r in connection.execute(text(
+        "SELECT name FROM sqlite_master WHERE type='table'")).fetchall()}
+    for loser, keeper in sorted(dupes):
+        params = {"loser": loser, "keeper": keeper}
+        if "project_variables" in tables:
+            connection.execute(text(
+                "DELETE FROM project_variables WHERE host_id = :loser AND deleted_at IS NULL"
+                " AND key IN (SELECT key FROM project_variables"
+                " WHERE host_id = :keeper AND deleted_at IS NULL)"), params)
+        for table in (
+            "services", "executions", "discovered_files", "findings", "evidence",
+            "checklist_claims", "flow_executions", "project_variables",
+        ):
+            if table in tables:
+                connection.execute(text(
+                    f"UPDATE {table} SET host_id = :keeper WHERE host_id = :loser"), params)
+        connection.execute(text(
+            "UPDATE hosts SET deleted_at = CURRENT_TIMESTAMP WHERE id = :loser"), params)
+    logger.warning(f"[Migration] Merged {len(dupes)} duplicate host row(s) before unique index.")
+
+
 def _apply_schema_migrations(connection):
     """Add any missing columns to existing tables (lightweight migration).
 
@@ -178,6 +214,8 @@ def _apply_schema_migrations(connection):
         " ) WHERE rn > 1)"
     ))
 
+    _dedupe_live_hosts(connection)
+
     # Create indexes when missing.
     index_statements = [
         "CREATE UNIQUE INDEX IF NOT EXISTS ux_projects_public_id ON projects(public_id)",
@@ -193,6 +231,9 @@ def _apply_schema_migrations(connection):
         "CREATE UNIQUE INDEX IF NOT EXISTS ux_ad_domains_public_id ON ad_domains(public_id)",
         # Matches Host.excluded index=True; create_all only covers freshly made tables.
         "CREATE INDEX IF NOT EXISTS ix_hosts_excluded ON hosts(excluded)",
+        # One live host per (project, ip) (mirrors Host.__table_args__).
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_hosts_project_ip_live ON "
+        "hosts(project_id, ip_address) WHERE deleted_at IS NULL AND ip_address IS NOT NULL",
         # Scoped variable uniqueness (mirrors ProjectVariable.__table_args__).
         "CREATE UNIQUE INDEX IF NOT EXISTS ux_vars_global ON "
         "project_variables(project_id, key) WHERE host_id IS NULL "
