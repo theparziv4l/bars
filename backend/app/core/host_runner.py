@@ -44,6 +44,7 @@ class HostRunner:
         cwd: Optional[str] = None,
         execution_id: Optional[str] = None,
         timeout: Optional[int] = None,
+        stdin: Optional[str] = None,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
         Execute command on host and yield outputs.
@@ -57,10 +58,19 @@ class HostRunner:
         }
         if timeout is not None:
             payload["timeout"] = timeout
-        
+        if stdin is not None:
+            payload["stdin"] = stdin
+
+        # The session has no overall deadline (streams are long-lived), so bound each request
+        # by the command timeout + grace; the agent's default timeout is 3600s. Otherwise a
+        # hung agent leaves the execution RUNNING forever.
+        request_timeout = aiohttp.ClientTimeout(
+            total=(timeout if timeout is not None else 3600) + 60, connect=10
+        )
+
         try:
             session = await self._get_session()
-            async with session.post(url, json=payload) as response:
+            async with session.post(url, json=payload, timeout=request_timeout) as response:
                 if response.status != 200:
                     yield {"stream": "stderr", "text": f"Agent Error: {response.status}"}
                     yield {"exit_code": -1}
@@ -74,7 +84,8 @@ class HostRunner:
                     buffer += chunk
                     while b"\n" in buffer:
                         raw_line, buffer = buffer.split(b"\n", 1)
-                        decoded = raw_line.decode("utf-8", errors="replace").strip()
+                        # Only drop the line terminator; leading spaces are payload (column parsers).
+                        decoded = raw_line.decode("utf-8", errors="replace").rstrip("\r\n")
                         if not decoded:
                             continue
                         if not decoded.startswith("data: "):
@@ -115,7 +126,9 @@ class HostRunner:
             logger.error(f"Failed to cancel execution {execution_id}: {e}")
             return False
 
-    async def execute_sync(self, command: str, cwd: Optional[str] = None, timeout: int = 60) -> Dict[str, Any]:
+    async def execute_sync(
+        self, command: str, cwd: Optional[str] = None, timeout: int = 60, stdin: Optional[str] = None
+    ) -> Dict[str, Any]:
         """
         Execute command synchronously (wait for completion) and return result.
         Returns: {"exit_code": int, "stdout": str, "stderr": str}
@@ -127,7 +140,7 @@ class HostRunner:
         stderr_buf = []
         exit_code = -1
 
-        async for event in self.execute_and_stream(command, cwd, timeout=timeout):
+        async for event in self.execute_and_stream(command, cwd, timeout=timeout, stdin=stdin):
             if "stream" in event:
                 if event["stream"] == "stdout":
                     stdout_buf.append(event["text"])
@@ -138,8 +151,9 @@ class HostRunner:
                 
         return {
             "exit_code": exit_code,
-            "stdout": "".join(stdout_buf),
-            "stderr": "".join(stderr_buf)
+            # Streamed lines arrive without their newline, so rejoin with one.
+            "stdout": "\n".join(stdout_buf),
+            "stderr": "\n".join(stderr_buf)
         }
 
 host_runner = HostRunner()
