@@ -15,6 +15,7 @@ from app.config import settings
 from app.models.checklist import ChecklistItem
 from app.models.checklist_claim import ChecklistClaim
 from app.models.execution import Execution, ExecutionStatus
+from app.models.host import Host
 from app.models.user import ProjectMember, User
 from app.core.sync import sync_service, claim_sync_payload
 from app.core.utils import utcnow
@@ -45,9 +46,35 @@ class ProjectAccessError(Exception):
     pass
 
 
-def scope_key_for_host(host_id: Optional[int]) -> str:
-    """Convert host scope into deterministic key for uniqueness."""
-    return "global" if host_id is None else f"host:{host_id}"
+def scope_key_for_host(host_id: Optional[int], host_public_id: Optional[str] = None) -> str:
+    """Convert host scope into deterministic key for uniqueness.
+
+    The key is synced verbatim to peers, so it must name the host by its
+    cross-node ``public_id``; the local integer id means a different host (or
+    none) on every other node. The int form is only the fallback for a host row
+    that cannot be resolved.
+    """
+    if host_id is None:
+        return "global"
+    return f"host:{host_public_id}" if host_public_id else f"host:{host_id}"
+
+
+async def _scope_keys(db: AsyncSession, host_id: Optional[int]) -> tuple[str, str]:
+    """(current key, legacy key) for a host scope. Legacy rows used ``host:<int id>``."""
+    if host_id is None:
+        return "global", "global"
+    public_id = (await db.execute(
+        select(Host.public_id).where(Host.id == host_id)
+    )).scalar_one_or_none()
+    return scope_key_for_host(host_id, public_id), f"host:{host_id}"
+
+
+def _pick_scope_claim(claims: list[ChecklistClaim], scope_key: str) -> Optional[ChecklistClaim]:
+    """Prefer the row on the current key; fall back to a legacy-keyed row."""
+    for claim in claims:
+        if claim.host_scope_key == scope_key:
+            return claim
+    return claims[0] if claims else None
 
 
 def _is_claim_expired(claim: ChecklistClaim, now: datetime) -> bool:
@@ -87,11 +114,11 @@ async def claim_item_scope(
             ProjectMember.deleted_at.is_(None),
         )
     )
-    if membership.scalar_one_or_none() is None:
+    if membership.first() is None:
         raise ProjectAccessError("User is not a project member")
     now = utcnow()
     lease = now + timedelta(seconds=lease_seconds or settings.DEFAULT_CLAIM_LEASE_SECONDS)
-    scope_key = scope_key_for_host(host_id)
+    scope_key, legacy_scope_key = await _scope_keys(db, host_id)
 
     # A concurrent first-claim for the same scope collides on the unique index:
     # roll back and reselect so the loser takes the update path (409) instead
@@ -110,11 +137,11 @@ async def claim_item_scope(
                 .where(
                     ChecklistClaim.project_id == project_id,
                     ChecklistClaim.item_id == item_id,
-                    ChecklistClaim.host_scope_key == scope_key,
+                    ChecklistClaim.host_scope_key.in_({scope_key, legacy_scope_key}),
                 )
                 .options(selectinload(ChecklistClaim.claimed_by_user))
             )
-            claim = claim_result.scalar_one_or_none()
+            claim = _pick_scope_claim(list(claim_result.scalars().all()), scope_key)
 
             if claim is None:
                 claim = ChecklistClaim(
@@ -156,6 +183,7 @@ async def claim_item_scope(
                 claim.version += 1
 
             claim.host_id = host_id
+            claim.host_scope_key = scope_key  # upgrade a legacy host:<int> key
             claim.claimed_by_user_id = user_id
             claim.claimed_at = now
             claim.lease_expires_at = lease
@@ -208,19 +236,19 @@ async def release_item_scope(
             ProjectMember.deleted_at.is_(None),
         )
     )
-    if membership.scalar_one_or_none() is None:
+    if membership.first() is None:
         raise ProjectAccessError("User is not a project member")
-    scope_key = scope_key_for_host(host_id)
+    scope_key, legacy_scope_key = await _scope_keys(db, host_id)
     result = await db.execute(
         select(ChecklistClaim)
         .where(
             ChecklistClaim.project_id == project_id,
             ChecklistClaim.item_id == item_id,
-            ChecklistClaim.host_scope_key == scope_key,
+            ChecklistClaim.host_scope_key.in_({scope_key, legacy_scope_key}),
         )
         .options(selectinload(ChecklistClaim.claimed_by_user))
     )
-    claim = result.scalar_one_or_none()
+    claim = _pick_scope_claim(list(result.scalars().all()), scope_key)
     if claim is None:
         return None
 
@@ -261,6 +289,7 @@ async def ensure_no_active_execution(
     """Prevent duplicate pending/running executions for same item+host."""
     base_query = select(Execution).where(
         Execution.item_id == item_id,
+        Execution.deleted_at.is_(None),
         Execution.status.in_([ExecutionStatus.PENDING, ExecutionStatus.RUNNING]),
     )
     if host_id is None:
@@ -269,6 +298,8 @@ async def ensure_no_active_execution(
         base_query = base_query.where(Execution.host_id == host_id)
 
     result = await db.execute(base_query.order_by(Execution.created_at.desc()))
-    existing = result.scalar_one_or_none()
+    # first(), not one_or_none(): duplicates may already exist and must still
+    # produce the 409 path rather than MultipleResultsFound.
+    existing = result.scalars().first()
     if existing is not None:
         raise DuplicateExecutionError(existing.id)

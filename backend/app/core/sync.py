@@ -1317,6 +1317,16 @@ class SyncService:
             raise _FKNotReady(f"checklist_claim {claim_public_id}: {', '.join(missing)} not present yet")
 
         host_scope_key = payload.get("host_scope_key", "global")
+        legacy_keys = {host_scope_key}
+        host_public_id = payload.get("host_public_id")
+        if host_public_id and str(host_scope_key).startswith("host:"):
+            # Older senders keyed the scope by their LOCAL int host id, which names
+            # a different host (or none) here. Normalise to the cross-node key and
+            # still match a legacy-keyed local row for the same host.
+            host_scope_key = f"host:{host_public_id}"
+            legacy_keys = {host_scope_key}
+            if host_id is not None:
+                legacy_keys.add(f"host:{host_id}")
         incoming_version = int(payload.get("version", 1))
         claim_result = await db.execute(
             select(ChecklistClaim).where(ChecklistClaim.public_id == claim_public_id)
@@ -1331,10 +1341,10 @@ class SyncService:
                 select(ChecklistClaim).where(
                     ChecklistClaim.project_id == project_id,
                     ChecklistClaim.item_id == item_id,
-                    ChecklistClaim.host_scope_key == host_scope_key,
+                    ChecklistClaim.host_scope_key.in_(legacy_keys),
                 )
             )
-            existing = nk_result.scalar_one_or_none()
+            existing = nk_result.scalars().first()
             if existing is not None:
                 if incoming_version < (existing.version or 0):
                     return  # our copy is newer; ignore the stale duplicate
@@ -1354,6 +1364,7 @@ class SyncService:
         claim.project_id = project_id
         claim.item_id = item_id
         claim.host_id = host_id
+        claim.host_scope_key = host_scope_key
         claim.claimed_by_user_id = claimed_by_user_id
         claim.claimed_at = _parse_dt(payload.get("claimed_at"))
         claim.lease_expires_at = _parse_dt(payload.get("lease_expires_at"))
