@@ -193,9 +193,15 @@ export function useWebSocket(channel = 'default') {
             }
         }
 
-        wsRef.current.onclose = () => {
+        wsRef.current.onclose = (event) => {
             console.log('WebSocket disconnected')
             setWsConnected(false)
+
+            // 4401/4403 = auth rejected: retrying with the same token can never succeed.
+            if (event?.code === 4401 || event?.code === 4403) {
+                console.error(`WebSocket rejected by server (code ${event.code}); not reconnecting`)
+                return
+            }
 
             // Attempt reconnect after 3 seconds
             reconnectTimeoutRef.current = setTimeout(connect, 3000)

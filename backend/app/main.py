@@ -20,27 +20,66 @@ logger = logging.getLogger(__name__)
 
 
 async def _cleanup_orphan_executions(_session_maker=None):
-    """Cancel RUNNING executions orphaned by a previous crash on startup.
+    """Cancel locally-originated PENDING/RUNNING executions and live flow runs
+    orphaned by a previous crash.
 
-    PENDING executions are left queued (they never started and can still run).
-    Each swept execution records an `executions/update` sync event so peers
-    converge instead of split-braining on stale RUNNING rows.
+    PENDING rows are swept too: nothing relaunches them after a restart, so
+    they would block their item/host with 409 forever. Executions synced from
+    peer nodes are left alone (their live state belongs to the peer). Each
+    swept execution records an `executions/update` sync event so peers
+    converge instead of split-braining on stale rows. FlowExecutions still
+    pending/running are cancelled; paused ones are a legitimate resting state.
     """
-    from datetime import datetime
     from sqlalchemy import select
     from app.database import async_session_maker
     from app.models.execution import Execution, ExecutionStatus
+    from app.models.flow_execution import FlowExecution
+    from app.models.sync import SyncEvent
 
     maker = _session_maker or async_session_maker
+    now = utcnow()
     async with maker() as db:
+        flows = (await db.execute(
+            select(FlowExecution).where(FlowExecution.status.in_(("pending", "running")))
+        )).scalars().all()
+        for fe in flows:
+            fe.status = "cancelled"
+            fe.completed_at = now
+            fe.error = (fe.error or "") + "Cancelled: application restarted while flow was active."
+        if flows:
+            await db.commit()
+            logger.info(f"[Startup] Cancelled {len(flows)} orphan flow execution(s).")
+
         result = await db.execute(
-            select(Execution).where(Execution.status == ExecutionStatus.RUNNING)
+            select(Execution).where(
+                Execution.status.in_((ExecutionStatus.PENDING, ExecutionStatus.RUNNING))
+            )
         )
-        orphans = result.scalars().all()
+        candidates = result.scalars().all()
+        if not candidates:
+            return
+
+        # Origin: the earliest sync event of a peer-applied execution carries
+        # the peer's node id (executions have no origin column). No event at
+        # all means it never left this node.
+        first_source: dict[str, str] = {}
+        ev = await db.execute(
+            select(SyncEvent.entity_public_id, SyncEvent.source_node_id)
+            .where(
+                SyncEvent.entity_type == "executions",
+                SyncEvent.entity_public_id.in_([e.public_id for e in candidates]),
+            )
+            .order_by(SyncEvent.id)
+        )
+        for public_id, source in ev.all():
+            first_source.setdefault(public_id, source)
+        orphans = [
+            e for e in candidates
+            if first_source.get(e.public_id, settings.NODE_ID) == settings.NODE_ID
+        ]
         if not orphans:
             return
 
-        now = utcnow()
         for ex in orphans:
             ex.status = ExecutionStatus.CANCELLED
             ex.completed_at = now

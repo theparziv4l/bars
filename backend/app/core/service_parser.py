@@ -35,17 +35,16 @@ class ServiceParser:
         Main entry point. Detects tool from command and parses output.
         Returns a ParseResult object.
         """
-        command_lower = command.lower()
+        exes = _command_executables(command)
         result = ParseResult()
 
-        if "nmap" in command_lower:
+        if "nmap" in exes:
             self._parse_nmap(output, result, default_ip)
-        elif "rustscan" in command_lower:
+        elif "rustscan" in exes:
             self._parse_rustscan(output, result, default_ip)
-        elif "masscan" in command_lower:
+        elif "masscan" in exes:
             self._parse_masscan(output, result)
-        elif ("netexec" in command_lower or "nxc" in command_lower
-              or "crackmapexec" in command_lower or re.search(r"\bcme\b", command_lower)):
+        elif exes & {"netexec", "nxc", "crackmapexec", "cme"}:
             self._parse_netexec(output, result)
         elif output and self._looks_like_nmap_output(output):
             # Fallback: command may be a script/wrapper; detect Nmap from stdout (e.g. "Nmap scan report for", PORT table)
@@ -78,7 +77,10 @@ class ServiceParser:
         # Match "Nmap scan report for domain.com (192.168.1.1)" or "Nmap scan report for 192.168.1.1"
         # IP group accepts IPv4 and IPv6 literals (hex + colons), so 2001:db8::1
         # isn't truncated to "2001" and its ports mis-attributed.
-        host_pattern = re.compile(r"Nmap scan report for (?:([\w\.-]+) \()?([0-9a-fA-F:.]+)\)?")
+        # Hostname-only form ("Nmap scan report for host.name", no "(ip)") has no IP:
+        # group 4 captures it so it isn't truncated to hex-looking chars ("dc01.").
+        host_pattern = re.compile(
+            r"Nmap scan report for (?:([\w\.-]+) \(([0-9a-fA-F:.]+)\)|([0-9a-fA-F:.]+)(?!\S)|([\w\.-]+))")
         
         # Match port line: 80/tcp open http Apache httpd 2.4.41 ((Ubuntu))
         # Group 1: Port, 2: Proto, 3: State, 4: Service, 5: Version/Product
@@ -119,9 +121,13 @@ class ServiceParser:
                 if host_match.group(1):
                     hostname = host_match.group(1)
                     current_ip = host_match.group(2)
-                else:
+                elif host_match.group(3):
                     hostname = None
-                    current_ip = host_match.group(2)
+                    current_ip = host_match.group(3)
+                else:
+                    # hostname only: attribute to the target we were given, if any
+                    hostname = host_match.group(4)
+                    current_ip = default_ip
 
                 if current_ip:
                      if current_ip not in result.hosts:
@@ -316,11 +322,15 @@ class ServiceParser:
                     result.hosts[ip] = HostInfo(ip=ip)
                 
                 h = result.hosts[ip]
-                h.hostname = full_hostname
-                if domain:
-                    h.domain = domain
-                h.os_info = os_info
-                
+                # Only a real banner ("... (name:X) (domain:Y) ...") carries host info.
+                # Other [*] lines ("Enumerated shares", ssh/ftp version banners) would
+                # overwrite hostname/os_info with junk.
+                if name_match:
+                    h.hostname = full_hostname
+                    if domain:
+                        h.domain = domain
+                    h.os_info = os_info
+
                 # Check for SMB Signing
                 # (signing:False) or (signing:True)
                 signing_match = re.search(r"\(signing:(True|False)\)", rest, re.IGNORECASE)
@@ -341,6 +351,55 @@ class ServiceParser:
                     product=None,
                     version=None,
                 ))
+
+_WRAPPERS = {"sudo", "env", "proxychains", "proxychains4", "proxychains-ng", "nohup",
+             "time", "timeout", "stdbuf", "nice", "command", "exec"}
+_SHELLS = ("sh", "bash", "zsh", "dash")
+
+
+def _command_executables(command: str) -> set:
+    """Basenames of the programs a shell command line runs.
+
+    Quote-aware split on ``&& || ; |``; skips VAR=val assignments, wrapper words
+    (sudo, proxychains, ...) with their flags, and looks inside ``sh -c '...'``.
+    So ``nxc smb nmap_hosts.txt`` yields {"nxc"}, not a substring hit on "nmap".
+    ponytail: wrapper flags that take a value (``sudo -u root nmap``) make the
+    value look like the program; the nmap-output fallback in parse() covers that.
+    """
+    import os
+    import shlex
+    try:
+        lex = shlex.shlex(command or "", posix=True, punctuation_chars=True)
+        lex.whitespace_split = True
+        tokens = list(lex)
+    except ValueError:
+        tokens = (command or "").split()
+    exes: set = set()
+    segment: List[str] = []
+    for tok in tokens + [";"]:
+        if not (tok and set(tok) <= set("();<>|&")):
+            segment.append(tok)
+            continue
+        i = 0
+        while i < len(segment):
+            t = segment[i]
+            if (re.match(r"^[A-Za-z_]\w*=", t) or t.startswith("-")
+                    or re.fullmatch(r"\d+[smhd]?", t)
+                    or os.path.basename(t).lower() in _WRAPPERS):
+                i += 1
+                continue
+            break
+        if i < len(segment):
+            exe = os.path.basename(segment[i]).lower()
+            if exe in _SHELLS and "-c" in segment[i + 1:]:
+                j = segment.index("-c", i + 1) + 1
+                if j < len(segment):
+                    exes |= _command_executables(segment[j])
+            else:
+                exes.add(exe)
+        segment = []
+    return exes
+
 
 def strip_ansi(source):
     """Remove ANSI escape sequences (SGR/CSI incl. private-mode '?', and OSC)."""
