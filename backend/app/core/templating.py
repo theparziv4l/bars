@@ -1,6 +1,7 @@
 """Template engine for variable substitution in commands."""
 import re
 import json
+import shlex
 from typing import Any, Dict, List, Optional
 from dataclasses import dataclass
 
@@ -154,6 +155,7 @@ class TemplateEngine:
         item_name_to_execution: Optional[Dict[str, int]] = None,
         latest_item_name_to_execution: Optional[Dict[str, int]] = None,
         unresolved: Optional[List[str]] = None,
+        shell: bool = False,
     ) -> str:
         """
         Render a template with variable substitution.
@@ -166,6 +168,9 @@ class TemplateEngine:
             latest_item_name_to_execution: Mapping of item_name -> execution_id (most recent by completed_at)
             unresolved: Optional list; every placeholder left unsubstituted is appended to it,
                 so callers can surface a half-rendered command instead of shipping it silently.
+            shell: Escape every substituted value for the sh quoting context the placeholder
+                sits in (bare, '...' or "..."), so passwords with $ ! ' " ` ; etc. reach the
+                program verbatim. Only for commands handed to a shell.
 
         Returns:
             Rendered command string
@@ -181,13 +186,17 @@ class TemplateEngine:
 
         def replace_variable(match: re.Match) -> str:
             var = self.parse_variable(match)
+            if shell:
+                format_value = lambda v: _shell_escape(v, _quote_state(template, match.start()))
+            else:
+                format_value = self._format_value
 
             # Simple variable
             if var.execution_id is None and var.item_name is None:
                 value = variables.get(var.key)
                 if value is None:
                     return unresolved_placeholder(match.group(0))
-                return self._format_value(value)
+                return format_value(value)
 
             # Execution reference
             exec_id = var.execution_id
@@ -213,11 +222,12 @@ class TemplateEngine:
             if isinstance(value, dict) and "value" in value and "data_type" in value:
                 value = value["value"]
             
-            return self._format_value(value)
+            return format_value(value)
         
         return self.VARIABLE_PATTERN.sub(replace_variable, template)
     
-    def _format_value(self, value: Any) -> str:
+    @staticmethod
+    def _format_value(value: Any) -> str:
         """Format a value for command line use."""
         if isinstance(value, (list, tuple)):
             # Join list items with space
@@ -265,6 +275,40 @@ class TemplateEngine:
                 })
         
         return result
+
+
+def _quote_state(template: str, pos: int) -> str:
+    """sh quote context at *pos*: '' (bare), "'" or '"'."""
+    state, i = "", 0
+    while i < pos:
+        c = template[i]
+        if state == "'":
+            if c == "'":
+                state = ""
+        elif c == "\\":
+            i += 1  # escaped char (bare or inside "...")
+        elif c == '"':
+            state = "" if state == '"' else '"'
+        elif c == "'" and not state:
+            state = "'"
+        i += 1
+    return state
+
+
+def _shell_escape(value: Any, state: str) -> str:
+    """Render *value* so sh passes it to the program unchanged."""
+    if state == "'":
+        return TemplateEngine._format_value(value).replace("'", "'\\''")
+    if state == '"':
+        return re.sub(r'([\\"$`])', r"\\\1", TemplateEngine._format_value(value))
+    if isinstance(value, (list, tuple)):
+        return " ".join(shlex.quote(TemplateEngine._format_value(v)) for v in value)
+    if isinstance(value, dict):
+        return shlex.quote(json.dumps(value))
+    text = TemplateEngine._format_value(value)
+    # Bare placeholder: keep sh word-splitting on whitespace (space-separated host lists),
+    # neutralise every other metacharacter.
+    return " ".join(shlex.quote(w) for w in text.split()) or shlex.quote(text)
 
 
 # Singleton instance

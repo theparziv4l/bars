@@ -1104,6 +1104,7 @@ class TaskOrchestrator:
             item_name_to_execution=item_name_to_execution,
             latest_item_name_to_execution=item_name_to_execution,
             unresolved=unresolved,
+            shell=True,  # host_agent runs this via sh; passwords may hold $ ! ' " ` ;
         )
 
         execution.command = command
