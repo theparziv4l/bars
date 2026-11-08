@@ -2226,6 +2226,7 @@ function OutputModal({ executionId, itemId, title, onClose }) {
     const [selectedExecId, setSelectedExecId] = useState(executionId)
     const [executionHistory, setExecutionHistory] = useState([])
     const [isFullscreen, setIsFullscreen] = useState(false)
+    const [historyLoaded, setHistoryLoaded] = useState(false)
 
     const fetchHistory = useCallback(async () => {
         if (!itemId) return
@@ -2234,6 +2235,8 @@ function OutputModal({ executionId, itemId, title, onClose }) {
             setExecutionHistory(data.items || [])
         } catch {
             setExecutionHistory([])
+        } finally {
+            setHistoryLoaded(true)
         }
     }, [itemId])
 
@@ -2262,10 +2265,13 @@ function OutputModal({ executionId, itemId, title, onClose }) {
     const selectedStatus = executionHistory.find(e => e.id === selectedExecId)?.status
     useEffect(() => {
         if (!selectedExecId) return
+        // Once history has loaded, an execution that is missing from it (or terminal) is
+        // not worth polling — undefined status used to keep the 2 s poll alive forever.
+        if (historyLoaded && !selectedStatus) return
         if (selectedStatus && !['pending', 'running'].includes(selectedStatus)) return
         const interval = setInterval(() => { fetchOutput(false); fetchHistory() }, 2000)
         return () => clearInterval(interval)
-    }, [selectedExecId, selectedStatus, fetchOutput, fetchHistory])
+    }, [selectedExecId, selectedStatus, historyLoaded, fetchOutput, fetchHistory])
 
     const handleDeleteExecution = async (execId) => {
         try {
