@@ -55,6 +55,7 @@ export default function ProjectDetail() {
     const [members, setMembers] = useState([])
     const [memberInput, setMemberInput] = useState('')
     const [syncingProject, setSyncingProject] = useState(false)
+    const [editingName, setEditingName] = useState(false)
     const [executionPanelHosts, setExecutionPanelHosts] = useState(null)
     const [executionPanelHostsLoading, setExecutionPanelHostsLoading] = useState(false)
     const [assetsSearch, setAssetsSearch] = useState('')
@@ -408,6 +409,19 @@ export default function ProjectDetail() {
         }
     }
 
+    const handleRename = async (e) => {
+        const name = e.target.value.trim()
+        setEditingName(false)
+        if (!name || name === project.name) return
+        try {
+            const { data } = await projectsApi.update(project.id, { name })
+            setProject(data)
+            toast.success('Project renamed')
+        } catch (error) {
+            toast.error(error.response?.data?.detail || 'Failed to rename project')
+        }
+    }
+
     const handleSyncProject = async () => {
         setSyncingProject(true)
         try {
@@ -452,7 +466,27 @@ export default function ProjectDetail() {
                         <ArrowLeft size={20} />
                     </Link>
                     <div>
-                        <h1 className="text-2xl font-bold text-dark-50">{project?.name}</h1>
+                        {editingName ? (
+                            <input
+                                autoFocus
+                                defaultValue={project?.name}
+                                maxLength={255}
+                                onBlur={handleRename}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter') e.target.blur()
+                                    if (e.key === 'Escape') { e.target.value = project?.name; e.target.blur() }
+                                }}
+                                className="input text-2xl font-bold"
+                            />
+                        ) : (
+                            <h1
+                                className="text-2xl font-bold text-dark-50 cursor-pointer hover:text-accent-primary"
+                                title="Click to rename"
+                                onClick={() => setEditingName(true)}
+                            >
+                                {project?.name}
+                            </h1>
+                        )}
                         <p className="text-dark-400">{project?.description}</p>
                     </div>
                 </div>
