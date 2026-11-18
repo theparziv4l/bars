@@ -1,0 +1,1754 @@
+{
+  "checklists": {
+    "groups": [
+      {
+        "name": "EXT P0 - Pre-Engagement and Scope Gate",
+        "description": "Must be complete before any Phase 1 activity. Confirms authorization, scope, windows, rate limits and data handling.",
+        "is_default_import": false,
+        "requires_auth": false,
+        "speed_profile": "default",
+        "items": [
+          {
+            "name": "EXT P0-S1 Authorization and Scope Gate",
+            "description": "Hard gate: refuse to proceed unless RoE reference, test window and in-scope lists are present and valid.\n\nSTEP: P0-S1 | PHASE: P0 | scope_required: false | severity_hint: n/a | mode: automated\nDEPENDS_ON: -\nFEEDS_INTO: P0-S2, P0-S3, P1-*, P2-S1\nTOOLS (examples, swappable): sh, python3 (ipaddress)\n\nCHECK CRITERIA:\n[ ] Written authorization / RoE signed; reference stored in ext_roe_ref\n[ ] In-scope domains (ext_domains), IP ranges (ext_scope) and ASNs (ext_asn) listed\n[ ] Out-of-scope assets listed explicitly AND added to the bars project as Excluded hosts\n[ ] Testing window (ext_window_start/end), rate limits (ext_rate, ext_req_rate) and emergency contact confirmed\n[ ] Third-party hosted assets (cloud, CDN, SaaS, MSP) identified; provider permission/policy checked\n[ ] Data handling plan for PII/credentials (storage, encryption, retention) agreed\n[ ] Out-of-scope hit rule acknowledged: stop, log, report to engagement lead, never test\n\nOPSEC / RESTRICTIONS:\n! Flow step on_failure=stop: nothing downstream runs if the gate fails\n! Gate checks the clock: re-run at the start of every testing day\n! STOP + notify engagement lead on: out-of-scope asset, signs of production impact, real-user data exposure, active incident at client.\n\nDONE WHEN (validation_output): Output contains SCOPE_GATE_OK, window state INSIDE, every scope line parsed as valid IP/CIDR, and the domain list is non-empty.\nEVIDENCE REQUIRED: Gate output (SCOPE_GATE_OK + normalized scope list), RoE document reference",
+            "command_template": "python3 - {ext_scope} {ext_domains} '{ext_roe_ref}' '{ext_window_start}' '{ext_window_end}' <<'PY'\nimport sys, ipaddress, datetime\nscope, doms, roe, ws, we = sys.argv[1:6]\nok = True\nif not roe.strip():\n    print('FAIL roe: ext_roe_ref empty'); ok = False\nnow = datetime.datetime.now(datetime.timezone.utc)\ntry:\n    s = datetime.datetime.fromisoformat(ws); e = datetime.datetime.fromisoformat(we)\n    state = 'INSIDE' if s <= now <= e else 'OUTSIDE'\n    print('WINDOW %s %s -> %s now=%s' % (state, ws, we, now.isoformat()))\n    ok = ok and state == 'INSIDE'\nexcept Exception as x:\n    print('FAIL window: %s' % x); ok = False\nnets = []\nfor line in open(scope).read().split():\n    try:\n        nets.append(ipaddress.ip_network(line, strict=False)); print('SCOPE_NET %s' % line)\n    except ValueError:\n        print('FAIL scope line: %s' % line); ok = False\nd = [x.strip().lower() for x in open(doms).read().split() if x.strip()]\nfor x in d: print('SCOPE_DOMAIN %s' % x)\nif not nets and not d:\n    print('FAIL scope: no networks and no domains'); ok = False\nprint('ADDRESSES_IN_SCOPE %d' % sum(n.num_addresses for n in nets))\nprint('SCOPE_GATE_OK' if ok else 'SCOPE_GATE_FAIL')\nsys.exit(0 if ok else 1)\nPY",
+            "output_regex": {
+              "gate_status": "^(SCOPE_GATE_OK|SCOPE_GATE_FAIL)$",
+              "scope_nets": "^SCOPE_NET (\\S+)$",
+              "scope_domains": "^SCOPE_DOMAIN (\\S+)$"
+            },
+            "variables": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {
+              "ext_scope": {
+                "type": "file"
+              },
+              "ext_domains": {
+                "type": "file"
+              }
+            },
+            "target_filter": {},
+            "timeout": 60,
+            "alert_patterns": {
+              "critical": [
+                "SCOPE_GATE_FAIL"
+              ]
+            },
+            "finding_template": {},
+            "tags": [
+              "external",
+              "ext-p0",
+              "gate",
+              "scope",
+              "step-p0-s1",
+              "no-target-contact"
+            ],
+            "enabled": true
+          },
+          {
+            "name": "EXT P0-S2 Egress IP and Engagement Log",
+            "description": "Record the scan source (egress) IP and UTC start time so the client SOC can correlate and whitelist/attribute traffic.\n\nSTEP: P0-S2 | PHASE: P0 | scope_required: false | severity_hint: n/a | mode: automated\nDEPENDS_ON: P0-S1\nFEEDS_INTO: P3-S1, P6-S1\nTOOLS (examples, swappable): curl, date\n\nCHECK CRITERIA:\n[ ] Egress IP recorded and shared with client contact / SOC per RoE\n[ ] Emergency contact phone/email verified reachable\n[ ] Daily start/stop times logged (re-run each day)\n\nOPSEC / RESTRICTIONS:\n! Run from the same host_agent that will scan; a different egress invalidates SOC correlation\n! Uses a third-party IP echo service (api.ipify.org); swap if RoE forbids\n\nDONE WHEN (validation_output): EGRESS_IP line present with a valid IP and UTC timestamp.\nEVIDENCE REQUIRED: Egress IP + timestamp shared with client contact",
+            "command_template": "echo \"UTC_START $(date -u +%Y-%m-%dT%H:%M:%SZ)\"; echo \"EGRESS_IP $(curl -s --max-time 15 https://api.ipify.org)\"",
+            "output_regex": {
+              "egress_ip": "^EGRESS_IP (\\S+)$"
+            },
+            "variables": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {},
+            "target_filter": {},
+            "timeout": 60,
+            "alert_patterns": {},
+            "finding_template": {},
+            "tags": [
+              "external",
+              "ext-p0",
+              "opsec",
+              "step-p0-s2",
+              "no-target-contact"
+            ],
+            "enabled": true
+          },
+          {
+            "name": "EXT P0-S3 ASN Prefix Ownership Cross-Check",
+            "description": "Compare prefixes announced by the in-scope ASN(s) with ext_scope; anything announced but not listed needs an explicit scope decision.\n\nSTEP: P0-S3 | PHASE: P0 | scope_required: false | severity_hint: info | mode: automated\nDEPENDS_ON: P0-S1\nFEEDS_INTO: P0-S1 (scope update), P1-S1\nTOOLS (examples, swappable): whois (RADb), python3\n\nCHECK CRITERIA:\n[ ] Every ANNOUNCED_NOT_IN_SCOPE prefix sent to engagement lead for decision\n[ ] Every IN_SCOPE_NOT_ANNOUNCED range verified as really client-owned (WHOIS/RIR)\n[ ] ext_scope updated only after written confirmation\n\nOPSEC / RESTRICTIONS:\n! Passive (RADb whois). Never add a prefix to scope on your own judgement\n\nDONE WHEN (validation_output): Diff produced; each ANNOUNCED_NOT_IN_SCOPE prefix has a recorded decision (add / exclude).\nEVIDENCE REQUIRED: Prefix diff (ANNOUNCED_NOT_IN_SCOPE list) and lead's decision",
+            "command_template": "for a in {ext_asn}; do whois -h whois.radb.net -- \"-i origin $a\"; done | awk '/^route6?:/ {print $2}' | sort -u > ext_asn_prefixes.txt; python3 - ext_asn_prefixes.txt {ext_scope} <<'PY'\nimport sys, ipaddress\nann = set(ipaddress.ip_network(x, strict=False) for x in open(sys.argv[1]).read().split())\nsc = set(ipaddress.ip_network(x, strict=False) for x in open(sys.argv[2]).read().split())\nfor n in sorted(ann, key=str):\n    tag = 'COVERED' if any(n.version == s.version and n.subnet_of(s) for s in sc) else 'ANNOUNCED_NOT_IN_SCOPE'\n    print(tag, n)\nfor s in sorted(sc, key=str):\n    if not any(s.version == n.version and s.subnet_of(n) for n in ann):\n        print('IN_SCOPE_NOT_ANNOUNCED', s)\nPY",
+            "output_regex": {
+              "announced_not_in_scope": "^ANNOUNCED_NOT_IN_SCOPE (\\S+)$"
+            },
+            "variables": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {
+              "ext_scope": {
+                "type": "file"
+              }
+            },
+            "target_filter": {},
+            "timeout": 300,
+            "alert_patterns": {
+              "warning": [
+                "ANNOUNCED_NOT_IN_SCOPE"
+              ]
+            },
+            "finding_template": {},
+            "tags": [
+              "external",
+              "ext-p0",
+              "scope",
+              "asn",
+              "step-p0-s3",
+              "no-target-contact"
+            ],
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "name": "EXT P1 - Passive OSINT and Digital Footprint",
+        "description": "No packets to target assets. Third-party data sources only. Results may be stale: record timestamps.",
+        "is_default_import": false,
+        "requires_auth": false,
+        "speed_profile": "default",
+        "items": [
+          {
+            "name": "EXT P1-S1 Internet Asset Inventory",
+            "description": "Passive inventory of in-scope IPs from internet-scan datasets: open ports, banners/CPEs, hostnames, known CVE matches.\n\nSTEP: P1-S1 | PHASE: P1 | scope_required: false | severity_hint: info | mode: automated\nDEPENDS_ON: P0-S1\nFEEDS_INTO: P3-S1 (expected ports baseline), P3-S3 (CVE leads), P2-S1 (hostnames)\nTOOLS (examples, swappable): Shodan InternetDB (keyless), Shodan/Censys/FOFA/BinaryEdge UI or API (manual cross-check)\n\nCHECK CRITERIA:\n[ ] Current open ports per IP recorded\n[ ] Historical ports/services checked in Shodan host history (manual, API key)\n[ ] Service banners / CPEs recorded\n[ ] Known CVE matches (vulns) recorded as leads only, not findings\n[ ] Cross-checked with Censys / FOFA / BinaryEdge-style sources; discrepancies noted\n[ ] Each result's fetch timestamp recorded (datasets can be weeks old)\n[ ] Hostnames found here added to the P2-S1 candidate list if under in-scope domains\n\nOPSEC / RESTRICTIONS:\n! Passive: queries go to the data provider, not the target\n! Expansion capped at 4096 addresses; query larger ranges via provider net: search instead\n! Dataset CVEs are version-based guesses: never report without P3/P5 verification\n\nDONE WHEN (validation_output): Every in-scope IP (up to cap) queried; HIT lines list ports/cpes/vulns with timestamp; cross-check notes present.\nEVIDENCE REQUIRED: Per-IP HIT lines with fetch timestamp; screenshots of Censys/FOFA discrepancies",
+            "command_template": "python3 - {ext_scope} <<'PY'\nimport sys, ipaddress, json, time, urllib.request, datetime, itertools\nips = []\nfor x in open(sys.argv[1]).read().split():\n    n = ipaddress.ip_network(x, strict=False)\n    ips += [str(a) for a in itertools.islice(n.hosts() if n.num_addresses > 2 else iter(n), 4096 - len(ips))]\n    if len(ips) >= 4096: break\nfor ip in ips[:4096]:\n    try:\n        d = json.load(urllib.request.urlopen('https://internetdb.shodan.io/' + ip, timeout=15))\n        ts = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')\n        print('HIT', ip, 'fetched=' + ts, 'ports=' + ','.join(map(str, d.get('ports', []))), 'cpes=' + ','.join(d.get('cpes', [])), 'hostnames=' + ','.join(d.get('hostnames', [])), 'vulns=' + ','.join(d.get('vulns', [])))\n        for h in d.get('hostnames', []): print('HOSTNAME', h)\n    except Exception:\n        pass\n    time.sleep(1)\nPY",
+            "output_regex": {
+              "shodan_ips": "^HIT (\\S+)",
+              "shodan_cves": "(CVE-\\d{4}-\\d{4,7})",
+              "shodan_hostnames": "^HOSTNAME (\\S+)$"
+            },
+            "variables": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {
+              "ext_scope": {
+                "type": "file"
+              }
+            },
+            "target_filter": {},
+            "timeout": 7200,
+            "alert_patterns": {
+              "warning": [
+                "vulns=CVE-"
+              ]
+            },
+            "finding_template": {},
+            "tags": [
+              "external",
+              "ext-p1",
+              "osint",
+              "passive",
+              "step-p1-s1",
+              "no-target-contact"
+            ],
+            "enabled": true
+          },
+          {
+            "name": "EXT P1-S2 WHOIS and Registrant PII Review",
+            "description": "Review domain and IP registration data; flag personal contact data (not generic role addresses) and pivot on registrant org to find related domains.\n\nSTEP: P1-S2 | PHASE: P1 | scope_required: false | severity_hint: low | mode: automated\nDEPENDS_ON: P0-S1\nFEEDS_INTO: P0-S1 (related domains to confirm), P1-S7 (employee identities), P6-S1\nTOOLS (examples, swappable): whois, WHOIS history services (manual), reverse WHOIS (manual)\n\nCHECK CRITERIA:\n[ ] Domain WHOIS reviewed for every in-scope domain\n[ ] IP/RIR WHOIS reviewed for every in-scope network (org, abuse contact, admin-c/tech-c)\n[ ] Generic role addresses (info@, iletisim@, noc@, abuse@, hostmaster@) treated as normal\n[ ] Personal email (free-mail or name.surname@), mobile numbers, employee names flagged\n[ ] WHOIS history checked for past registrant data leaks (manual)\n[ ] Registrant-organization / email pivots run; related domains sent to lead for scope decision\n\nOPSEC / RESTRICTIONS:\n! Passive. Store PII only in redacted form per data handling plan\n! Related domains found by pivot are OUT of scope until the lead confirms\n\nDONE WHEN (validation_output): WHOIS reviewed for all domains and networks; PII hits listed (redacted); related-domain list handed to lead.\nEVIDENCE REQUIRED: Redacted WHOIS excerpt for every PII hit",
+            "command_template": "for d in $(cat {ext_domains}); do echo \"=== DOMAIN $d\"; whois \"$d\"; sleep 2; done; for n in $(cat {ext_scope}); do echo \"=== NET $n\"; whois \"${n%/*}\"; sleep 2; done",
+            "output_regex": {
+              "whois_emails": "([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,})",
+              "registrant_org": "^\\s*(?:Registrant Organization|org-name|OrgName):\\s*(.+)$"
+            },
+            "variables": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {
+              "ext_domains": {
+                "type": "file"
+              },
+              "ext_scope": {
+                "type": "file"
+              }
+            },
+            "target_filter": {},
+            "timeout": 1800,
+            "alert_patterns": {
+              "warning": [
+                "@(gmail|hotmail|outlook|yahoo|yandex|icloud|proton(mail)?|live|msn)\\.",
+                "\\+90\\s?5\\d{2}"
+              ]
+            },
+            "finding_template": {
+              "title": "Personal Contact Data Exposed in WHOIS / RIR Records",
+              "severity": "low",
+              "cwe": "CWE-359",
+              "remediation": "Use role-based contacts (e.g. hostmaster@, noc@) and registrar privacy where allowed; update RIR admin-c/tech-c objects to role objects.",
+              "references": [
+                "https://www.ripe.net/manage-ips-and-asns/db/support/documentation/ripe-database-documentation/rpsl-object-types/4-2-descriptions-of-primary-objects/4-2-7-description-of-the-role-object"
+              ]
+            },
+            "tags": [
+              "external",
+              "ext-p1",
+              "osint",
+              "passive",
+              "pii",
+              "step-p1-s2",
+              "no-target-contact"
+            ],
+            "enabled": true
+          },
+          {
+            "name": "EXT P1-S3 Search Engine Dorking Google and Bing",
+            "description": "Generate and manually run Google and Bing dork sets per in-scope domain to find forgotten documents, listings and sensitive exposures.\n\nSTEP: P1-S3 | PHASE: P1 | scope_required: false | severity_hint: medium | mode: manual\nDEPENDS_ON: P0-S1, P1-S6 (optional: re-run on key subdomains)\nFEEDS_INTO: P1-S7 (secrets leads), P4-S5 (URLs to re-check live), P6-S1\nTOOLS (examples, swappable): Google, Bing, search engine cache (manual)\n\nCHECK CRITERIA:\n[ ] Google and Bing evaluated SEPARATELY (indexes differ); record results per engine\n[ ] File extensions: pdf\n[ ] File extensions: doc / docx\n[ ] File extensions: xls / xlsx\n[ ] File extensions: ppt / pptx\n[ ] File extensions: csv\n[ ] File extensions: sql\n[ ] File extensions: txt\n[ ] File extensions: env\n[ ] File extensions: log\n[ ] File extensions: bak / old / orig / save\n[ ] File extensions: conf / cfg / ini\n[ ] File extensions: xml\n[ ] File extensions: json\n[ ] File extensions: yml / yaml\n[ ] File extensions: zip / tar / gz / 7z / rar\n[ ] File extensions: pem / key / pfx (FLAG ONLY, never download)\n[ ] Directory listings: intitle:\"index of\"\n[ ] Exposed admin / login pages\n[ ] Error messages and stack traces\n[ ] Exposed .git / .svn / .DS_Store\n[ ] Cached pages reviewed for removed content\n[ ] Document metadata (author, software, internal paths) noted from public docs\n\nOPSEC / RESTRICTIONS:\n! Run queries by hand in a browser; automated scraping violates engine ToS and gets the egress IP blocked\n! Never download key/pfx/pem/env content; record URL + existence only\n! Opening an indexed URL on the target is active contact: only for in-scope hosts\n\nDONE WHEN (validation_output): Every query in the generated list executed on both engines; hits recorded with engine + date; sensitive hits escalated.\nEVIDENCE REQUIRED: Per query: engine, date, hit count, screenshot/URL list (no downloaded secrets)",
+            "command_template": "for d in $(cat {ext_domains}); do for e in pdf doc docx xls xlsx ppt pptx csv sql txt env log bak old orig save conf cfg ini xml json yml yaml zip tar gz 7z rar pem key pfx; do q=\"site:$d filetype:$e\"; echo \"DORK ext=$e GOOGLE https://www.google.com/search?q=$(printf %s \"$q\" | jq -sRr @uri)\"; echo \"DORK ext=$e BING https://www.bing.com/search?q=$(printf %s \"$q\" | jq -sRr @uri)\"; done; q=\"site:$d intitle:\\\"index of\\\"\"; echo \"DORK cat=dirlist GOOGLE https://www.google.com/search?q=$(printf %s \"$q\" | jq -sRr @uri)\"; echo \"DORK cat=dirlist BING https://www.bing.com/search?q=$(printf %s \"$q\" | jq -sRr @uri)\"; q=\"site:$d inurl:login OR inurl:admin OR inurl:signin OR intitle:login\"; echo \"DORK cat=login GOOGLE https://www.google.com/search?q=$(printf %s \"$q\" | jq -sRr @uri)\"; echo \"DORK cat=login BING https://www.bing.com/search?q=$(printf %s \"$q\" | jq -sRr @uri)\"; q=\"site:$d \\\"stack trace\\\" OR \\\"Traceback (most recent call last)\\\" OR \\\"Warning: mysql\\\" OR \\\"SQLSTATE\\\" OR \\\"Exception in thread\\\"\"; echo \"DORK cat=errors GOOGLE https://www.google.com/search?q=$(printf %s \"$q\" | jq -sRr @uri)\"; echo \"DORK cat=errors BING https://www.bing.com/search?q=$(printf %s \"$q\" | jq -sRr @uri)\"; q=\"site:$d inurl:.git OR inurl:.svn OR inurl:.DS_Store OR inurl:.hg\"; echo \"DORK cat=vcs GOOGLE https://www.google.com/search?q=$(printf %s \"$q\" | jq -sRr @uri)\"; echo \"DORK cat=vcs BING https://www.bing.com/search?q=$(printf %s \"$q\" | jq -sRr @uri)\"; q=\"site:$d inurl:wp-config OR inurl:web.config OR inurl:phpinfo OR intitle:phpinfo\"; echo \"DORK cat=config GOOGLE https://www.google.com/search?q=$(printf %s \"$q\" | jq -sRr @uri)\"; echo \"DORK cat=config BING https://www.bing.com/search?q=$(printf %s \"$q\" | jq -sRr @uri)\"; q=\"site:$d \\\"internal use only\\\" OR \\\"confidential\\\" OR \\\"gizli\\\" OR \\\"hizmete özel\\\"\"; echo \"DORK cat=docs-internal GOOGLE https://www.google.com/search?q=$(printf %s \"$q\" | jq -sRr @uri)\"; echo \"DORK cat=docs-internal BING https://www.bing.com/search?q=$(printf %s \"$q\" | jq -sRr @uri)\"; done",
+            "output_regex": {},
+            "variables": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {
+              "ext_domains": {
+                "type": "file"
+              }
+            },
+            "target_filter": {},
+            "timeout": 120,
+            "alert_patterns": {},
+            "finding_template": {},
+            "tags": [
+              "external",
+              "ext-p1",
+              "osint",
+              "passive",
+              "manual",
+              "dorking",
+              "step-p1-s3",
+              "no-target-contact"
+            ],
+            "enabled": true
+          },
+          {
+            "name": "EXT P1-S4 Web Archive Analysis",
+            "description": "Mine Wayback Machine and URLScan for removed endpoints, old configs, forgotten hosts and parameters.\n\nSTEP: P1-S4 | PHASE: P1 | scope_required: false | severity_hint: medium | mode: automated\nDEPENDS_ON: P0-S1\nFEEDS_INTO: P1-S6 (archive hostnames), P4-S5 (interesting URLs to re-check live)\nTOOLS (examples, swappable): Wayback CDX API, URLScan search API, CommonCrawl index (manual)\n\nCHECK CRITERIA:\n[ ] Wayback CDX pulled for *.domain on every in-scope domain\n[ ] URLScan results pulled\n[ ] CommonCrawl index checked (manual, index.commoncrawl.org)\n[ ] Removed endpoints / admin paths noted\n[ ] Old config / backup / dump files noted (ARCHIVE_INTERESTING)\n[ ] Parameters collected for later web testing\n[ ] Forgotten hostnames passed to P1-S6\n[ ] Liveness of archived paths is NOT checked here (active): deferred to P4-S5\n\nOPSEC / RESTRICTIONS:\n! Passive: requests go to archive.org / urlscan.io only\n! Do not open archived URLs on the live target in this phase\n\nDONE WHEN (validation_output): CDX + URLScan completed for every domain; ARCHIVE_INTERESTING and ARCHIVE_HOST lists produced (may be empty, recorded as such).\nEVIDENCE REQUIRED: Interesting archived URL list with archive timestamp",
+            "command_template": "for d in $(cat {ext_domains}); do curl -s --max-time 300 \"https://web.archive.org/cdx/search/cdx?url=*.$d/*&output=txt&fl=original&collapse=urlkey&limit=100000\"; curl -s --max-time 60 \"https://urlscan.io/api/v1/search/?q=domain:$d&size=1000\" | jq -r '.results[].page.url' 2>/dev/null; sleep 2; done | sort -u > ext_archive_urls.txt; echo \"ARCHIVE_URL_COUNT $(wc -l < ext_archive_urls.txt)\"; grep -Eio '^https?://[^/:?#]+' ext_archive_urls.txt | sed -E 's#^https?://##' | tr 'A-Z' 'a-z' | sort -u | sed 's/^/ARCHIVE_HOST /'; grep -Ei '\\.(sql|bak|old|orig|save|env|log|conf|cfg|ini|xml|json|ya?ml|zip|tar|gz|7z|rar|pem|key|pfx|csv|xlsx?|docx?|pdf)(\\?|$)|/(admin|backup|debug|api|swagger|graphql|\\.git)' ext_archive_urls.txt | sed 's/^/ARCHIVE_INTERESTING /'; echo 'ARCHIVE_INTERESTING -'; grep -Eo '[?&][A-Za-z0-9_.-]+=' ext_archive_urls.txt | tr -d '?&=' | sort | uniq -c | sort -rn | head -100 | sed 's/^/ARCHIVE_PARAM /'",
+            "output_regex": {
+              "archive_hosts": "^ARCHIVE_HOST (\\S+)$",
+              "archive_interesting": "^ARCHIVE_INTERESTING (\\S+)$"
+            },
+            "variables": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {
+              "ext_domains": {
+                "type": "file"
+              }
+            },
+            "target_filter": {},
+            "timeout": 3600,
+            "alert_patterns": {
+              "warning": [
+                "ARCHIVE_INTERESTING \\S+\\.(sql|env|bak|pem|key|pfx)\\b"
+              ]
+            },
+            "finding_template": {},
+            "tags": [
+              "external",
+              "ext-p1",
+              "osint",
+              "passive",
+              "archive",
+              "step-p1-s4",
+              "no-target-contact"
+            ],
+            "enabled": true
+          },
+          {
+            "name": "EXT P1-S5 SpiderFoot Passive Correlation",
+            "description": "Low-priority supporting step: automated OSINT correlation for secondary leaks, related domains and third-party links.\n\nSTEP: P1-S5 | PHASE: P1 | scope_required: false | severity_hint: info | mode: automated\nDEPENDS_ON: P0-S1\nFEEDS_INTO: P1-S6 (extra hosts), P1-S7 (emails, leaks), P0-S1 (related domains)\nTOOLS (examples, swappable): SpiderFoot (-u passive)\n\nCHECK CRITERIA:\n[ ] Run in passive use-case only\n[ ] Secondary data leaks reviewed\n[ ] Related / affiliate domains listed and sent to lead (out of scope until confirmed)\n[ ] Third-party services (SaaS, CDN, mail, analytics) listed for P0 provider-permission review\n[ ] Duplicates with P1-S1..S4 ignored; only new leads carried forward\n\nOPSEC / RESTRICTIONS:\n! -u passive only: footprint/investigate/all modules touch the target\n! Low priority: skip if time-boxed; mark n/a with reason\n\nDONE WHEN (validation_output): Passive scan finished; new leads (if any) copied to the relevant steps.\nEVIDENCE REQUIRED: SpiderFoot CSV export",
+            "command_template": "spiderfoot -s {ext_domain} -u passive -o csv -q -n 2>/dev/null",
+            "output_regex": {
+              "sf_emails": "([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,})"
+            },
+            "variables": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {},
+            "target_filter": {},
+            "timeout": 7200,
+            "alert_patterns": {},
+            "finding_template": {},
+            "tags": [
+              "external",
+              "ext-p1",
+              "osint",
+              "passive",
+              "low-priority",
+              "step-p1-s5",
+              "no-target-contact"
+            ],
+            "enabled": true
+          },
+          {
+            "name": "EXT P1-S6 CT and Passive Subdomain Discovery",
+            "description": "Build the deduplicated subdomain list from Certificate Transparency, passive DNS sources and archive hostnames.\n\nSTEP: P1-S6 | PHASE: P1 | scope_required: false | severity_hint: info | mode: automated\nDEPENDS_ON: P0-S1, P1-S4 (archive hosts)\nFEEDS_INTO: P2-S1\nTOOLS (examples, swappable): crt.sh, subfinder (passive sources), Wayback CDX hosts\n\nCHECK CRITERIA:\n[ ] CT logs (crt.sh) queried for every in-scope domain\n[ ] Passive DNS / aggregator sources queried (subfinder -all, API keys configured)\n[ ] Archive hostnames (P1-S4) merged\n[ ] Wildcards stripped, lowercased, deduplicated\n[ ] Only names under in-scope apex domains kept; others sent to lead\n[ ] Apex domains themselves included so P2 never starts empty\n\nOPSEC / RESTRICTIONS:\n! Passive: no queries to target nameservers here\n! A name under an in-scope domain can still be hosted out of IP scope: P2-S1 classifies\n\nDONE WHEN (validation_output): SUB list produced, deduplicated, only in-scope suffixes; count recorded.\nEVIDENCE REQUIRED: Final SUB list with count",
+            "command_template": "{ for d in $(cat {ext_domains}); do echo \"$d\"; curl -s --max-time 120 \"https://crt.sh/?q=%25.$d&output=json\" | jq -r '.[].name_value' 2>/dev/null; subfinder -d \"$d\" -all -silent 2>/dev/null; curl -s --max-time 300 \"https://web.archive.org/cdx/search/cdx?url=*.$d&output=txt&fl=original&collapse=urlkey&limit=100000\" | grep -Eio '^https?://[^/:?#]+' | sed -E 's#^https?://##'; sleep 2; done; } | tr 'A-Z' 'a-z' | sed 's/^\\*\\.//' | sort -u > ext_subs_raw.txt; python3 - ext_subs_raw.txt {ext_domains} <<'PY'\nimport sys\ndoms = [d.strip().lower() for d in open(sys.argv[2]).read().split() if d.strip()]\nn = 0\nfor h in open(sys.argv[1]).read().split():\n    if any(h == d or h.endswith('.' + d) for d in doms):\n        print('SUB', h); n += 1\n    else:\n        print('OFFSCOPE_NAME', h)\nprint('SUB_COUNT', n)\nprint('SUB -')  # placeholder: keeps the chain alive on IP-only engagements\nPY",
+            "output_regex": {
+              "ext_subdomains": "^SUB (\\S+)$"
+            },
+            "variables": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {
+              "ext_domains": {
+                "type": "file"
+              }
+            },
+            "target_filter": {},
+            "timeout": 3600,
+            "alert_patterns": {},
+            "finding_template": {},
+            "tags": [
+              "external",
+              "ext-p1",
+              "osint",
+              "passive",
+              "subdomains",
+              "step-p1-s6",
+              "no-target-contact"
+            ],
+            "enabled": true
+          },
+          {
+            "name": "EXT P1-S7 Leaked Credentials and Code Exposure",
+            "description": "Check breach corpora, public code repos, paste sites and public cloud storage for corporate accounts and exposed secrets/configs.\n\nSTEP: P1-S7 | PHASE: P1 | scope_required: false | severity_hint: high | mode: manual\nDEPENDS_ON: P0-S1, P1-S2 (identities), P1-S5 (emails)\nFEEDS_INTO: P6-S1, P4-S3 (only with written approval)\nTOOLS (examples, swappable): HIBP domain search / breach intel (manual), GitHub / GitLab code search, grep.app, paste-site search, public bucket search (manual)\n\nCHECK CRITERIA:\n[ ] Breach corpora checked for @domain accounts; record exposure + breach name/date only\n[ ] Passwords / hashes NOT stored in bars or the report\n[ ] Public code repos searched (org name, domain, internal hostnames, API key patterns)\n[ ] Paste sites searched\n[ ] Public cloud storage (S3/Azure Blob/GCS) checked for company-named buckets (listing only, no download of data)\n[ ] Exposed secrets reported to lead immediately for rotation\n[ ] No discovered credential used without explicit written scope approval\n\nOPSEC / RESTRICTIONS:\n! NEVER validate a found credential against any live system without written approval\n! Redact secrets in evidence (first 4 chars max)\n! STOP + notify engagement lead on: out-of-scope asset, signs of production impact, real-user data exposure, active incident at client.\n\nDONE WHEN (validation_output): All sources checked; exposure list (accounts/secrets by location, redacted) recorded; lead notified of live secrets.\nEVIDENCE REQUIRED: Count of exposed accounts per breach (no passwords), redacted secret location (repo/file/line)",
+            "command_template": "for d in $(cat {ext_domains}); do o=${d%%.*}; echo \"SEARCH github https://github.com/search?type=code&q=%22$d%22\"; echo \"SEARCH github-org https://github.com/search?type=users&q=$o\"; echo \"SEARCH gitlab https://gitlab.com/search?search=%22$d%22\"; echo \"SEARCH grepapp https://grep.app/search?q=$d\"; echo \"SEARCH postman https://www.postman.com/search?q=$d\"; echo \"SEARCH buckets https://buckets.grayhatwarfare.com/files?keywords=$o\"; echo \"SEARCH hibp https://haveibeenpwned.com/DomainSearch (verify $d ownership via client)\"; done",
+            "output_regex": {},
+            "variables": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {
+              "ext_domains": {
+                "type": "file"
+              }
+            },
+            "target_filter": {},
+            "timeout": 60,
+            "alert_patterns": {},
+            "finding_template": {},
+            "tags": [
+              "external",
+              "ext-p1",
+              "osint",
+              "passive",
+              "manual",
+              "leaks",
+              "step-p1-s7",
+              "no-target-contact"
+            ],
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "name": "EXT P2 - DNS Configuration and Infrastructure",
+        "description": "DNS queries against public resolvers / authoritative NS of in-scope domains. Classifies every asset IN/OUT of scope before active testing.",
+        "is_default_import": false,
+        "requires_auth": false,
+        "speed_profile": "default",
+        "items": [
+          {
+            "name": "EXT P2-S1 Subdomain Resolution and Scope Classification",
+            "description": "Resolve every candidate name (A/AAAA/CNAME) and classify each IP IN / OUT of ext_scope; build the active-testing target list.\n\nSTEP: P2-S1 | PHASE: P2 | scope_required: true | severity_hint: info | mode: automated\nDEPENDS_ON: P1-S6\nFEEDS_INTO: P2-S2 (PTR), P2-S4 (CNAMEs), P3-S1 (scan targets), P4-S1/P4-S5 (in-scope names)\nTOOLS (examples, swappable): dig, python3 ipaddress\n\nCHECK CRITERIA:\n[ ] Every P1-S6 name resolved (A, AAAA, CNAME chain)\n[ ] Each resolved IP classified IN (inside ext_scope) / OUT / PRIVATE\n[ ] OUT names/IPs logged and reported to lead; never forwarded to active steps\n[ ] Private / internal IPs in public DNS flagged (information leak)\n[ ] CNAMEs without final address recorded as dangling candidates for P2-S4\n[ ] Scan target list = ext_scope networks + IN-scope resolved IPs\n\nOPSEC / RESTRICTIONS:\n! Uses the agent's configured resolver; no zone-walking here\n! CDN/WAF/SaaS IPs (OUT) are third-party: do not scan without provider permission (P0)\n\nDONE WHEN (validation_output): Every candidate name has a RESOLVED/NORES line; SCAN_TARGET list non-empty; OUT list sent to lead.\nEVIDENCE REQUIRED: Classification table (name, record, IP, IN/OUT/PRIVATE)",
+            "command_template": "python3 - {subdomains} {ext_scope} <<'PY'\nimport sys, subprocess, ipaddress\nnames = sorted(set(x for x in open(sys.argv[1]).read().split() if '.' in x))\nnets = [ipaddress.ip_network(x, strict=False) for x in open(sys.argv[2]).read().split()]\nfor n in nets: print('SCAN_TARGET', n)\nseen = set()\nfor h in names:\n    ips, cn = [], []\n    for t in ('A', 'AAAA'):\n        out = subprocess.run(['dig', '+noall', '+answer', '+time=3', '+tries=2', t, h], capture_output=True, text=True).stdout\n        for line in out.splitlines():\n            p = line.split()\n            if len(p) >= 5 and p[3] == 'CNAME': cn.append(p[4].rstrip('.'))\n            if len(p) >= 5 and p[3] in ('A', 'AAAA'): ips.append(p[4])\n    for c in sorted(set(cn)): print('CNAME', h, c)\n    if not ips:\n        print('NORES', h, ('DANGLING_CANDIDATE ' + cn[-1]) if cn else '')\n        continue\n    inscope = False\n    for ip in sorted(set(ips)):\n        a = ipaddress.ip_address(ip)\n        cls = 'PRIVATE' if (a.is_private or a.is_loopback or a.is_link_local) else ('IN' if any(a in n for n in nets) else 'OUT')\n        print('RESOLVED', cls, h, ip)\n        if cls == 'IN':\n            inscope = True\n            if ip not in seen: seen.add(ip); print('SCAN_TARGET', ip); print('INSCOPE_IP', ip)\n    if inscope: print('INSCOPE_NAME', h)\n    if cn: print('CNAME_HOST', h)\nfor k in ('INSCOPE_NAME', 'INSCOPE_IP', 'CNAME_HOST'): print(k, '-')  # placeholders, consumers skip '-'\nPY",
+            "output_regex": {
+              "ext_scan_targets": "^SCAN_TARGET (\\S+)$",
+              "ext_inscope_names": "^INSCOPE_NAME (\\S+)$",
+              "ext_inscope_ips": "^INSCOPE_IP (\\S+)$",
+              "ext_outscope_ips": "^RESOLVED OUT \\S+ (\\S+)$",
+              "ext_cname_hosts": "^CNAME_HOST (\\S+)$",
+              "ext_dangling": "^NORES (\\S+) DANGLING_CANDIDATE"
+            },
+            "variables": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {
+              "subdomains": {
+                "type": "file"
+              },
+              "ext_scope": {
+                "type": "file"
+              }
+            },
+            "target_filter": {},
+            "timeout": 3600,
+            "alert_patterns": {
+              "warning": [
+                "^RESOLVED PRIVATE",
+                "DANGLING_CANDIDATE"
+              ]
+            },
+            "finding_template": {},
+            "tags": [
+              "external",
+              "ext-p2",
+              "dns",
+              "scope",
+              "step-p2-s1",
+              "scope-required"
+            ],
+            "enabled": true
+          },
+          {
+            "name": "EXT P2-S2 DNS Records and Zone Transfer",
+            "description": "Enumerate every record type on each in-scope domain, test AXFR/IXFR on every authoritative NS, check NS consistency, DNSSEC and PTRs.\n\nSTEP: P2-S2 | PHASE: P2 | scope_required: true | severity_hint: high (AXFR) / low (others) | mode: automated\nDEPENDS_ON: P0-S1, P2-S1 (in-scope IPs for PTR)\nFEEDS_INTO: P2-S3 (MX/TXT), P2-S4, P3-S1 (NS/MX hosts if IN scope), P6-S1\nTOOLS (examples, swappable): dig\n\nCHECK CRITERIA:\n[ ] Record type: A\n[ ] Record type: AAAA\n[ ] Record type: MX\n[ ] Record type: TXT\n[ ] Record type: NS\n[ ] Record type: CNAME\n[ ] Record type: SRV (common service labels)\n[ ] Record type: PTR (reverse DNS of in-scope IPs)\n[ ] Record type: SOA (serial, contact, timers)\n[ ] Record type: CAA (present? which CAs?)\n[ ] Record type: NAPTR\n[ ] Record type: DNSKEY / DS (DNSSEC signed and chained?)\n[ ] AXFR tested on EVERY authoritative NS (not just the first)\n[ ] IXFR tested on every authoritative NS\n[ ] NS responses consistent across all authoritative servers (SOA serial match)\n[ ] Internal hostnames / private IPs in public records flagged\n\nOPSEC / RESTRICTIONS:\n! AXFR is a single, non-destructive query; still only against in-scope domains' NS\n! If a NS is third-party (registrar/DNS provider), the query is acceptable but the finding is the client's config\n\nDONE WHEN (validation_output): All record types queried for every domain; AXFR/IXFR result recorded per NS (REFUSED / SUCCESS); SOA serials compared.\nEVIDENCE REQUIRED: dig output per record type; AXFR transcript per NS",
+            "command_template": "q() { dig +short +time=3 +tries=2 \"$@\" | grep -v '^;'; }; for d in $(cat {ext_domains}); do echo \"##### DOMAIN $d\"; for t in A AAAA MX TXT NS CNAME SOA CAA NAPTR DNSKEY DS; do echo \"=== $t $d\"; dig +noall +answer +multiline \"$d\" \"$t\"; done; for s in _sip._tcp _sip._udp _sips._tcp _xmpp-server._tcp _autodiscover._tcp _ldap._tcp _kerberos._tcp _vpn._tcp _submission._tcp _imaps._tcp; do echo \"=== SRV $s.$d\"; q SRV \"$s.$d\"; done; for ns in $(q NS \"$d\"); do echo \"=== SOA@$ns $(q SOA \"$d\" @\"$ns\" | awk '{print $3}')\"; if dig AXFR \"$d\" @\"$ns\" +time=5 | grep -qE '\\sIN\\s+SOA\\s'; then echo \"AXFR_SUCCESS $d @$ns\"; dig AXFR \"$d\" @\"$ns\" | head -200; else echo \"AXFR_REFUSED $d @$ns\"; fi; s=$(q SOA \"$d\" @\"$ns\" | awk '{print $3}'); if dig IXFR=$((s-1)) \"$d\" @\"$ns\" +time=5 | grep -qE '\\sIN\\s+(A|AAAA|CNAME|MX)\\s'; then echo \"IXFR_SUCCESS $d @$ns\"; else echo \"IXFR_REFUSED $d @$ns\"; fi; done; done; for ip in {inscope_ips}; do [ \"$ip\" = - ] && continue; echo \"PTR $ip $(q -x \"$ip\")\"; done",
+            "output_regex": {
+              "axfr_open": "^AXFR_SUCCESS (\\S+ @\\S+)$",
+              "ns_soa": "^=== SOA@(\\S+ \\d+)$"
+            },
+            "variables": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {
+              "ext_domains": {
+                "type": "file"
+              }
+            },
+            "target_filter": {},
+            "timeout": 1800,
+            "alert_patterns": {
+              "critical": [
+                "AXFR_SUCCESS",
+                "IXFR_SUCCESS"
+              ]
+            },
+            "finding_template": {
+              "title": "DNS Zone Transfer (AXFR/IXFR) Allowed to Any Host",
+              "severity": "high",
+              "cwe": "CWE-200",
+              "remediation": "Restrict zone transfers to secondary nameserver IPs (allow-transfer / TSIG) on every authoritative server.",
+              "references": [
+                "https://www.rfc-editor.org/rfc/rfc5936"
+              ]
+            },
+            "tags": [
+              "external",
+              "ext-p2",
+              "dns",
+              "axfr",
+              "step-p2-s2",
+              "scope-required"
+            ],
+            "enabled": true
+          },
+          {
+            "name": "EXT P2-S3 Email Security Records",
+            "description": "Check presence and strictness of SPF, DKIM, DMARC, MTA-STS, TLS-RPT and BIMI; non-sending domains must publish null SPF + DMARC reject.\n\nSTEP: P2-S3 | PHASE: P2 | scope_required: true | severity_hint: medium | mode: automated\nDEPENDS_ON: P2-S2 (MX/TXT)\nFEEDS_INTO: P3-S4 (SMTP hosts), P6-S1\nTOOLS (examples, swappable): dig, curl (MTA-STS policy)\n\nCHECK CRITERIA:\n[ ] SPF present; qualifier: -all (good) / ~all (weak) / ?all or +all (bad)\n[ ] SPF DNS-lookup count <= 10 (include/a/mx/ptr/exists/redirect)\n[ ] SPF: single record only (multiple = permerror)\n[ ] DKIM selectors discovered (common list + headers from received mail); key length >= 2048 preferred, 1024 = weak\n[ ] DMARC present; p=none / quarantine / reject\n[ ] DMARC rua / ruf reporting addresses, pct (<100 = partial), sp (subdomain policy)\n[ ] MTA-STS TXT + https://mta-sts.<domain>/.well-known/mta-sts.txt mode (enforce/testing/none)\n[ ] TLS-RPT (_smtp._tls) present\n[ ] BIMI (default._bimi) where relevant\n[ ] Non-sending domains (no MX or null MX '0 .'): null SPF 'v=spf1 -all' and DMARC p=reject\n\nOPSEC / RESTRICTIONS:\n! DNS lookups + one HTTPS GET to mta-sts host per domain; no mail is sent\n\nDONE WHEN (validation_output): Every domain has an SPF/DKIM/DMARC/MTA-STS/TLS-RPT verdict line; weak/missing policies flagged.\nEVIDENCE REQUIRED: Raw TXT records per domain and the policy evaluation",
+            "command_template": "q() { dig +short +time=3 +tries=2 \"$@\" | grep -v '^;'; }; for d in $(cat {ext_domains}); do echo \"##### DOMAIN $d\"; mx=$(q MX \"$d\"); echo \"MX $d ${mx:-NONE}\"; spf=$(q TXT \"$d\" | tr -d '\"' | grep -i '^v=spf1'); n=$(echo \"$spf\" | grep -c 'v=spf1'); echo \"SPF $d count=$n ${spf:-MISSING}\"; case \"$spf\" in *-all*) echo \"SPF_POLICY $d HARDFAIL\";; *~all*) echo \"SPF_POLICY $d SOFTFAIL\";; *\\?all*|*+all*) echo \"SPF_POLICY $d WEAK\";; '') echo \"SPF_POLICY $d MISSING\";; *) echo \"SPF_POLICY $d NO_ALL\";; esac; echo \"SPF_LOOKUPS $d $(echo \"$spf\" | grep -oiE '(include:|a:|a |mx|ptr|exists:|redirect=)' | wc -l) (top level only; expand includes manually)\"; dm=$(q TXT \"_dmarc.$d\" | tr -d '\"'); echo \"DMARC $d ${dm:-MISSING}\"; case \"$dm\" in *p=reject*) echo \"DMARC_POLICY $d REJECT\";; *p=quarantine*) echo \"DMARC_POLICY $d QUARANTINE\";; *p=none*) echo \"DMARC_POLICY $d NONE\";; *) echo \"DMARC_POLICY $d MISSING\";; esac; for s in default selector1 selector2 google k1 k2 mail dkim s1 s2 mxvault zoho smtp pm mandrill everlytickey1 sendgrid; do r=$(q TXT \"$s._domainkey.$d\" | tr -d '\" '); [ -n \"$r\" ] && echo \"DKIM $d selector=$s keylen_b64=$(echo \"$r\" | sed -n 's/.*p=\\([^;]*\\).*/\\1/p' | wc -c) $r\"; done; echo \"MTA_STS_TXT $d $(q TXT _mta-sts.$d | tr -d '\"')\"; echo \"MTA_STS_POLICY $d $(curl -s --max-time 10 https://mta-sts.$d/.well-known/mta-sts.txt | tr '\\n' ' ')\"; echo \"TLSRPT $d $(q TXT _smtp._tls.$d | tr -d '\"')\"; echo \"BIMI $d $(q TXT default._bimi.$d | tr -d '\"')\"; case \"$mx\" in ''|'0 .') echo \"NON_SENDING_CHECK $d spf=$(echo \"$spf\" | grep -q '^v=spf1 -all$' && echo NULL_OK || echo NOT_NULL) dmarc=$(echo \"$dm\" | grep -q 'p=reject' && echo REJECT_OK || echo NOT_REJECT)\";; esac; done",
+            "output_regex": {
+              "spf_weak": "^SPF_POLICY (\\S+) (?:SOFTFAIL|WEAK|MISSING|NO_ALL)$",
+              "dmarc_weak": "^DMARC_POLICY (\\S+) (?:NONE|MISSING)$"
+            },
+            "variables": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {
+              "ext_domains": {
+                "type": "file"
+              }
+            },
+            "target_filter": {},
+            "timeout": 900,
+            "alert_patterns": {
+              "warning": [
+                "SPF_POLICY \\S+ (SOFTFAIL|WEAK|MISSING|NO_ALL)",
+                "DMARC_POLICY \\S+ (NONE|MISSING)",
+                "NON_SENDING_CHECK .* NOT_(NULL|REJECT)"
+              ]
+            },
+            "finding_template": {
+              "title": "Weak or Missing Email Authentication Policy (SPF/DMARC)",
+              "severity": "medium",
+              "cwe": "CWE-290",
+              "remediation": "Publish SPF ending in -all within 10 lookups, DKIM with >=2048-bit keys, and DMARC p=reject (sp=reject, pct=100) after monitoring; for non-sending domains publish 'v=spf1 -all' and DMARC p=reject.",
+              "references": [
+                "https://www.rfc-editor.org/rfc/rfc7208",
+                "https://www.rfc-editor.org/rfc/rfc7489",
+                "https://www.rfc-editor.org/rfc/rfc8461"
+              ]
+            },
+            "tags": [
+              "external",
+              "ext-p2",
+              "dns",
+              "email",
+              "step-p2-s3",
+              "scope-required"
+            ],
+            "enabled": true
+          },
+          {
+            "name": "EXT P2-S4 Dangling DNS and Subdomain Takeover Check",
+            "description": "Identify CNAME/records pointing to decommissioned cloud/SaaS resources and verify takeover condition WITHOUT claiming the resource.\n\nSTEP: P2-S4 | PHASE: P2 | scope_required: true | severity_hint: high | mode: automated\nDEPENDS_ON: P2-S1 (CNAME hosts, dangling candidates)\nFEEDS_INTO: P6-S1\nTOOLS (examples, swappable): nuclei takeover templates, dig, can-i-take-over-xyz fingerprints (manual)\n\nCHECK CRITERIA:\n[ ] Every CNAME host from P2-S1 checked\n[ ] NORES + CNAME (DANGLING_CANDIDATE) entries reviewed manually\n[ ] Provider fingerprint matched (S3 NoSuchBucket, Azure, GitHub Pages, Heroku, Shopify, etc.)\n[ ] Also checked: A records to released cloud IPs, NS delegations to unregistered/expired zones, MX to dead providers\n[ ] Takeover condition verified only by fingerprint/response; resource NOT registered or claimed\n[ ] Provider + fingerprint recorded\n\nOPSEC / RESTRICTIONS:\n! NEVER create/claim the bucket, app, page or zone to prove takeover\n! One HTTP request per host; rate-limited\n\nDONE WHEN (validation_output): Each CNAME host has a verdict (not vulnerable / candidate with provider + fingerprint).\nEVIDENCE REQUIRED: Name, CNAME target, provider, fingerprint/response snippet",
+            "command_template": "printf '%s\\n' {cname_hosts} | grep -v '^-$' > ext_cname_hosts.txt; nuclei -l ext_cname_hosts.txt -tags takeover -rl {ext_req_rate} -silent -nc; q() { dig +short +time=3 +tries=2 \"$@\" | grep -v '^;'; }; for h in $(cat ext_cname_hosts.txt); do c=$(q CNAME \"$h\" | tail -1); [ -n \"$c\" ] && st=$(dig +noall +comments \"$c\" | grep -o 'status: [A-Z]*' | head -1) && echo \"CNAME_TARGET $h -> $c ($st)\"; done",
+            "output_regex": {
+              "takeover_candidates": "^\\[[\\w:.-]+\\] \\[(?:http|dns)\\] \\[\\w+\\] (\\S+)"
+            },
+            "variables": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {},
+            "target_filter": {},
+            "timeout": 1800,
+            "alert_patterns": {
+              "critical": [
+                "takeover",
+                "status: NXDOMAIN"
+              ]
+            },
+            "finding_template": {
+              "title": "Subdomain Takeover Possible (Dangling DNS Record)",
+              "severity": "high",
+              "cwe": "CWE-350",
+              "remediation": "Remove or update DNS records pointing to deprovisioned resources; add decommissioning checklist so DNS is removed before the cloud resource.",
+              "references": [
+                "https://github.com/EdOverflow/can-i-take-over-xyz",
+                "https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/02-Configuration_and_Deployment_Management_Testing/10-Test_for_Subdomain_Takeover"
+              ]
+            },
+            "tags": [
+              "external",
+              "ext-p2",
+              "dns",
+              "takeover",
+              "step-p2-s4",
+              "scope-required"
+            ],
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "name": "EXT P3 - Active Port Scanning and Service Audit",
+        "description": "Active. Only P2-S1 in-scope targets. Honor RoE rate limits and test window.",
+        "is_default_import": false,
+        "requires_auth": false,
+        "speed_profile": "stealth",
+        "items": [
+          {
+            "name": "EXT P3-S1 Full TCP Port Discovery",
+            "description": "Discover every open TCP port (1-65535) on in-scope targets at an RoE-compliant packet rate.\n\nSTEP: P3-S1 | PHASE: P3 | scope_required: true | severity_hint: info | mode: automated\nDEPENDS_ON: P2-S1 (scan targets), P0-S2 (egress IP logged), P1-S1 (expected ports baseline)\nFEEDS_INTO: P3-S3, P3-S4, P3-S5, P4-S1\nTOOLS (examples, swappable): nmap (any SYN scanner)\n\nCHECK CRITERIA:\n[ ] All 65535 TCP ports scanned on every SCAN_TARGET\n[ ] Packet rate capped at ext_rate; timing within test window\n[ ] Scan source IP + start/end time recorded (nmap header/footer)\n[ ] Filtered / no-response counts noted separately (Not shown: lines)\n[ ] Sample re-verified with a second pass (manual, different timing) to catch drops\n[ ] Diff vs P1-S1 passive inventory: ports in Shodan but not seen now = filtering/IPS or stale data\n\nOPSEC / RESTRICTIONS:\n! SYN scan needs root or CAP_NET_RAW on the host_agent\n! --max-rate {ext_rate} -T3; lower ext_rate if IPS blocking or latency rises\n! bars drops Excluded hosts from targets automatically; verify none slipped through\n! Stop immediately on any sign of service degradation: STOP + notify engagement lead on: out-of-scope asset, signs of production impact, real-user data exposure, active incident at client.\n\nDONE WHEN (validation_output): Scan completed for all targets (no 'QUITTING'), open ports per host parsed into bars hosts/services, filtered counts recorded.\nEVIDENCE REQUIRED: Scan output with start/end timestamp and egress IP",
+            "command_template": "nmap -sS -Pn -n -p- -T3 --max-rate {ext_rate} --max-retries 2 --open --reason -iL {targets}",
+            "output_regex": {
+              "ext_open_ports": "^(\\d+)/tcp\\s+open",
+              "ext_live_ips": "^Nmap scan report for (\\S+)$",
+              "filtered_note": "^Not shown: (.+)$"
+            },
+            "variables": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {
+              "targets": {
+                "type": "file"
+              }
+            },
+            "target_filter": {},
+            "timeout": 43200,
+            "alert_patterns": {},
+            "finding_template": {},
+            "tags": [
+              "external",
+              "ext-p3",
+              "portscan",
+              "active",
+              "step-p3-s1",
+              "scope-required"
+            ],
+            "enabled": true
+          },
+          {
+            "name": "EXT P3-S2 Critical UDP Port Discovery",
+            "description": "Scan critical UDP services (DNS, NTP, SNMP, IKE, IPMI, SSDP, memcached, VPNs, SIP...) on in-scope targets.\n\nSTEP: P3-S2 | PHASE: P3 | scope_required: true | severity_hint: medium | mode: automated\nDEPENDS_ON: P2-S1 (scan targets)\nFEEDS_INTO: P3-S3, P3-S4\nTOOLS (examples, swappable): nmap -sU (with version probes)\n\nCHECK CRITERIA:\n[ ] ext_udp_ports scanned on every target\n[ ] open vs open|filtered distinguished (-sV confirms)\n[ ] Amplification-capable services exposed (DNS open resolver, NTP monlist, SSDP, memcached, SNMP) flagged\n[ ] IKE (500/4500) -> note VPN gateway for P4-S1\n[ ] IPMI 623 exposure flagged (should never be internet-facing)\n\nOPSEC / RESTRICTIONS:\n! UDP is slow and lossy: keep rate low, --max-retries 1\n! Do not run amplification tests (monlist etc.) that generate large responses without approval\n\nDONE WHEN (validation_output): UDP scan complete; open services listed with version or marked open|filtered.\nEVIDENCE REQUIRED: UDP scan output",
+            "command_template": "nmap -sU -sV --version-intensity 2 -Pn -n -p {ext_udp_ports} -T3 --max-rate {ext_rate} --max-retries 1 --open --reason -iL {targets}",
+            "output_regex": {
+              "udp_open": "^(\\d+)/udp\\s+open\\s"
+            },
+            "variables": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {
+              "targets": {
+                "type": "file"
+              }
+            },
+            "target_filter": {},
+            "timeout": 14400,
+            "alert_patterns": {
+              "warning": [
+                "^(623|1900|11211|161)/udp\\s+open\\s"
+              ]
+            },
+            "finding_template": {},
+            "tags": [
+              "external",
+              "ext-p3",
+              "portscan",
+              "udp",
+              "active",
+              "step-p3-s2",
+              "scope-required"
+            ],
+            "enabled": true
+          },
+          {
+            "name": "EXT P3-S3 Service and Version Detection",
+            "description": "Identify product and version on every open port (non-80/443 included) and gather CVE leads per version.\n\nSTEP: P3-S3 | PHASE: P3 | scope_required: true | severity_hint: varies | mode: automated\nDEPENDS_ON: P3-S1 (open ports, live IPs), P1-S1 (CVE leads)\nFEEDS_INTO: P3-S4, P4-S1, P4-S4, P5-S2\nTOOLS (examples, swappable): nmap -sV -sC\n\nCHECK CRITERIA:\n[ ] Every open port fingerprinted (product + version)\n[ ] Known critical CVEs researched per identified version (NVD, vendor advisories, CISA KEV)\n[ ] Unidentified services noted for manual banner grab\n[ ] End-of-life software versions flagged\n[ ] bars host tags (ftp, ssh, smb, rdp, smtp, snmp, http...) populated for filtered steps\n\nOPSEC / RESTRICTIONS:\n! -sC runs nmap 'default' category scripts (safe/non-intrusive); never add 'intrusive'/'vuln'/'brute' without approval\n\nDONE WHEN (validation_output): All open ports carry a service/version (or 'unknown' with manual note); CVE leads list created.\nEVIDENCE REQUIRED: Service/version table; CVE research notes per version",
+            "command_template": "nmap -sS -sV -sC -Pn -n -T3 --max-rate {ext_rate} -p $(echo {ports} | tr ' ' '\\n' | sort -un | paste -sd, -) -iL {targets}",
+            "output_regex": {
+              "cve_refs": "(CVE-\\d{4}-\\d{4,7})",
+              "services": "^\\d+/tcp\\s+open\\s+(\\S+)"
+            },
+            "variables": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {
+              "targets": {
+                "type": "file"
+              }
+            },
+            "target_filter": {},
+            "timeout": 21600,
+            "alert_patterns": {
+              "warning": [
+                "CVE-\\d{4}-\\d+"
+              ]
+            },
+            "finding_template": {},
+            "tags": [
+              "external",
+              "ext-p3",
+              "service",
+              "active",
+              "step-p3-s3",
+              "scope-required"
+            ],
+            "enabled": true
+          },
+          {
+            "name": "EXT P3-S4 Anonymous Access and Service Hardening Checks",
+            "description": "Per-service misconfiguration checks: anonymous/null access, open relay, weak algorithms, missing NLA/signing, default SNMP communities, exposed datastores.\n\nSTEP: P3-S4 | PHASE: P3 | scope_required: true | severity_hint: high | mode: automated\nDEPENDS_ON: P3-S1, P3-S2, P3-S3\nFEEDS_INTO: P5-S2, P6-S1\nTOOLS (examples, swappable): nmap NSE (portrule-driven), netexec / ssh-audit / snmpwalk (manual follow-up)\n\nCHECK CRITERIA:\n[ ] FTP: anonymous login (ftp-anon), cleartext auth\n[ ] SMB: exposed to internet at all? SMBv1 enabled? signing not required? null session (smb-protocols, smb2-security-mode)\n[ ] SMTP: open relay (smtp-open-relay), VRFY/EXPN enabled (smtp-commands), STARTTLS offered\n[ ] SSH: weak kex/ciphers/MACs (ssh2-enum-algos), password auth enabled (ssh-auth-methods)\n[ ] RDP: NLA/CredSSP enforced? (rdp-enum-encryption); BlueKeep-era versions\n[ ] SNMP: default communities public/private (snmp-info, manual snmpwalk with RoE-approved list)\n[ ] Databases (MySQL, MSSQL, PostgreSQL, Oracle, MongoDB, Redis, Elasticsearch, Memcached): internet-exposed at all? unauthenticated access?\n[ ] Telnet / VNC / rsync / NFS / LDAP exposure (vnc-info, rsync-list-modules, nfs-showmount, ldap-rootdse)\n[ ] Each issue confirmed by a second, manual method before reporting\n\nOPSEC / RESTRICTIONS:\n! Only non-intrusive NSE scripts; no brute-force scripts\n! smtp-open-relay issues MAIL FROM/RCPT TO only (no DATA); RoE must allow it\n! SNMP: only 'public' tried automatically; wider community lists need approval (lockout/alerting risk)\n\nDONE WHEN (validation_output): Every exposed service family has a pass/fail verdict per host:port; positives cross-verified.\nEVIDENCE REQUIRED: Script output per host:port",
+            "command_template": "nmap -sS -sV -Pn -n -T3 --max-rate {ext_rate} -p $(echo {ports} | tr ' ' '\\n' | sort -un | paste -sd, -) --script \"ftp-anon,ftp-syst,smb-protocols,smb2-security-mode,smb-security-mode,smtp-open-relay,smtp-commands,ssh2-enum-algos,ssh-auth-methods,rdp-enum-encryption,rdp-ntlm-info,vnc-info,rsync-list-modules,nfs-showmount,ldap-rootdse,mysql-info,ms-sql-info,mongodb-info,redis-info,memcached-info,telnet-encryption\" -iL {targets}; nmap -sU -Pn -n -p 161 --script snmp-info -iL {targets}",
+            "output_regex": {
+              "anon_ftp": "(Anonymous FTP login allowed)",
+              "open_relay": "(Server is an open relay)"
+            },
+            "variables": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {
+              "targets": {
+                "type": "file"
+              }
+            },
+            "target_filter": {},
+            "timeout": 14400,
+            "alert_patterns": {
+              "critical": [
+                "Anonymous FTP login allowed",
+                "Server is an open relay",
+                "NT LM 0\\.12 \\(SMBv1\\)",
+                "redis_version",
+                "mongodb-info"
+              ],
+              "warning": [
+                "signing enabled but not required",
+                "message_signing: disabled",
+                "CredSSP \\(NLA\\): FALSE",
+                "Supported authentication methods:.*password",
+                "VRFY",
+                "EXPN",
+                "(arcfour|3des-cbc|hmac-md5|diffie-hellman-group1-sha1)"
+              ]
+            },
+            "finding_template": {},
+            "tags": [
+              "external",
+              "ext-p3",
+              "service",
+              "misconfig",
+              "active",
+              "step-p3-s4",
+              "scope-required"
+            ],
+            "enabled": true
+          },
+          {
+            "name": "EXT P3-S5 TLS Configuration Review",
+            "description": "Review protocol versions, cipher suites and certificates on ALL TLS-enabled services (not only 443; includes STARTTLS on SMTP/IMAP/POP3/FTP/LDAP).\n\nSTEP: P3-S5 | PHASE: P3 | scope_required: true | severity_hint: medium | mode: automated\nDEPENDS_ON: P3-S1 (open ports), P3-S3 (ssl services)\nFEEDS_INTO: P6-S1\nTOOLS (examples, swappable): nmap ssl-enum-ciphers + ssl-cert, testssl.sh (per-host deep dive)\n\nCHECK CRITERIA:\n[ ] SSLv2 / SSLv3 / TLS 1.0 / TLS 1.1 disabled\n[ ] TLS 1.2 + 1.3 offered\n[ ] No NULL / EXPORT / RC4 / 3DES / CBC-only weak suites (ssl-enum-ciphers grade < A flagged)\n[ ] Certificate valid (not expired, not yet valid), full chain served\n[ ] Hostname matches CN/SAN\n[ ] Expiry within 30 days flagged\n[ ] Key: RSA >= 2048 / EC >= 256; signature not SHA-1/MD5\n[ ] Self-signed or internal-CA certs on public services flagged\n[ ] STARTTLS services covered (SMTP 25/587, IMAP 143, POP3 110, FTP 21, LDAP 389)\n\nOPSEC / RESTRICTIONS:\n! Handshake-only checks; no heartbleed/renegotiation stress tests without approval\n\nDONE WHEN (validation_output): Every TLS-capable host:port has protocol list, least-strength grade and certificate validity recorded.\nEVIDENCE REQUIRED: Cipher/protocol grades and certificate details per host:port",
+            "command_template": "nmap -sS -sV -Pn -n -T3 --max-rate {ext_rate} -p $(echo {ports} | tr ' ' '\\n' | sort -un | paste -sd, -) --script ssl-cert,ssl-enum-ciphers -iL {targets}",
+            "output_regex": {
+              "weak_tls": "\\|\\s+(SSLv3|TLSv1\\.0|TLSv1\\.1):",
+              "least_strength": "least strength: ([A-F])"
+            },
+            "variables": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {
+              "targets": {
+                "type": "file"
+              }
+            },
+            "target_filter": {},
+            "timeout": 14400,
+            "alert_patterns": {
+              "warning": [
+                "\\|\\s+(SSLv3|TLSv1\\.0|TLSv1\\.1):",
+                "least strength: [C-F]",
+                "sha1WithRSA|md5WithRSA",
+                "Public Key bits: (512|768|1024)$"
+              ]
+            },
+            "finding_template": {
+              "title": "Weak TLS/SSL Configuration",
+              "severity": "medium",
+              "cwe": "CWE-326",
+              "remediation": "Disable SSLv3/TLS1.0/TLS1.1 and weak suites (RC4, 3DES, CBC-SHA1 where possible, NULL/EXPORT); enable TLS1.2+1.3 with AEAD suites; use RSA>=2048/ECDSA>=256 certificates with SHA-256 signatures from a trusted CA.",
+              "references": [
+                "https://ssl-config.mozilla.org/",
+                "https://www.rfc-editor.org/rfc/rfc8996"
+              ]
+            },
+            "tags": [
+              "external",
+              "ext-p3",
+              "tls",
+              "active",
+              "step-p3-s5",
+              "scope-required"
+            ],
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "name": "EXT P4 - Web and Management Panels (External View)",
+        "description": "External attack surface only, not a full web application test.",
+        "is_default_import": false,
+        "requires_auth": false,
+        "speed_profile": "stealth",
+        "items": [
+          {
+            "name": "EXT P4-S1 Web and Management Interface Discovery",
+            "description": "Probe every in-scope name/IP on discovered + common web ports; identify devices, IoT, firewall/VPN, remote-access, CI/CD, monitoring panels and API docs.\n\nSTEP: P4-S1 | PHASE: P4 | scope_required: true | severity_hint: info | mode: automated\nDEPENDS_ON: P2-S1 (in-scope names), P3-S1 (open ports, live IPs), P3-S3 (service names)\nFEEDS_INTO: P4-S2, P4-S3, P4-S4, P5-S1\nTOOLS (examples, swappable): httpx (ProjectDiscovery; Kali: httpx-toolkit), screenshot tool (manual: gowitness/aquatone)\n\nCHECK CRITERIA:\n[ ] IP cameras / NVR / DVR\n[ ] Firewall / UTM panels (FortiGate, Palo Alto, Sophos, pfSense, Check Point)\n[ ] VPN gateways / SSL-VPN portals (FortiGate SSL-VPN, GlobalProtect, Pulse/Ivanti, Cisco ASA AnyConnect)\n[ ] Printers / MFPs\n[ ] Server management (iDRAC, iLO, IPMI web, Webmin, cPanel, Plesk, vCenter/ESXi)\n[ ] Remote access portals (Citrix NetScaler/Gateway, OWA/Exchange, RD Web/RD Gateway)\n[ ] CI/CD and repos (Jenkins, GitLab, TeamCity, Argo, Harbor)\n[ ] Monitoring / logging (Grafana, Kibana, Zabbix, Nagios, Prometheus)\n[ ] API docs exposed (Swagger/OpenAPI UI, GraphQL endpoint + introspection)\n[ ] Both IP and hostname (vhost) probed: different vhosts can expose different apps\n\nOPSEC / RESTRICTIONS:\n! Rate-limited (ext_req_rate); GET only\n! Names resolving OUT of scope were already removed in P2-S1; do not add them back\n\nDONE WHEN (validation_output): Every in-scope name + live IP probed on discovered+common web ports; WEB_URL list produced; panels categorized.\nEVIDENCE REQUIRED: URL list with status, title, server, tech; screenshots of panels",
+            "command_template": "printf '%s\\n' {inscope_names} {live_ips} | grep -v '^-$' | sort -u > ext_web_hosts.txt; P=$(echo {ports} {ext_web_ports} | tr ' ,' '\\n\\n' | sort -un | paste -sd, -); httpx-toolkit -l ext_web_hosts.txt -p \"$P\" -sc -title -server -td -ip -fr -rl {ext_req_rate} -silent -nc",
+            "output_regex": {
+              "ext_web_urls": "^(https?://\\S+)"
+            },
+            "variables": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {},
+            "target_filter": {},
+            "timeout": 7200,
+            "alert_patterns": {
+              "warning": [
+                "(idrac|integrated lights-out|ilo\\b|webmin|fortigate|fortinet|globalprotect|pulse secure|ivanti|netscaler|citrix|outlook web|owa|rd web|remote desktop web|jenkins|gitlab|grafana|kibana|zabbix|swagger|graphql|phpmyadmin|vmware|vcenter|esxi|router|camera|hikvision|dahua|printer)"
+              ]
+            },
+            "finding_template": {},
+            "tags": [
+              "external",
+              "ext-p4",
+              "web",
+              "panels",
+              "active",
+              "step-p4-s1",
+              "scope-required"
+            ],
+            "enabled": true
+          },
+          {
+            "name": "EXT P4-S2 Panel Fingerprint and API Docs Exposure",
+            "description": "Fingerprint detected panels/products precisely (vendor, product, version) and detect exposed API documentation / GraphQL introspection.\n\nSTEP: P4-S2 | PHASE: P4 | scope_required: true | severity_hint: low-medium | mode: automated\nDEPENDS_ON: P4-S1 (web URLs)\nFEEDS_INTO: P4-S3, P4-S4\nTOOLS (examples, swappable): nuclei (panel, tech, swagger, graphql templates)\n\nCHECK CRITERIA:\n[ ] Product + version extracted for each panel\n[ ] Swagger/OpenAPI UI or spec reachable without auth\n[ ] GraphQL introspection enabled\n[ ] Panel ownership confirmed (client vs third-party SaaS) before any login attempt\n\nOPSEC / RESTRICTIONS:\n! Detection templates only (panel/tech/exposure); intrusive/dos/fuzz/default-login excluded\n\nDONE WHEN (validation_output): Each WEB_URL has a fingerprint result or 'unknown'; API doc exposures listed.\nEVIDENCE REQUIRED: Template match lines per URL",
+            "command_template": "printf '%s\\n' {web_urls} > ext_web_urls.txt; nuclei -l ext_web_urls.txt -tags panel,tech,swagger,graphql,exposure -etags {ext_nuclei_exclude_tags} -rl {ext_req_rate} -silent -nc",
+            "output_regex": {
+              "panels": "\\[([\\w-]*panel[\\w-]*)\\]"
+            },
+            "variables": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {},
+            "target_filter": {},
+            "timeout": 7200,
+            "alert_patterns": {
+              "warning": [
+                "\\[(swagger|graphql)[\\w-]*\\]"
+              ]
+            },
+            "finding_template": {},
+            "tags": [
+              "external",
+              "ext-p4",
+              "web",
+              "panels",
+              "active",
+              "step-p4-s2",
+              "scope-required"
+            ],
+            "enabled": true
+          },
+          {
+            "name": "EXT P4-S3 Default Credentials and Lockout Check",
+            "description": "Check whether detected panels still accept documented VENDOR DEFAULT credentials, only after confirming lockout/blocking behaviour.\n\nSTEP: P4-S3 | PHASE: P4 | scope_required: true | severity_hint: critical | mode: manual\nDEPENDS_ON: P4-S2 (panel fingerprints), P1-S7 (only with written approval)\nFEEDS_INTO: P6-S1\nTOOLS (examples, swappable): browser (manual), vendor documentation / default-credential lists\n\nCHECK CRITERIA:\n[ ] Lockout / IP-blocking policy checked BEFORE first attempt (docs, login page hints, CAPTCHA, prior response headers)\n[ ] If page shows 'Remaining attempts: N' or similar counter: STOP, no attempts\n[ ] If 'admin' (or target username) is a real administrator's personal account: STOP, no attempts\n[ ] Only documented vendor defaults for the identified product/version (max 1-2 tries per account)\n[ ] No brute force / password spraying unless RoE explicitly allows it\n[ ] Every attempt logged (time, URL, user, source, result)\n[ ] On success: do not change settings, screenshot landing page only, log out, notify lead\n\nOPSEC / RESTRICTIONS:\n! CRITICAL: account lockout of a production admin = engagement incident\n! Automated default-login templates are excluded by default (ext_nuclei_exclude_tags); remove only with written approval\n! STOP + notify engagement lead on: out-of-scope asset, signs of production impact, real-user data exposure, active incident at client.\n\nDONE WHEN (validation_output): Every fingerprinted panel has: lockout assessment, attempt log (or documented reason for no attempt), verdict.\nEVIDENCE REQUIRED: Attempt log: UTC time, URL, username, credential source (vendor doc), result, lockout indicators",
+            "command_template": "echo 'MANUAL STEP P4-S3: work through CHECK CRITERIA in the item description, attach evidence to the execution/finding, then mark done.'",
+            "output_regex": {},
+            "variables": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {},
+            "target_filter": {},
+            "timeout": 3600,
+            "alert_patterns": {},
+            "finding_template": {},
+            "tags": [
+              "external",
+              "ext-p4",
+              "web",
+              "credentials",
+              "manual",
+              "active",
+              "step-p4-s3",
+              "scope-required"
+            ],
+            "enabled": true
+          },
+          {
+            "name": "EXT P4-S4 Version-Based Critical Vulnerability Check",
+            "description": "Verify whether identified web servers, panels, VPNs and devices carry critical unauthenticated vulnerabilities (RCE, auth bypass, KEV) using non-destructive checks.\n\nSTEP: P4-S4 | PHASE: P4 | scope_required: true | severity_hint: critical | mode: automated\nDEPENDS_ON: P3-S3 (versions, CVE leads), P4-S1 (web URLs), P4-S2 (panel versions)\nFEEDS_INTO: P5-S2, P6-S1\nTOOLS (examples, swappable): nuclei (kev, cve; safe templates), vendor advisories, manual version/behaviour checks\n\nCHECK CRITERIA:\n[ ] Each identified product/version mapped to CISA KEV and vendor critical advisories\n[ ] Unauthenticated RCE / auth bypass candidates listed\n[ ] Verification via version/behaviour or vendor-safe PoC only (no state change, no command execution)\n[ ] Confidence recorded: confirmed / likely (version only) / unverified\n[ ] Critical confirmed issues escalated to lead immediately\n\nOPSEC / RESTRICTIONS:\n! No payloads that alter state or run commands without explicit written approval\n! Exclude intrusive/dos templates; KEV-class edge devices (VPN/firewall) are fragile, watch for impact\n! STOP + notify engagement lead on: out-of-scope asset, signs of production impact, real-user data exposure, active incident at client.\n\nDONE WHEN (validation_output): Every product/version has a CVE verdict with method + confidence; criticals escalated.\nEVIDENCE REQUIRED: Version evidence + non-destructive verification output per CVE",
+            "command_template": "printf '%s\\n' {web_urls} > ext_web_urls.txt; nuclei -l ext_web_urls.txt -tags kev,cve,rce,unauth,auth-bypass -severity critical,high -etags {ext_nuclei_exclude_tags} -rl {ext_req_rate} -silent -nc",
+            "output_regex": {
+              "crit_cves": "\\[(CVE-\\d{4}-\\d{4,7})[^\\]]*\\]"
+            },
+            "variables": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {},
+            "target_filter": {},
+            "timeout": 10800,
+            "alert_patterns": {
+              "critical": [
+                "\\[critical\\]"
+              ],
+              "warning": [
+                "\\[high\\]"
+              ]
+            },
+            "finding_template": {},
+            "tags": [
+              "external",
+              "ext-p4",
+              "web",
+              "cve",
+              "active",
+              "step-p4-s4",
+              "scope-required"
+            ],
+            "enabled": true
+          },
+          {
+            "name": "EXT P4-S5 Archived Endpoint Liveness Check",
+            "description": "Check whether interesting archived/dorked URLs (P1-S3/P1-S4) still respond today, only on in-scope hosts.\n\nSTEP: P4-S5 | PHASE: P4 | scope_required: true | severity_hint: medium | mode: automated\nDEPENDS_ON: P1-S4 (archive interesting URLs), P2-S1 (in-scope names)\nFEEDS_INTO: P5-S2, P6-S1\nTOOLS (examples, swappable): curl\n\nCHECK CRITERIA:\n[ ] Only URLs whose host is an INSCOPE_NAME from P2-S1 tested\n[ ] Status code + size recorded per URL\n[ ] 200 on config/backup/dump/env/key paths escalated\n[ ] Content of secrets NOT downloaded/stored; HEAD or ranged GET only\n\nOPSEC / RESTRICTIONS:\n! HEAD requests, 1 req/s; body never saved\n! Out-of-scope hosts in archive list are skipped and logged\n\nDONE WHEN (validation_output): Every in-scope interesting URL has a status line; live sensitive files escalated.\nEVIDENCE REQUIRED: URL, HTTP status, content-length, content-type (no sensitive body stored)",
+            "command_template": "python3 - {archive_urls} {inscope_names} <<'PY'\nimport sys, subprocess, time, urllib.parse\nok = set(open(sys.argv[2]).read().split())\nfor u in sorted(set(open(sys.argv[1]).read().split())):\n    h = (urllib.parse.urlsplit(u).hostname or '').lower()\n    if h not in ok:\n        print('SKIP_OUT_OF_SCOPE', u); continue\n    code = subprocess.run(['curl', '-skI', '-o', '/dev/null', '--max-time', '10', '-w', '%' + chr(123) + 'http_code' + chr(125), u], capture_output=True, text=True).stdout.strip()\n    print('LIVE' if code == '200' else 'STATUS', code, u)\n    time.sleep(1)\nPY",
+            "output_regex": {
+              "live_archived": "^LIVE 200 (\\S+)$"
+            },
+            "variables": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {
+              "archive_urls": {
+                "type": "file"
+              },
+              "inscope_names": {
+                "type": "file"
+              }
+            },
+            "target_filter": {},
+            "timeout": 7200,
+            "alert_patterns": {
+              "warning": [
+                "^LIVE 200 .*\\.(sql|env|bak|old|zip|tar|gz|7z|rar|pem|key|pfx|log|conf|cfg|ini)\\b"
+              ]
+            },
+            "finding_template": {},
+            "tags": [
+              "external",
+              "ext-p4",
+              "web",
+              "archive",
+              "active",
+              "step-p4-s5",
+              "scope-required"
+            ],
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "name": "EXT P5 - Automated Vulnerability Scanning and FP Validation",
+        "description": "Automated scanners plus manual verification. Only verified findings go to reporting.",
+        "is_default_import": false,
+        "requires_auth": false,
+        "speed_profile": "stealth",
+        "items": [
+          {
+            "name": "EXT P5-S1 Nuclei Vulnerability Scan",
+            "description": "Scan the full external web surface with current templates (exposures, misconfigurations, CVEs, panels) and classify findings.\n\nSTEP: P5-S1 | PHASE: P5 | scope_required: true | severity_hint: varies | mode: automated\nDEPENDS_ON: P4-S1 (web URLs)\nFEEDS_INTO: P5-S2, P6-S1\nTOOLS (examples, swappable): nuclei\n\nCHECK CRITERIA:\n[ ] Templates updated before run (nuclei -ut); engine + template version recorded (printed at top of output)\n[ ] Run date recorded\n[ ] Categories covered: exposures, misconfiguration, cves, exposed-panels, technologies\n[ ] default-logins category only with written approval (excluded by default)\n[ ] Intrusive / DoS / fuzz templates excluded unless approved\n[ ] Each match classified: true positive / false positive / needs manual check (into P5-S2)\n\nOPSEC / RESTRICTIONS:\n! Rate-limited (ext_req_rate)\n! Stop on WAF block storms or service errors: STOP + notify engagement lead on: out-of-scope asset, signs of production impact, real-user data exposure, active incident at client.\n\nDONE WHEN (validation_output): Scan finished for all WEB_URLs with recorded template version; every match triaged in P5-S2.\nEVIDENCE REQUIRED: Nuclei + template version, run date, JSON/line output",
+            "command_template": "echo \"RUN_DATE $(date -u +%Y-%m-%dT%H:%M:%SZ)\"; nuclei -version 2>&1 | tail -1; nuclei -tv 2>&1 | tail -1; printf '%s\\n' {web_urls} > ext_web_urls.txt; nuclei -l ext_web_urls.txt -etags {ext_nuclei_exclude_tags} -rl {ext_req_rate} -c 10 -silent -nc",
+            "output_regex": {
+              "nuclei_hits": "^\\[([\\w.-]+)\\] \\[\\w+\\] \\[(?:critical|high|medium)\\]"
+            },
+            "variables": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {},
+            "target_filter": {},
+            "timeout": 21600,
+            "alert_patterns": {
+              "critical": [
+                "\\[critical\\]"
+              ],
+              "warning": [
+                "\\[high\\]",
+                "\\[medium\\]"
+              ]
+            },
+            "finding_template": {},
+            "tags": [
+              "external",
+              "ext-p5",
+              "vulnscan",
+              "active",
+              "step-p5-s1",
+              "scope-required"
+            ],
+            "enabled": true
+          },
+          {
+            "name": "EXT P5-S2 Nessus Triage and False-Positive Validation",
+            "description": "Manually verify every Nessus (and carried-over) finding; drop false positives and banner/version-only guesses that cannot be verified.\n\nSTEP: P5-S2 | PHASE: P5 | scope_required: true | severity_hint: varies | mode: manual\nDEPENDS_ON: Nessus scan of P2-S1 targets, P3-S3, P3-S4, P4-S4, P5-S1\nFEEDS_INTO: P6-S1\nTOOLS (examples, swappable): Nessus CSV export, python3 triage helper, manual verification\n\nCHECK CRITERIA:\n[ ] Nessus policy: safe checks ON, scan source/time recorded, same rate limits as P3\n[ ] Every Critical/High/Medium finding reviewed\n[ ] Findings relying only on banner/version (VERSION_ONLY) re-verified by behaviour or backport check\n[ ] False positives removed with reason\n[ ] Retained findings: verification method + evidence + confidence recorded\n[ ] Only genuine, in-scope, rule-compliant risks carried to reporting\n\nOPSEC / RESTRICTIONS:\n! Verification must stay non-destructive; same approval rules as P4-S4\n\nDONE WHEN (validation_output): Every finding has verdict TP/FP + method + confidence; FP list with reasons kept.\nEVIDENCE REQUIRED: Per retained finding: verification method, evidence, confidence (confirmed / likely / unverified)",
+            "command_template": "python3 - '{ext_nessus_export}' <<'PY'\nimport sys, csv, re\nrx = re.compile(r'(installed version|reported version|fixed version|banner|version :)', re.I)\nfor r in csv.DictReader(open(sys.argv[1], newline='', encoding='utf-8', errors='replace')):\n    risk = r.get('Risk') or r.get('Severity') or ''\n    if risk not in ('Critical', 'High', 'Medium'): continue\n    tag = 'VERSION_ONLY' if rx.search(r.get('Plugin Output', '')) else 'BEHAVIOUR'\n    print('VERIFY', risk, '%s:%s' % (r.get('Host'), r.get('Port')), tag, r.get('Plugin ID'), r.get('CVE', '') or '-', '|', r.get('Name'))\nPY",
+            "output_regex": {
+              "version_only": "^VERIFY \\S+ (\\S+) VERSION_ONLY"
+            },
+            "variables": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {},
+            "target_filter": {},
+            "timeout": 300,
+            "alert_patterns": {
+              "warning": [
+                "VERSION_ONLY"
+              ]
+            },
+            "finding_template": {},
+            "tags": [
+              "external",
+              "ext-p5",
+              "vulnscan",
+              "triage",
+              "manual",
+              "step-p5-s2",
+              "scope-required"
+            ],
+            "enabled": true
+          }
+        ]
+      },
+      {
+        "name": "EXT P6 - Consolidation and Reporting Hand-off",
+        "description": "Merge, dedupe, score, evidence, remediation, exceptions log.",
+        "is_default_import": false,
+        "requires_auth": false,
+        "speed_profile": "default",
+        "items": [
+          {
+            "name": "EXT P6-S1 Consolidation and Reporting Hand-off",
+            "description": "Merge and deduplicate findings across phases, score, attach redacted evidence and remediation, and document every scope exception and OpSec incident.\n\nSTEP: P6-S1 | PHASE: P6 | scope_required: false | severity_hint: n/a | mode: manual\nDEPENDS_ON: P0-S1..P5-S2 (all)\nFEEDS_INTO: Report\nTOOLS (examples, swappable): bars Findings, report template\n\nCHECK CRITERIA:\n[ ] Findings merged and deduplicated across phases, mapped to asset + step ID\n[ ] Severity assigned (CVSS v3.1/v4 or agreed rubric) with business-impact context\n[ ] Evidence attached, redacted for PII and secrets, with reproduction steps\n[ ] Remediation recommendation per finding\n[ ] Out-of-scope hits (P2-S1 OUT list, OFFSCOPE names) documented as observations, untested\n[ ] Stopped tests, lockout events and OpSec incidents documented with time + reason\n[ ] Skipped / n/a steps listed with justification\n[ ] Temporary data (scan files, PII) handled per data handling plan (retention/deletion)\n\nOPSEC / RESTRICTIONS:\n! Report contains no plaintext credentials or unredacted PII\n\nDONE WHEN (validation_output): Every retained finding has asset, step ID, severity, evidence, remediation; exceptions log complete; lead sign-off.\nEVIDENCE REQUIRED: Final findings list; exceptions/incident log",
+            "command_template": "echo 'MANUAL STEP P6-S1: work through CHECK CRITERIA in the item description, attach evidence to the execution/finding, then mark done.'",
+            "output_regex": {},
+            "variables": {},
+            "input_definitions": {},
+            "storage_policy": {},
+            "parameter_schema": {},
+            "target_filter": {},
+            "timeout": 3600,
+            "alert_patterns": {},
+            "finding_template": {},
+            "tags": [
+              "external",
+              "ext-p6",
+              "reporting",
+              "manual",
+              "step-p6-s1",
+              "no-target-contact"
+            ],
+            "enabled": true
+          }
+        ]
+      }
+    ]
+  },
+  "flows": {
+    "flows": [
+      {
+        "name": "EXT Passive Recon Flow",
+        "description": "P0 gate + P1 passive OSINT + P2 DNS. No port scans or web probes. Safe to run before the active window opens (gate still enforces RoE/window).",
+        "is_default_import": false,
+        "requires_auth": false,
+        "tags": [
+          "external",
+          "passive",
+          "sequential"
+        ],
+        "flow_definition": {
+          "edges": [
+            {
+              "source": 0,
+              "target": 1
+            },
+            {
+              "source": 1,
+              "target": 2
+            },
+            {
+              "source": 2,
+              "target": 3
+            },
+            {
+              "source": 3,
+              "target": 4
+            },
+            {
+              "source": 4,
+              "target": 5
+            },
+            {
+              "source": 5,
+              "target": 6
+            },
+            {
+              "source": 6,
+              "target": 7
+            },
+            {
+              "source": 7,
+              "target": 8
+            },
+            {
+              "source": 8,
+              "target": 9
+            },
+            {
+              "source": 9,
+              "target": 10
+            }
+          ]
+        },
+        "steps": [
+          {
+            "checklist_item_name": "EXT P0-S1 Authorization and Scope Gate",
+            "order_index": 0,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "stop",
+            "timeout_override": null,
+            "target_mode": "inherit",
+            "target_filter": {},
+            "ui_position": {
+              "x": 250,
+              "y": 0
+            }
+          },
+          {
+            "checklist_item_name": "EXT P0-S2 Egress IP and Engagement Log",
+            "order_index": 1,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "target_mode": "inherit",
+            "target_filter": {},
+            "ui_position": {
+              "x": 250,
+              "y": 120
+            }
+          },
+          {
+            "checklist_item_name": "EXT P0-S3 ASN Prefix Ownership Cross-Check",
+            "order_index": 2,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "target_mode": "inherit",
+            "target_filter": {},
+            "ui_position": {
+              "x": 250,
+              "y": 240
+            }
+          },
+          {
+            "checklist_item_name": "EXT P1-S1 Internet Asset Inventory",
+            "order_index": 3,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "target_mode": "inherit",
+            "target_filter": {},
+            "ui_position": {
+              "x": 250,
+              "y": 360
+            }
+          },
+          {
+            "checklist_item_name": "EXT P1-S2 WHOIS and Registrant PII Review",
+            "order_index": 4,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "target_mode": "inherit",
+            "target_filter": {},
+            "ui_position": {
+              "x": 250,
+              "y": 480
+            }
+          },
+          {
+            "checklist_item_name": "EXT P1-S4 Web Archive Analysis",
+            "order_index": 5,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "target_mode": "inherit",
+            "target_filter": {},
+            "ui_position": {
+              "x": 250,
+              "y": 600
+            }
+          },
+          {
+            "checklist_item_name": "EXT P1-S5 SpiderFoot Passive Correlation",
+            "order_index": 6,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "target_mode": "inherit",
+            "target_filter": {},
+            "ui_position": {
+              "x": 250,
+              "y": 720
+            }
+          },
+          {
+            "checklist_item_name": "EXT P1-S6 CT and Passive Subdomain Discovery",
+            "order_index": 7,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "target_mode": "inherit",
+            "target_filter": {},
+            "ui_position": {
+              "x": 250,
+              "y": 840
+            }
+          },
+          {
+            "checklist_item_name": "EXT P2-S1 Subdomain Resolution and Scope Classification",
+            "order_index": 8,
+            "input_mapping": {
+              "subdomains": "{EXT P1-S6 CT and Passive Subdomain Discovery.ext_subdomains}"
+            },
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "target_mode": "inherit",
+            "target_filter": {},
+            "ui_position": {
+              "x": 250,
+              "y": 960
+            }
+          },
+          {
+            "checklist_item_name": "EXT P2-S2 DNS Records and Zone Transfer",
+            "order_index": 9,
+            "input_mapping": {
+              "inscope_ips": "{EXT P2-S1 Subdomain Resolution and Scope Classification.ext_inscope_ips}"
+            },
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "target_mode": "inherit",
+            "target_filter": {},
+            "ui_position": {
+              "x": 250,
+              "y": 1080
+            }
+          },
+          {
+            "checklist_item_name": "EXT P2-S3 Email Security Records",
+            "order_index": 10,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "target_mode": "inherit",
+            "target_filter": {},
+            "ui_position": {
+              "x": 250,
+              "y": 1200
+            }
+          }
+        ]
+      },
+      {
+        "name": "EXT Full External Assessment Pipeline",
+        "description": "P0 gate -> P1 OSINT -> P2 DNS + scope classification -> P3 ports/services/TLS -> P4 web/panels -> P5 nuclei. Manual steps (dorking, leaks, default creds, Nessus triage, reporting) run outside the flow.",
+        "is_default_import": false,
+        "requires_auth": false,
+        "tags": [
+          "external",
+          "pipeline",
+          "sequential"
+        ],
+        "flow_definition": {
+          "edges": [
+            {
+              "source": 0,
+              "target": 1
+            },
+            {
+              "source": 1,
+              "target": 2
+            },
+            {
+              "source": 2,
+              "target": 3
+            },
+            {
+              "source": 3,
+              "target": 4
+            },
+            {
+              "source": 4,
+              "target": 5
+            },
+            {
+              "source": 5,
+              "target": 6
+            },
+            {
+              "source": 6,
+              "target": 7
+            },
+            {
+              "source": 7,
+              "target": 8
+            },
+            {
+              "source": 8,
+              "target": 9
+            },
+            {
+              "source": 9,
+              "target": 10
+            },
+            {
+              "source": 10,
+              "target": 11
+            },
+            {
+              "source": 11,
+              "target": 12
+            },
+            {
+              "source": 12,
+              "target": 13
+            },
+            {
+              "source": 13,
+              "target": 14
+            },
+            {
+              "source": 14,
+              "target": 15
+            },
+            {
+              "source": 15,
+              "target": 16
+            },
+            {
+              "source": 16,
+              "target": 17
+            },
+            {
+              "source": 17,
+              "target": 18
+            },
+            {
+              "source": 18,
+              "target": 19
+            },
+            {
+              "source": 19,
+              "target": 20
+            },
+            {
+              "source": 20,
+              "target": 21
+            }
+          ]
+        },
+        "steps": [
+          {
+            "checklist_item_name": "EXT P0-S1 Authorization and Scope Gate",
+            "order_index": 0,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "stop",
+            "timeout_override": null,
+            "target_mode": "inherit",
+            "target_filter": {},
+            "ui_position": {
+              "x": 250,
+              "y": 0
+            }
+          },
+          {
+            "checklist_item_name": "EXT P0-S2 Egress IP and Engagement Log",
+            "order_index": 1,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "target_mode": "inherit",
+            "target_filter": {},
+            "ui_position": {
+              "x": 250,
+              "y": 120
+            }
+          },
+          {
+            "checklist_item_name": "EXT P0-S3 ASN Prefix Ownership Cross-Check",
+            "order_index": 2,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "target_mode": "inherit",
+            "target_filter": {},
+            "ui_position": {
+              "x": 250,
+              "y": 240
+            }
+          },
+          {
+            "checklist_item_name": "EXT P1-S1 Internet Asset Inventory",
+            "order_index": 3,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "target_mode": "inherit",
+            "target_filter": {},
+            "ui_position": {
+              "x": 250,
+              "y": 360
+            }
+          },
+          {
+            "checklist_item_name": "EXT P1-S2 WHOIS and Registrant PII Review",
+            "order_index": 4,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "target_mode": "inherit",
+            "target_filter": {},
+            "ui_position": {
+              "x": 250,
+              "y": 480
+            }
+          },
+          {
+            "checklist_item_name": "EXT P1-S4 Web Archive Analysis",
+            "order_index": 5,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "target_mode": "inherit",
+            "target_filter": {},
+            "ui_position": {
+              "x": 250,
+              "y": 600
+            }
+          },
+          {
+            "checklist_item_name": "EXT P1-S5 SpiderFoot Passive Correlation",
+            "order_index": 6,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "target_mode": "inherit",
+            "target_filter": {},
+            "ui_position": {
+              "x": 250,
+              "y": 720
+            }
+          },
+          {
+            "checklist_item_name": "EXT P1-S6 CT and Passive Subdomain Discovery",
+            "order_index": 7,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "target_mode": "inherit",
+            "target_filter": {},
+            "ui_position": {
+              "x": 250,
+              "y": 840
+            }
+          },
+          {
+            "checklist_item_name": "EXT P2-S1 Subdomain Resolution and Scope Classification",
+            "order_index": 8,
+            "input_mapping": {
+              "subdomains": "{EXT P1-S6 CT and Passive Subdomain Discovery.ext_subdomains}"
+            },
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "target_mode": "inherit",
+            "target_filter": {},
+            "ui_position": {
+              "x": 250,
+              "y": 960
+            }
+          },
+          {
+            "checklist_item_name": "EXT P2-S2 DNS Records and Zone Transfer",
+            "order_index": 9,
+            "input_mapping": {
+              "inscope_ips": "{EXT P2-S1 Subdomain Resolution and Scope Classification.ext_inscope_ips}"
+            },
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "target_mode": "inherit",
+            "target_filter": {},
+            "ui_position": {
+              "x": 250,
+              "y": 1080
+            }
+          },
+          {
+            "checklist_item_name": "EXT P2-S3 Email Security Records",
+            "order_index": 10,
+            "input_mapping": {},
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "target_mode": "inherit",
+            "target_filter": {},
+            "ui_position": {
+              "x": 250,
+              "y": 1200
+            }
+          },
+          {
+            "checklist_item_name": "EXT P2-S4 Dangling DNS and Subdomain Takeover Check",
+            "order_index": 11,
+            "input_mapping": {
+              "cname_hosts": "{EXT P2-S1 Subdomain Resolution and Scope Classification.ext_cname_hosts}"
+            },
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "target_mode": "inherit",
+            "target_filter": {},
+            "ui_position": {
+              "x": 250,
+              "y": 1320
+            }
+          },
+          {
+            "checklist_item_name": "EXT P3-S1 Full TCP Port Discovery",
+            "order_index": 12,
+            "input_mapping": {
+              "targets": "{EXT P2-S1 Subdomain Resolution and Scope Classification.ext_scan_targets}"
+            },
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "target_mode": "inherit",
+            "target_filter": {},
+            "ui_position": {
+              "x": 250,
+              "y": 1440
+            }
+          },
+          {
+            "checklist_item_name": "EXT P3-S2 Critical UDP Port Discovery",
+            "order_index": 13,
+            "input_mapping": {
+              "targets": "{EXT P2-S1 Subdomain Resolution and Scope Classification.ext_scan_targets}"
+            },
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "target_mode": "inherit",
+            "target_filter": {},
+            "ui_position": {
+              "x": 250,
+              "y": 1560
+            }
+          },
+          {
+            "checklist_item_name": "EXT P3-S3 Service and Version Detection",
+            "order_index": 14,
+            "input_mapping": {
+              "targets": "{EXT P3-S1 Full TCP Port Discovery.ext_live_ips}",
+              "ports": "{EXT P3-S1 Full TCP Port Discovery.ext_open_ports}"
+            },
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "target_mode": "inherit",
+            "target_filter": {},
+            "ui_position": {
+              "x": 250,
+              "y": 1680
+            }
+          },
+          {
+            "checklist_item_name": "EXT P3-S4 Anonymous Access and Service Hardening Checks",
+            "order_index": 15,
+            "input_mapping": {
+              "targets": "{EXT P3-S1 Full TCP Port Discovery.ext_live_ips}",
+              "ports": "{EXT P3-S1 Full TCP Port Discovery.ext_open_ports}"
+            },
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "target_mode": "inherit",
+            "target_filter": {},
+            "ui_position": {
+              "x": 250,
+              "y": 1800
+            }
+          },
+          {
+            "checklist_item_name": "EXT P3-S5 TLS Configuration Review",
+            "order_index": 16,
+            "input_mapping": {
+              "targets": "{EXT P3-S1 Full TCP Port Discovery.ext_live_ips}",
+              "ports": "{EXT P3-S1 Full TCP Port Discovery.ext_open_ports}"
+            },
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "target_mode": "inherit",
+            "target_filter": {},
+            "ui_position": {
+              "x": 250,
+              "y": 1920
+            }
+          },
+          {
+            "checklist_item_name": "EXT P4-S1 Web and Management Interface Discovery",
+            "order_index": 17,
+            "input_mapping": {
+              "inscope_names": "{EXT P2-S1 Subdomain Resolution and Scope Classification.ext_inscope_names}",
+              "live_ips": "{EXT P3-S1 Full TCP Port Discovery.ext_live_ips}",
+              "ports": "{EXT P3-S1 Full TCP Port Discovery.ext_open_ports}"
+            },
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "target_mode": "inherit",
+            "target_filter": {},
+            "ui_position": {
+              "x": 250,
+              "y": 2040
+            }
+          },
+          {
+            "checklist_item_name": "EXT P4-S2 Panel Fingerprint and API Docs Exposure",
+            "order_index": 18,
+            "input_mapping": {
+              "web_urls": "{EXT P4-S1 Web and Management Interface Discovery.ext_web_urls}"
+            },
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "target_mode": "inherit",
+            "target_filter": {},
+            "ui_position": {
+              "x": 250,
+              "y": 2160
+            }
+          },
+          {
+            "checklist_item_name": "EXT P4-S4 Version-Based Critical Vulnerability Check",
+            "order_index": 19,
+            "input_mapping": {
+              "web_urls": "{EXT P4-S1 Web and Management Interface Discovery.ext_web_urls}"
+            },
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "target_mode": "inherit",
+            "target_filter": {},
+            "ui_position": {
+              "x": 250,
+              "y": 2280
+            }
+          },
+          {
+            "checklist_item_name": "EXT P4-S5 Archived Endpoint Liveness Check",
+            "order_index": 20,
+            "input_mapping": {
+              "archive_urls": "{EXT P1-S4 Web Archive Analysis.archive_interesting}",
+              "inscope_names": "{EXT P2-S1 Subdomain Resolution and Scope Classification.ext_inscope_names}"
+            },
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "target_mode": "inherit",
+            "target_filter": {},
+            "ui_position": {
+              "x": 250,
+              "y": 2400
+            }
+          },
+          {
+            "checklist_item_name": "EXT P5-S1 Nuclei Vulnerability Scan",
+            "order_index": 21,
+            "input_mapping": {
+              "web_urls": "{EXT P4-S1 Web and Management Interface Discovery.ext_web_urls}"
+            },
+            "condition": null,
+            "on_failure": "continue",
+            "timeout_override": null,
+            "target_mode": "inherit",
+            "target_filter": {},
+            "ui_position": {
+              "x": 250,
+              "y": 2520
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "variables": {
+    "variables": [
+      {
+        "key": "ext_roe_ref",
+        "value": "",
+        "var_type": "string",
+        "description": "Signed RoE / authorization reference (doc ID + signer + date). Empty = gate fails.",
+        "is_default_import": false
+      },
+      {
+        "key": "ext_window_start",
+        "value": "",
+        "var_type": "string",
+        "description": "Test window start, ISO 8601 with offset, e.g. 2026-11-20T09:00:00+03:00",
+        "is_default_import": false
+      },
+      {
+        "key": "ext_window_end",
+        "value": "",
+        "var_type": "string",
+        "description": "Test window end, ISO 8601 with offset, e.g. 2026-11-28T18:00:00+03:00",
+        "is_default_import": false
+      },
+      {
+        "key": "ext_domain",
+        "value": "",
+        "var_type": "string",
+        "description": "Primary in-scope apex domain (e.g. example.com)",
+        "is_default_import": false
+      },
+      {
+        "key": "ext_domains",
+        "value": "",
+        "var_type": "file",
+        "description": "All in-scope apex domains, one per line",
+        "is_default_import": false
+      },
+      {
+        "key": "ext_scope",
+        "value": "",
+        "var_type": "file",
+        "description": "In-scope IPs/CIDRs (IPv4/IPv6), one per line. Out-of-scope assets go to bars Excluded hosts, never here.",
+        "is_default_import": false
+      },
+      {
+        "key": "ext_asn",
+        "value": "",
+        "var_type": "string",
+        "description": "In-scope ASN(s), space separated, e.g. AS64500 AS64501 (optional)",
+        "is_default_import": false
+      },
+      {
+        "key": "ext_rate",
+        "value": "300",
+        "var_type": "string",
+        "description": "Max nmap packets/sec (RoE rate limit)",
+        "is_default_import": false
+      },
+      {
+        "key": "ext_req_rate",
+        "value": "10",
+        "var_type": "string",
+        "description": "Max HTTP requests/sec for httpx/nuclei (RoE rate limit)",
+        "is_default_import": false
+      },
+      {
+        "key": "ext_udp_ports",
+        "value": "53,67,69,123,137,161,500,623,1194,1900,3478,4500,5060,5353,11211,51820",
+        "var_type": "string",
+        "description": "Critical UDP ports for P3-S2",
+        "is_default_import": false
+      },
+      {
+        "key": "ext_web_ports",
+        "value": "80,81,443,591,2082,2083,2086,2087,3000,4443,5000,5601,7001,7443,8000,8008,8080,8081,8088,8443,8834,8888,9000,9090,9200,9443,10000,10443",
+        "var_type": "string",
+        "description": "Fallback web ports probed in P4-S1 in addition to discovered open ports",
+        "is_default_import": false
+      },
+      {
+        "key": "ext_nuclei_exclude_tags",
+        "value": "dos,intrusive,fuzz,brute-force,default-login,bruteforce",
+        "var_type": "string",
+        "description": "Nuclei tags excluded unless RoE approves (remove default-login only with written approval)",
+        "is_default_import": false
+      },
+      {
+        "key": "ext_nessus_export",
+        "value": "",
+        "var_type": "string",
+        "description": "Path (on the host_agent machine) to the Nessus CSV export for P5-S2",
+        "is_default_import": false
+      }
+    ]
+  }
+}
